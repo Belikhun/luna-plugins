@@ -1,9 +1,11 @@
 plugins {
     base
+    id("com.gradleup.shadow") version "9.0.2" apply false
 }
 
 subprojects {
     apply(plugin = "java")
+    apply(plugin = "com.gradleup.shadow")
 
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"

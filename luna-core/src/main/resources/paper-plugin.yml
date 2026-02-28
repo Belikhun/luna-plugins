@@ -5,3 +5,13 @@ api-version: '1.21'
 description: Common APIs, utilities, and helpers for Luna plugins.
 authors:
   - Belikhun
+dependencies:
+  server:
+    Vault:
+      required: true
+    LuckPerms:
+      required: true
+    PlaceholderAPI:
+      required: true
+    ProtocolLib:
+      required: true

@@ -1,0 +1,61 @@
+package dev.belikhun.luna.core.api.string;
+
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+public final class Formatters {
+	private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+		.withZone(ZoneId.systemDefault());
+
+	private Formatters() {
+	}
+
+	public static String number(double value) {
+		NumberFormat format = NumberFormat.getNumberInstance(Locale.forLanguageTag("vi-VN"));
+		format.setGroupingUsed(true);
+		format.setMaximumFractionDigits(2);
+		return format.format(value);
+	}
+
+	public static String money(double value, String currencySymbol) {
+		DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.forLanguageTag("vi-VN"));
+		symbols.setGroupingSeparator('.');
+		symbols.setDecimalSeparator(',');
+		DecimalFormat format = new DecimalFormat("#,##0.##", symbols);
+		return format.format(value) + " " + currencySymbol;
+	}
+
+	public static String date(Instant instant) {
+		return DATE_FORMAT.format(instant);
+	}
+
+	public static String duration(Duration duration) {
+		long totalSeconds = Math.max(0, duration.getSeconds());
+		long days = totalSeconds / 86400;
+		long hours = (totalSeconds % 86400) / 3600;
+		long minutes = (totalSeconds % 3600) / 60;
+		long seconds = totalSeconds % 60;
+
+		StringBuilder text = new StringBuilder();
+		if (days > 0) {
+			text.append(days).append(" ngày ");
+		}
+		if (hours > 0) {
+			text.append(hours).append(" giờ ");
+		}
+		if (minutes > 0) {
+			text.append(minutes).append(" phút ");
+		}
+		if (seconds > 0 || text.isEmpty()) {
+			text.append(seconds).append(" giây");
+		}
+
+		return text.toString().trim();
+	}
+}
