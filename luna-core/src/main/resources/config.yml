@@ -21,6 +21,11 @@ help:
     title: "<gold>Hướng Dẫn Lệnh"
     size: 54
     pageSize: 45
+  search:
+    prompt: "🔍 Nhập từ khóa tìm kiếm trên chat"
+    cancelKeywords:
+      - "huy"
+      - "cancel"
 
 strings:
   money:

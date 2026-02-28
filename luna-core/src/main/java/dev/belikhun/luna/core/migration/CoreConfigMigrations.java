@@ -37,6 +37,8 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "help.gui.title", "<gold>Hướng Dẫn Lệnh");
 				ensureDefault(store, "help.gui.size", 54);
 				ensureDefault(store, "help.gui.pageSize", 45);
+				ensureDefault(store, "help.search.prompt", "🔍 Nhập từ khóa tìm kiếm trên chat");
+				ensureDefault(store, "help.search.cancelKeywords", java.util.List.of("huy", "cancel"));
 				ensureDefault(store, "strings.money.currencySymbol", "₫");
 				ensureDefault(store, "strings.money.grouping", true);
 				ensureDefault(store, "logging.ansi", true);

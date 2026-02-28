@@ -6,6 +6,7 @@ import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.DatabaseManager;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
+import dev.belikhun.luna.core.api.help.HelpBasicCommand;
 import dev.belikhun.luna.core.api.help.HelpCommandListener;
 import dev.belikhun.luna.core.api.help.HelpRegistry;
 import dev.belikhun.luna.core.api.http.HttpServerManager;
@@ -18,6 +19,7 @@ import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
 import dev.belikhun.luna.core.migration.CoreConfigMigrations;
 import dev.belikhun.luna.core.migration.CoreDatabaseMigrations;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -87,8 +89,12 @@ public final class LunaCorePlugin extends JavaPlugin {
 		);
 
 		LunaCore.set(services);
-		Bukkit.getPluginManager().registerEvents(new HelpCommandListener(services), this);
-		coreLogger.audit("Help command listener đã được đăng ký.");
+		HelpCommandListener helpCommandListener = new HelpCommandListener(services);
+		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
+		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
+			commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener))
+		);
+		coreLogger.audit("Help command API đã được đăng ký theo Paper Command Lifecycle.");
 		coreLogger.success("Luna Core đã khởi động thành công.");
 	}
 
