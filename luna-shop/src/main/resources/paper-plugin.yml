@@ -1,0 +1,12 @@
+name: LunaShop
+version: ${version}
+main: dev.belikhun.luna.shop.LunaShopPlugin
+api-version: '1.21'
+description: Shop plugin for Luna server.
+authors:
+  - Belikhun
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true

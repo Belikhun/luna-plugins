@@ -1,0 +1,7 @@
+name: LunaCore
+version: ${version}
+main: dev.belikhun.luna.core.LunaCorePlugin
+api-version: '1.21'
+description: Common APIs, utilities, and helpers for Luna plugins.
+authors:
+  - Belikhun
