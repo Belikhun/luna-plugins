@@ -5,8 +5,24 @@ api-version: '1.21'
 description: Shop plugin for Luna server.
 authors:
   - Belikhun
+permissions:
+  lunashop.admin:
+    default: op
+    description: Quyền quản trị Luna Shop.
+commands:
+  shop:
+    description: Mở cửa hàng Luna.
+    usage: /shop [search <từ_khóa>|category <tên_danh_mục>]
+  shopadmin:
+    description: Quản trị vật phẩm shop.
+    usage: /shopadmin <add|remove|list|reload|open>
+    permission: lunashop.admin
 dependencies:
   server:
     LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    Vault:
       load: BEFORE
       required: true

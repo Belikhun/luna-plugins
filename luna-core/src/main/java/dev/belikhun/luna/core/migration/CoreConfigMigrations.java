@@ -22,10 +22,10 @@ public final class CoreConfigMigrations {
 			@Override
 			public void migrate(dev.belikhun.luna.core.api.config.ConfigStore store) {
 				ensureDefault(store, "database.enabled", true);
-				ensureDefault(store, "database.type", "mariadb");
+				ensureDefault(store, "database.type", "sqlite");
 				ensureDefault(store, "database.host", "127.0.0.1");
 				ensureDefault(store, "database.port", 3306);
-				ensureDefault(store, "database.name", "luna");
+				ensureDefault(store, "database.name", "luna.db");
 				ensureDefault(store, "database.username", "root");
 				ensureDefault(store, "database.password", "");
 				ensureDefault(store, "database.options.useSSL", false);

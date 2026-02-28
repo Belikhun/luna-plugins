@@ -1,9 +1,9 @@
 database:
   enabled: true
-  type: "mariadb"
+  type: "sqlite"
   host: "127.0.0.1"
   port: 3306
-  name: "luna"
+  name: "luna.db"
   username: "root"
   password: ""
   options:

@@ -15,6 +15,7 @@ subprojects {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://jitpack.io")
     }
 
     extensions.configure<org.gradle.api.plugins.JavaPluginExtension> {

@@ -27,7 +27,7 @@ public final class DatabaseManager {
 			return;
 		}
 
-		String typeName = section.getString("type", "mariadb");
+		String typeName = section.getString("type", "sqlite");
 		DatabaseType type = DatabaseType.from(typeName);
 		Map<String, Object> options = readOptions(section.getConfigurationSection("options"));
 		DatabaseConfig config = new DatabaseConfig(
@@ -35,7 +35,7 @@ public final class DatabaseManager {
 			type,
 			section.getString("host", "127.0.0.1"),
 			section.getInt("port", type == DatabaseType.POSTGRESQL ? 5432 : 3306),
-			section.getString("name", "luna"),
+			section.getString("name", "luna.db"),
 			section.getString("username", "root"),
 			section.getString("password", ""),
 			options

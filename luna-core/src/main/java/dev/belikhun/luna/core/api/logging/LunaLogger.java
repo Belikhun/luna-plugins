@@ -3,34 +3,26 @@ package dev.belikhun.luna.core.api.logging;
 import dev.belikhun.luna.core.api.exception.LoggingException;
 import org.bukkit.plugin.Plugin;
 
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class LunaLogger {
-	private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss")
-		.withZone(ZoneId.systemDefault());
-
 	private final Logger delegate;
-	private final String rootTag;
 	private final String scope;
 	private final boolean colorsEnabled;
 	private final Map<String, LogLevel> customLevels;
 
-	private LunaLogger(Logger delegate, String rootTag, String scope, boolean colorsEnabled, Map<String, LogLevel> customLevels) {
+	private LunaLogger(Logger delegate, String scope, boolean colorsEnabled, Map<String, LogLevel> customLevels) {
 		this.delegate = delegate;
-		this.rootTag = rootTag;
 		this.scope = scope;
 		this.colorsEnabled = colorsEnabled;
 		this.customLevels = customLevels;
 	}
 
 	public static LunaLogger forPlugin(Plugin plugin, boolean colorsEnabled) {
-		return new LunaLogger(plugin.getLogger(), plugin.getName(), "", colorsEnabled, new ConcurrentHashMap<>());
+		return new LunaLogger(plugin.getLogger(), "", colorsEnabled, new ConcurrentHashMap<>());
 	}
 
 	public LunaLogger scope(String childScope) {
@@ -40,7 +32,7 @@ public final class LunaLogger {
 		}
 
 		String nextScope = scope.isBlank() ? normalized : scope + "/" + normalized;
-		return new LunaLogger(delegate, rootTag, nextScope, colorsEnabled, customLevels);
+		return new LunaLogger(delegate, nextScope, colorsEnabled, customLevels);
 	}
 
 	public LunaLogger registerLevel(LogLevel level) {
@@ -122,12 +114,9 @@ public final class LunaLogger {
 	}
 
 	private String format(LogLevel level, String message) {
-		String ts = TS_FORMAT.format(Instant.now());
 		String label = level.color().paint(level.name(), colorsEnabled);
-		String prefix = LogColor.BOLD.paint("[" + rootTag + "]", colorsEnabled);
 		String scopePart = scope.isBlank() ? "" : LogColor.CYAN.paint("[" + scope + "]", colorsEnabled);
-		String timePart = LogColor.GRAY.paint("[" + ts + "]", colorsEnabled);
-		return timePart + " " + prefix + scopePart + " [" + label + "] " + message;
+		return scopePart + " [" + label + "] " + message;
 	}
 
 	private Level toJavaLevel(LogLevel level) {

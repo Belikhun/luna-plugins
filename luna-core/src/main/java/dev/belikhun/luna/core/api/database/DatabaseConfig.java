@@ -13,7 +13,18 @@ public record DatabaseConfig(
 	Map<String, Object> options
 ) {
 	public String jdbcUrl() {
-		StringBuilder url = new StringBuilder(type.jdbcPattern().formatted(host, port, name));
+		String baseUrl;
+		if (type == DatabaseType.SQLITE) {
+			String sqliteName = (name == null || name.isBlank()) ? "luna.db" : name.trim();
+			if (!sqliteName.endsWith(".db") && !sqliteName.contains("/")) {
+				sqliteName = sqliteName + ".db";
+			}
+			baseUrl = type.jdbcPattern().formatted(sqliteName);
+		} else {
+			baseUrl = type.jdbcPattern().formatted(host, port, name);
+		}
+
+		StringBuilder url = new StringBuilder(baseUrl);
 		if (options != null && !options.isEmpty()) {
 			url.append("?");
 			boolean first = true;

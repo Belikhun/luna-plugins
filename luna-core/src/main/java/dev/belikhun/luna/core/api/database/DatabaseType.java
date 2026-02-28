@@ -5,7 +5,8 @@ import dev.belikhun.luna.core.api.exception.DatabaseConfigurationException;
 public enum DatabaseType {
 	MYSQL("com.mysql.cj.jdbc.Driver", "jdbc:mysql://%s:%d/%s"),
 	MARIADB("org.mariadb.jdbc.Driver", "jdbc:mariadb://%s:%d/%s"),
-	POSTGRESQL("org.postgresql.Driver", "jdbc:postgresql://%s:%d/%s");
+	POSTGRESQL("org.postgresql.Driver", "jdbc:postgresql://%s:%d/%s"),
+	SQLITE("org.sqlite.JDBC", "jdbc:sqlite:%s");
 
 	private final String driverClass;
 	private final String jdbcPattern;
@@ -29,6 +30,7 @@ public enum DatabaseType {
 			case "MYSQL" -> MYSQL;
 			case "MARIADB", "MARIA_DB" -> MARIADB;
 			case "POSTGRES", "POSTGRESQL" -> POSTGRESQL;
+			case "SQLITE", "SQLITE3" -> SQLITE;
 			default -> throw new DatabaseConfigurationException("Unsupported database type: " + value);
 		};
 	}
