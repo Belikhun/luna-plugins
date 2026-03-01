@@ -87,7 +87,7 @@ public final class ShopGuiController implements Listener {
 			List.of(
 				"<gray>● Quản lý category và icon đại diện.",
 				"",
-				"<gray>Nhấn để mở."
+				actionLine("Chuột trái", "mở")
 			)
 		), (clicker, event, gui) -> openCategoryManagement(clicker, 0));
 
@@ -97,7 +97,7 @@ public final class ShopGuiController implements Listener {
 			List.of(
 				"<gray>● Quản lý item shop, giá và danh mục.",
 				"",
-				"<gray>Nhấn để mở."
+				actionLine("Chuột trái", "mở")
 			)
 		), (clicker, event, gui) -> openItemManagement(clicker, 0));
 
@@ -126,9 +126,9 @@ public final class ShopGuiController implements Listener {
 				"<gray>ℹ Hiển thị: " + displayCategory(category.id()),
 				"<gray>♦ Số mặt hàng: <green>" + store.byCategory(category.id()).size(),
 				"",
-				"<gray>▶ Chuột trái: <green>Đổi icon từ item cầm tay</green>",
-				"<gray>▶ Chuột phải: <yellow>Đổi tên danh mục</yellow>",
-				"<gray>▶ Shift + phải: <red>Xóa danh mục (phải rỗng)</red>"
+				actionLine("Chuột trái", "đổi icon từ item tay"),
+				actionLine("Chuột phải", "đổi tên danh mục"),
+				actionLine("Shift+Chuột phải", "xóa danh mục rỗng")
 			)));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
@@ -196,10 +196,10 @@ public final class ShopGuiController implements Listener {
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(item.buyPrice()),
 				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(item.sellPrice()),
 				"",
-				"<gray>▶ Chuột trái: <green>Cập nhật item từ tay</green>",
-				"<gray>▶ Chuột phải: <red>Xóa item</red>",
-				"<gray>▶ Shift + trái: <aqua>Sửa giá (chat)</aqua>",
-				"<gray>▶ Shift + phải: <yellow>Đổi danh mục (chat)</yellow>"
+				actionLine("Chuột trái", "cập nhật item từ tay"),
+				actionLine("Chuột phải", "xóa item"),
+				actionLine("Shift+Chuột trái", "sửa giá qua chat"),
+				actionLine("Shift+Chuột phải", "đổi danh mục qua chat")
 			)));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
@@ -281,7 +281,7 @@ public final class ShopGuiController implements Listener {
 			meta.displayName(mm("<gold>♦ </gold>" + displayCategory(category.id())));
 			meta.lore(appendShopLore(meta, List.of(
 				"<gray>♦ Số mặt hàng: <green>" + count,
-				"<gray>ℹ Nhấn để mở danh mục này."
+				actionLine("Chuột trái", "mở danh mục này")
 			)));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
@@ -337,8 +337,8 @@ public final class ShopGuiController implements Listener {
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(shopItem.buyPrice()),
 				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(shopItem.sellPrice()),
 				"",
-				"<gray>▶ Chuột trái: <green>Mua</green>",
-				"<gray>▶ Chuột phải: <yellow>Bán</yellow>"
+				actionLine("Chuột trái", "mua"),
+				actionLine("Chuột phải", "bán")
 			)));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
@@ -359,12 +359,12 @@ public final class ShopGuiController implements Listener {
 
 		view.setItem(47, item(Material.HOPPER, "<aqua>⚙ Sắp xếp theo", List.of(
 			plainLine(LunaPalette.NEUTRAL_100, "Tiêu chí hiện tại: <yellow>" + sortLabel(context.sortField()) + "</yellow>"),
-			plainLine(LunaPalette.NEUTRAL_100, "Chuột trái để đổi tiêu chí")
+			actionLine("Chuột trái", "đổi tiêu chí")
 		)), (clicker, event, gui) -> openItemList(clicker, items, title, context.withSortField(nextSortField(context.sortField()))));
 
 		view.setItem(48, item(Material.COMPARATOR, "<aqua>⇅ Thứ tự", List.of(
 			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <yellow>" + (context.sortAscending() ? "Tăng dần" : "Giảm dần") + "</yellow>"),
-			plainLine(LunaPalette.NEUTRAL_100, "Chuột trái để đảo thứ tự")
+			actionLine("Chuột trái", "đảo thứ tự")
 		)), (clicker, event, gui) -> openItemList(clicker, items, title, context.toggleSortDirection()));
 
 		if (context.search()) {
@@ -917,7 +917,7 @@ public final class ShopGuiController implements Listener {
 				line(LunaPalette.SUCCESS_500, "♦ Số lượng: <white>" + amount),
 				line(LunaPalette.SUCCESS_500, "💰 Tổng thanh toán: <gold>" + service.formatMoney(total)),
 				"",
-				plainLine(LunaPalette.NEUTRAL_100, "Nhấn để mua ngay")
+				actionLine("Chuột trái", "mua ngay")
 			));
 			stack.setAmount(displayAmount);
 			return stack;
@@ -927,7 +927,7 @@ public final class ShopGuiController implements Listener {
 			line(LunaPalette.WARNING_500, "♦ Số lượng: <white>" + amount),
 			line(LunaPalette.WARNING_500, "💵 Tổng nhận: <gold>" + service.formatMoney(total)),
 			"",
-			plainLine(LunaPalette.NEUTRAL_100, "Nhấn để bán ngay"),
+			actionLine("Chuột trái", "bán ngay"),
 			plainLine(LunaPalette.NEUTRAL_100, "số lượng đã chọn")
 		));
 		stack.setAmount(displayAmount);
@@ -939,7 +939,7 @@ public final class ShopGuiController implements Listener {
 			return item(active ? Material.LIME_DYE : Material.GRAY_DYE, active ? "<green>▶ Chế độ Mua" : "<white>Chuyển sang Mua", List.of(
 				active
 					? line(LunaPalette.SUCCESS_500, "Đang ở chế độ mua vật phẩm")
-					: plainLine(LunaPalette.NEUTRAL_100, "Nhấn để đổi sang mua"),
+					: actionLine("Chuột trái", "đổi sang mua"),
 				"",
 				plainLine(LunaPalette.NEUTRAL_100, "Mua theo số lượng bên dưới")
 			));
@@ -948,7 +948,7 @@ public final class ShopGuiController implements Listener {
 		return item(active ? Material.ORANGE_DYE : Material.GRAY_DYE, active ? "<yellow>▶ Chế độ Bán" : "<white>Chuyển sang Bán", List.of(
 			active
 				? line(LunaPalette.WARNING_500, "Đang ở chế độ bán vật phẩm")
-				: plainLine(LunaPalette.NEUTRAL_100, "Nhấn để đổi sang bán"),
+				: actionLine("Chuột trái", "đổi sang bán"),
 			"",
 			plainLine(LunaPalette.NEUTRAL_100, "Bán theo số lượng bên dưới")
 		));
@@ -958,15 +958,15 @@ public final class ShopGuiController implements Listener {
 		double total = mode == TradeMode.BUY ? shopItem.buyPrice() * amount : shopItem.sellPrice() * amount;
 		int displayAmount = Math.max(1, Math.min(64, amount));
 		String actionText = mode == TradeMode.BUY
-			? plainLine(LunaPalette.NEUTRAL_100, "Nhấn để <green>mua ngay</green>")
-			: plainLine(LunaPalette.NEUTRAL_100, "Nhấn để <yellow>bán ngay</yellow>");
+			? actionLine("Chuột trái", "mua ngay")
+			: actionLine("Chuột trái", "bán ngay");
 		if (mode == TradeMode.BUY) {
 			ItemStack stack = item(Material.PAPER, "<aqua>Mua nhanh <white>" + amount, List.of(
 				line(LunaPalette.SUCCESS_500, "♦ Số lượng: <white>" + amount),
 				line(LunaPalette.SUCCESS_500, "💰 Tổng thanh toán: <gold>" + service.formatMoney(total)),
 				"",
 				actionText,
-				plainLine(LunaPalette.NEUTRAL_100, "số lượng này")
+				plainLine(LunaPalette.NEUTRAL_500, "số lượng này")
 			));
 			stack.setAmount(displayAmount);
 			return stack;
@@ -977,7 +977,7 @@ public final class ShopGuiController implements Listener {
 			line(LunaPalette.WARNING_500, "💵 Tổng nhận: <gold>" + service.formatMoney(total)),
 			"",
 			actionText,
-			plainLine(LunaPalette.NEUTRAL_100, "số lượng này")
+			plainLine(LunaPalette.NEUTRAL_500, "số lượng này")
 		));
 		stack.setAmount(displayAmount);
 		return stack;
@@ -990,8 +990,8 @@ public final class ShopGuiController implements Listener {
 		ItemStack stack = item(material, "<white>" + prefix + delta, List.of(
 			line(delta > 0 ? LunaPalette.SUCCESS_500 : LunaPalette.DANGER_500, "♦ " + modeText + " thêm <white>" + Math.abs(delta)),
 			"",
-			plainLine(LunaPalette.NEUTRAL_100, "Nhấn nhiều lần để chỉnh"),
-			plainLine(LunaPalette.NEUTRAL_100, "nhanh hơn")
+			plainLine(LunaPalette.NEUTRAL_500, "▶ <color:" + LunaPalette.INFO_300 + "><bold>Chuột trái</bold></color>: nhấn nhiều lần"),
+			plainLine(LunaPalette.NEUTRAL_500, "để chỉnh nhanh hơn")
 		));
 		stack.setAmount(Math.max(1, Math.min(64, Math.abs(delta))));
 		return stack;
@@ -1013,8 +1013,7 @@ public final class ShopGuiController implements Listener {
 			line(LunaPalette.WARNING_500, "♦ Có thể bán: <white>" + sellAmount),
 			line(LunaPalette.WARNING_500, "💵 Dự kiến nhận: <gold>" + service.formatMoney(expected)),
 			"",
-			plainLine(LunaPalette.NEUTRAL_100, "Nhấn để xác nhận"),
-			plainLine(LunaPalette.NEUTRAL_100, "bán toàn bộ")
+			actionLine("Chuột trái", "xác nhận bán toàn bộ")
 		));
 	}
 
@@ -1139,6 +1138,11 @@ public final class ShopGuiController implements Listener {
 
 	private String plainLine(String color, String text) {
 		return "<color:" + color + ">" + text + "</color>";
+	}
+
+	private String actionLine(String button, String action) {
+		return plainLine(LunaPalette.NEUTRAL_500,
+			"▶ <color:" + LunaPalette.INFO_300 + "><bold>" + button + "</bold></color> để " + action);
 	}
 
 	private List<Component> appendShopLore(ItemMeta meta, List<String> shopLoreLines) {
