@@ -1,0 +1,14 @@
+name: Hat
+version: '${version}'
+main: dev.belikhun.luna.hat.Hat
+api-version: '1.20'
+
+dependencies:
+  server:
+    LunaCore:
+      required: true
+
+commands:
+  hat:
+    description: Đội vật phẩm đang cầm lên đầu.
+    usage: /hat

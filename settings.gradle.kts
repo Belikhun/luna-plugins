@@ -15,3 +15,4 @@ rootProject.name = "luna"
 include("luna-core")
 include("luna-shop")
 include("luna-countdown")
+include("luna-hat")
