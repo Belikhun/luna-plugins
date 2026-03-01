@@ -11,7 +11,6 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import java.util.Locale;
 
 import org.bukkit.Bukkit;
-import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class Countdown extends JavaPlugin {
@@ -37,19 +36,13 @@ public class Countdown extends JavaPlugin {
 		// Register player join/quit events.
 		Bukkit.getServer().getPluginManager().registerEvents(new PlayerEvent(), this);
 
-		PluginCommand countdown = getCommand("countdown");
-		if (countdown != null) {
-			CountdownCommand countdownCommand = new CountdownCommand();
-			countdown.setExecutor(countdownCommand);
-			countdown.setTabCompleter(countdownCommand);
-		}
+		CountdownCommand countdownCommand = new CountdownCommand();
+		registerCommand("countdown", countdownCommand);
+		registerCommand("cd", countdownCommand);
 
-		PluginCommand shutdown = getCommand("shutdown");
-		if (shutdown != null) {
-			ShutdownCommand shutdownCommand = new ShutdownCommand();
-			shutdown.setExecutor(shutdownCommand);
-			shutdown.setTabCompleter(shutdownCommand);
-		}
+		ShutdownCommand shutdownCommand = new ShutdownCommand();
+		registerCommand("shutdown", shutdownCommand);
+		registerCommand("stoptimer", shutdownCommand);
 
 		logger.success("LunaCountdown đã khởi động thành công.");
 	}

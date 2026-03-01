@@ -1,9 +1,9 @@
 package dev.belikhun.luna.hat;
 
 import dev.belikhun.luna.core.api.ui.LunaUi;
+import io.papermc.paper.command.brigadier.BasicCommand;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.Material;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -14,12 +14,13 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 
-public class HatHandler implements CommandExecutor, Listener {
+public class HatHandler implements BasicCommand, Listener {
 	public HatHandler() {
 	}
 
 	@Override
-	public boolean onCommand(CommandSender sender, Command command, String alias, String[] args) {
+	public void execute(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (sender instanceof Player player) {
 			PlayerInventory inv = player.getInventory();
 			ItemStack held = inv.getItemInMainHand();
@@ -38,7 +39,11 @@ public class HatHandler implements CommandExecutor, Listener {
 		} else {
 			sender.sendMessage(LunaUi.mini("<red>❌ Chỉ người chơi mới dùng lệnh này.</red>"));
 		}
-		return true;
+	}
+
+	@Override
+	public String permission() {
+		return null;
 	}
 
 	@EventHandler

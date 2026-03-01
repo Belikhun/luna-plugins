@@ -7,8 +7,3 @@ dependencies:
   server:
     LunaCore:
       required: true
-
-commands:
-  hat:
-    description: Đội vật phẩm đang cầm lên đầu.
-    usage: /hat

@@ -10,15 +10,17 @@ import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.countdown.CountInstance;
 import dev.belikhun.luna.countdown.Countdown;
 import dev.belikhun.luna.countdown.CountInstance.CountdownCallback;
+import io.papermc.paper.command.brigadier.BasicCommand;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bukkit.boss.BossBar;
-import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
-import org.bukkit.command.TabExecutor;
 
-public class CountdownCommand implements TabExecutor {
+import java.util.Collection;
+
+public class CountdownCommand implements BasicCommand {
 	protected class Instance {
 		public int id;
 		public String title;
@@ -73,14 +75,15 @@ public class CountdownCommand implements TabExecutor {
 	public CountdownCommand() { }
 
 	@Override
-	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+	public void execute(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (!sender.hasPermission("countdown.countdown") && !(sender instanceof ConsoleCommandSender))
-			return false;
+			return;
 
 		if (args.length < 1) {
 			sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
 				CommandStrings.required("start|stop|stopall", "action"))));
-			return true;
+			return;
 		}
 
 		switch (args[0]) {
@@ -90,7 +93,7 @@ public class CountdownCommand implements TabExecutor {
 						CommandStrings.literal("start"),
 						CommandStrings.required("length", "time"),
 						CommandStrings.optional("message", "text"))));
-					return true;
+							return;
 				}
 
 				String title = "Sự Kiện Kết Thúc";
@@ -98,7 +101,7 @@ public class CountdownCommand implements TabExecutor {
 
 				if (length <= 0) {
 					sender.sendMessage(Countdown.mm("<red>❌ Thời gian không hợp lệ: <white>" + Countdown.escape(args[1]) + "</white></red>"));
-					return true;
+					return;
 				}
 		
 				if (args.length >= 3)
@@ -112,7 +115,7 @@ public class CountdownCommand implements TabExecutor {
 					sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
 						CommandStrings.literal("stop"),
 						CommandStrings.required("id", "number"))));
-					return true;
+					return;
 				}
 
 				int id;
@@ -120,7 +123,7 @@ public class CountdownCommand implements TabExecutor {
 					id = Integer.parseInt(args[1]);
 				} catch (NumberFormatException exception) {
 					sender.sendMessage(Countdown.mm("<red>❌ ID không hợp lệ: <white>" + Countdown.escape(args[1]) + "</white></red>"));
-					return true;
+					return;
 				}
 
 				for (Instance instance : instances) {
@@ -128,11 +131,11 @@ public class CountdownCommand implements TabExecutor {
 						continue;
 
 					instance.stop();
-					return true;
+					return;
 				}
 
 				sender.sendMessage(Countdown.mm("<red>❌ Không tìm thấy countdown với ID <white>" + id + "</white></red>"));
-				return true;
+				return;
 
 			case "stopall":
 				stopAll();
@@ -143,10 +146,8 @@ public class CountdownCommand implements TabExecutor {
 				sender.sendMessage(Countdown.mm("<red>❌ Hành động <white>" + Countdown.escape(args[0]) + "</white> không tồn tại.</red>"));
 				sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
 					CommandStrings.required("start|stop|stopall", "action"))));
-				return true;
+				return;
 		}
-
-		return true;
 	}
 
 	public void countdown(String title, int seconds) {
@@ -168,7 +169,8 @@ public class CountdownCommand implements TabExecutor {
 	}
 
 	@Override
-	public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+	public Collection<String> suggest(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (!sender.hasPermission("countdown.countdown") && !(sender instanceof ConsoleCommandSender)) {
 			return List.of();
 		}
@@ -194,5 +196,10 @@ public class CountdownCommand implements TabExecutor {
 		}
 
 		return List.of();
+	}
+
+	@Override
+	public String permission() {
+		return "countdown.countdown";
 	}
 }

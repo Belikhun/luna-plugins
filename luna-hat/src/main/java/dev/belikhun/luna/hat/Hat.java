@@ -24,10 +24,7 @@ public class Hat extends JavaPlugin {
 		registerPermissions();
 
 		HatHandler handler = new HatHandler();
-
-		if (this.getCommand("hat") != null) {
-			this.getCommand("hat").setExecutor(handler);
-		}
+		registerCommand("hat", handler);
 		this.getServer().getPluginManager().registerEvents(handler, this);
 
 		logger.success("LunaHat đã khởi động thành công.");

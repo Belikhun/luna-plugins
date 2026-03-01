@@ -9,22 +9,6 @@ dependencies:
     LunaCore:
       required: true
 
-commands:
-  countdown:
-    description: "Điều khiển đếm ngược"
-    usage: /countdown <start|stop|stopall>
-    permission: countdown.countdown
-    permission-message: Bạn không có quyền countdown.countdown
-    aliases:
-      - "cd"
-  shutdown:
-    description: "Tắt máy chủ sau 1 khoảng thời gian"
-    usage: /shutdown <delay>
-    permission: countdown.shutdown
-    permission-message: Bạn không có quyền countdown.shutdown
-    aliases:
-      - "stoptimer"
-
 permissions:
   countdown.*:
     description: "Toàn bộ quyền cho Countdown"

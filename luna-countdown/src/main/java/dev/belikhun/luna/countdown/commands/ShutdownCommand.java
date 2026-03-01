@@ -9,63 +9,65 @@ import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.countdown.CountInstance;
 import dev.belikhun.luna.countdown.Countdown;
 import dev.belikhun.luna.countdown.CountInstance.CountdownCallback;
+import io.papermc.paper.command.brigadier.BasicCommand;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BossBar;
-import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
-import org.bukkit.command.TabExecutor;
 
-public class ShutdownCommand implements TabExecutor {
+import java.util.Collection;
+
+public class ShutdownCommand implements BasicCommand {
 	public static CountInstance instance;
 	
 	public ShutdownCommand() { }
 
 	@Override
-	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+	public void execute(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (!sender.hasPermission("countdown.shutdown") && !(sender instanceof ConsoleCommandSender))
-			return false;
+			return;
 
 		if (args.length < 1) {
 			sender.sendMessage(Countdown.mm(CommandStrings.usage("/shutdown",
 				CommandStrings.required("length", "time"),
 				CommandStrings.optional("message", "text"))));
-			return true;
+			return;
 		}
 
 		if (args[0].equalsIgnoreCase("cancel")) {
 			if (instance == null) {
 				sender.sendMessage(Countdown.mm("<red>❌ Không có lịch tắt máy chủ.</red>"));
-				return true;
+				return;
 			}
 
 			instance.stop("<green><bold>Đã Hủy Tắt Máy Chủ!</bold></green>");
 			instance.bar.setColor(BarColor.GREEN);
 			Countdown.broadcast("<green>✔ Đã hủy tắt máy chủ.</green>");
 			instance = null;
-			return true;
+			return;
 		}
 
 		if (instance != null) {
 			sender.sendMessage(Countdown.mm("<red>❌ Tắt máy chủ đã được lên lịch!</red> <white>Hủy bằng <yellow>/shutdown cancel</yellow>.</white>"));
-			return true;
+			return;
 		}
 
 		String message = null;
 		int length = Countdown.parseTime(args[0]);
 		if (length <= 0) {
 			sender.sendMessage(Countdown.mm("<red>❌ Thời gian không hợp lệ: <white>" + Countdown.escape(args[0]) + "</white></red>"));
-			return true;
+			return;
 		}
 
 		if (args.length >= 2)
 			message = StringUtils.join(Arrays.copyOfRange(args, 1, args.length), ' ');
 		
 		start(message, length);
-		return true;
 	}
 
 	public void start(String reason, int seconds) {
@@ -110,7 +112,8 @@ public class ShutdownCommand implements TabExecutor {
 	}
 
 	@Override
-	public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+	public Collection<String> suggest(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (!sender.hasPermission("countdown.shutdown") && !(sender instanceof ConsoleCommandSender)) {
 			return List.of();
 		}
@@ -124,5 +127,10 @@ public class ShutdownCommand implements TabExecutor {
 		}
 
 		return List.of();
+	}
+
+	@Override
+	public String permission() {
+		return "countdown.shutdown";
 	}
 }
