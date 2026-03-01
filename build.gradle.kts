@@ -29,6 +29,16 @@ subprojects {
         options.release = 21
     }
 
+    dependencies {
+        add("testImplementation", "org.junit.jupiter:junit-jupiter-api:5.11.4")
+        add("testRuntimeOnly", "org.junit.jupiter:junit-jupiter-engine:5.11.4")
+        add("testRuntimeOnly", "org.junit.platform:junit-platform-launcher:1.11.4")
+    }
+
+    tasks.withType<Test>().configureEach {
+        useJUnitPlatform()
+    }
+
     tasks.named<org.gradle.language.jvm.tasks.ProcessResources>("processResources") {
         filesMatching("paper-plugin.yml") {
             expand("version" to pluginVersion)

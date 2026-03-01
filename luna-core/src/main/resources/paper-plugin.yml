@@ -5,6 +5,15 @@ api-version: '1.21'
 description: Common APIs, utilities, and helpers for Luna plugins.
 authors:
   - Belikhun
+permissions:
+  lunacore.admin:
+    default: op
+    description: Quyền quản trị Luna Core.
+commands:
+  lunacore:
+    description: Quản trị Luna Core.
+    usage: /lunacore [reload]
+    permission: lunacore.admin
 dependencies:
   server:
     Vault:

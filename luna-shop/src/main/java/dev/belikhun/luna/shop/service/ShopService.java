@@ -20,9 +20,6 @@ public final class ShopService {
 	private final ShopEconomyService economy;
 	private final ShopItemStore store;
 	private final ShopTransactionStore transactionStore;
-	private final String moneySymbol;
-	private final boolean moneyGrouping;
-	private final String moneyFormat;
 	private final LunaLogger logger;
 
 	public ShopService(ShopEconomyService economy, ShopItemStore store, ShopTransactionStore transactionStore, LunaLogger logger) {
@@ -30,10 +27,6 @@ public final class ShopService {
 		this.store = store;
 		this.transactionStore = transactionStore;
 		this.logger = logger;
-		ConfigStore coreConfig = LunaCore.services().configStore();
-		this.moneySymbol = coreConfig.get("strings.money.currencySymbol").asString("₫");
-		this.moneyGrouping = coreConfig.get("strings.money.grouping").asBoolean(true);
-		this.moneyFormat = coreConfig.get("strings.money.format").asString("{amount}{symbol}");
 	}
 
 	public ShopEconomyService economy() {
@@ -41,6 +34,10 @@ public final class ShopService {
 	}
 
 	public String formatMoney(double amount) {
+		ConfigStore coreConfig = LunaCore.services().configStore();
+		String moneySymbol = coreConfig.get("strings.money.currencySymbol").asString("₫");
+		boolean moneyGrouping = coreConfig.get("strings.money.grouping").asBoolean(true);
+		String moneyFormat = coreConfig.get("strings.money.format").asString("{amount}{symbol}");
 		return Formatters.money(amount, moneySymbol, moneyGrouping, moneyFormat);
 	}
 
@@ -194,14 +191,14 @@ public final class ShopService {
 		recordTransaction(action, player, item, amount, total, true, "OK");
 
 		double balanceAfter = economy.balance(player);
-		logger.audit("TX " + action
-			+ " | player=" + player.getName()
+		logger.audit("TX " + Formatters.stripFormats(action)
+			+ " | player=" + Formatters.stripFormats(player.getName())
 			+ " (" + player.getUniqueId() + ")"
-			+ " | item=" + item.id()
-			+ " | category=" + item.category()
+			+ " | item=" + Formatters.stripFormats(item.id())
+			+ " | category=" + Formatters.stripFormats(item.category())
 			+ " | amount=" + amount
-			+ " | total=" + formatMoney(total)
-			+ " | balanceAfter=" + formatMoney(balanceAfter)
+			+ " | total=" + Formatters.stripFormats(formatMoney(total))
+			+ " | balanceAfter=" + Formatters.stripFormats(formatMoney(balanceAfter))
 			+ " | result=SUCCESS");
 	}
 
@@ -211,16 +208,16 @@ public final class ShopService {
 		}
 
 		double balanceNow = economy.balance(player);
-		logger.warn("TX " + action
-			+ " | player=" + player.getName()
+		logger.warn("TX " + Formatters.stripFormats(action)
+			+ " | player=" + Formatters.stripFormats(player.getName())
 			+ " (" + player.getUniqueId() + ")"
-			+ " | item=" + item.id()
-			+ " | category=" + item.category()
+			+ " | item=" + Formatters.stripFormats(item.id())
+			+ " | category=" + Formatters.stripFormats(item.category())
 			+ " | amount=" + amount
-			+ " | total=" + formatMoney(total)
-			+ " | balanceNow=" + formatMoney(balanceNow)
+			+ " | total=" + Formatters.stripFormats(formatMoney(total))
+			+ " | balanceNow=" + Formatters.stripFormats(formatMoney(balanceNow))
 			+ " | result=FAILED"
-			+ " | reason=" + reason);
+			+ " | reason=" + Formatters.stripFormats(reason));
 	}
 
 	public int transactionHistoryCount(UUID playerUuid) {

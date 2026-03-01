@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.command.LunaCoreCommand;
 import dev.belikhun.luna.core.api.config.migration.ConfigStoreMigrator;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.DatabaseManager;
@@ -92,10 +93,25 @@ public final class LunaCorePlugin extends JavaPlugin {
 		HelpCommandListener helpCommandListener = new HelpCommandListener(services);
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
-			commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener))
+			{
+				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));
+				commands.registrar().register("lunacore", new LunaCoreCommand(this));
+			}
 		);
 		coreLogger.audit("Help command API đã được đăng ký theo Paper Command Lifecycle.");
 		coreLogger.success("Luna Core đã khởi động thành công.");
+	}
+
+	public void reloadCoreModules() {
+		if (services == null) {
+			return;
+		}
+
+		LunaLogger coreLogger = services.logger().scope("Core");
+		services.configStore().reload();
+		services.httpServerManager().stop();
+		services.httpServerManager().startIfEnabled();
+		coreLogger.audit("Đã reload cấu hình và HTTP module của Luna Core.");
 	}
 
 	@Override

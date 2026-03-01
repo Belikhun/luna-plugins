@@ -2,6 +2,7 @@ package dev.belikhun.luna.shop;
 
 import dev.belikhun.luna.core.LunaCore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.shop.command.LunaShopReloadCommand;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
 import dev.belikhun.luna.shop.command.ShopCommand;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
@@ -60,10 +61,24 @@ public final class LunaShopPlugin extends JavaPlugin {
         this.shopService = new ShopService(economyService, itemStore, transactionStore, logger.scope("Transactions"));
         this.guiController = new ShopGuiController(this, shopService, itemStore);
 
-        registerCommand("shop", new ShopCommand(guiController, itemStore));
+        ShopCommand shopCommand = new ShopCommand(guiController, itemStore);
+        registerCommand("shop", shopCommand);
+        registerCommand("buy", shopCommand);
+        registerCommand("store", shopCommand);
+        registerCommand("b", shopCommand);
         registerCommand("shopadmin", new ShopAdminCommand(this, itemStore, shopService, guiController));
+        registerCommand("lunashop", new LunaShopReloadCommand(this));
         logger.success("LunaShop đã khởi động thành công với " + itemStore.all().size() + " mặt hàng.");
     }
+
+    	public void reloadShopModules() {
+            LunaCore.services().configStore().reload();
+    		reloadConfig();
+    		if (itemStore != null) {
+    			itemStore.load();
+    		}
+            logger.audit("Đã reload LunaCore config, LunaShop config và dữ liệu items.");
+    	}
 
     @Override
     public void onDisable() {

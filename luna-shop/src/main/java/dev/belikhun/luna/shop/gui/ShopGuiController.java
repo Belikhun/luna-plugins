@@ -304,7 +304,6 @@ public final class ShopGuiController implements Listener {
 
 	public void openCategoryMenu(Player player, String category, int page) {
 		List<ShopItem> items = store.byCategory(category);
-		items.sort(Comparator.comparing(ShopItem::id));
 
 		BrowseContext context = BrowseContext.category(category, page);
 		openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Danh Mục", prettyCategory(category)), context);
@@ -312,7 +311,6 @@ public final class ShopGuiController implements Listener {
 
 	public void openSearchMenu(Player player, String query, int page) {
 		List<ShopItem> items = store.search(query);
-		items.sort(Comparator.comparing(ShopItem::id));
 
 		BrowseContext context = BrowseContext.search(query, page);
 		openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Tìm Kiếm", query), context);
@@ -322,12 +320,14 @@ public final class ShopGuiController implements Listener {
 		GuiView view = new GuiView(54, title);
 		guiManager.track(view);
 
-		int maxPage = maxPage(items.size());
+		List<ShopItem> sortedItems = sortItems(items, context.sortField(), context.sortAscending());
+
+		int maxPage = maxPage(sortedItems.size());
 		int currentPage = clampPage(context.page(), maxPage);
 		int start = currentPage * PAGE_SIZE;
-		int end = Math.min(items.size(), start + PAGE_SIZE);
+		int end = Math.min(sortedItems.size(), start + PAGE_SIZE);
 		for (int i = start; i < end; i++) {
-			ShopItem shopItem = items.get(i);
+			ShopItem shopItem = sortedItems.get(i);
 			int slot = i - start;
 			ItemStack icon = shopItem.itemStack().clone();
 			ItemMeta meta = icon.getItemMeta();
@@ -356,6 +356,16 @@ public final class ShopGuiController implements Listener {
 		if (currentPage < maxPage) {
 			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openItemList(clicker, items, title, context.withPage(currentPage + 1)));
 		}
+
+		view.setItem(47, item(Material.HOPPER, "<aqua>⚙ Sắp xếp theo", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Tiêu chí hiện tại: <yellow>" + sortLabel(context.sortField()) + "</yellow>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Chuột trái để đổi tiêu chí")
+		)), (clicker, event, gui) -> openItemList(clicker, items, title, context.withSortField(nextSortField(context.sortField()))));
+
+		view.setItem(48, item(Material.COMPARATOR, "<aqua>⇅ Thứ tự", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <yellow>" + (context.sortAscending() ? "Tăng dần" : "Giảm dần") + "</yellow>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Chuột trái để đảo thứ tự")
+		)), (clicker, event, gui) -> openItemList(clicker, items, title, context.toggleSortDirection()));
 
 		if (context.search()) {
 			view.setItem(49, nav(Material.COMPASS, "<aqua>🔍 Tìm kiếm mới"), (clicker, event, gui) -> beginSearch(clicker, null));
@@ -443,9 +453,9 @@ public final class ShopGuiController implements Listener {
 			openMainMenu(clicker, 0);
 		});
 		view.setItem(50, item(Material.PAPER, "<aqua>ℹ Thông tin", List.of(
-			plainLine(LunaPalette.NEUTRAL_100, "Người chơi: <white>" + normalizedTargetName),
-			plainLine(LunaPalette.NEUTRAL_100, "Tổng giao dịch: <white>" + total),
-			plainLine(LunaPalette.NEUTRAL_100, "Trang: <white>" + (currentPage + 1) + "</white>/<white>" + (maxPage + 1) + "</white>")
+			plainLine(LunaPalette.NEUTRAL_100, "Người chơi: <yellow>" + normalizedTargetName + "</yellow>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Tổng giao dịch: <yellow>" + total + "</yellow>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Trang: <yellow>" + (currentPage + 1) + "/" + (maxPage + 1) + "</yellow>")
 		)));
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
 
@@ -807,7 +817,7 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				store.upsert(new ShopItem(item.id(), item.category(), buyPrice, sellPrice, item.itemData()));
+				store.upsert(new ShopItem(item.id(), item.category(), buyPrice, sellPrice, item.itemData(), item.addedDate()));
 				player.sendMessage(mm("<green>✔ Đã cập nhật giá cho item <white>" + item.id() + "</white>.</green>"));
 				returnToAdminMenu(player, prompt);
 			}
@@ -825,7 +835,7 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				store.upsert(new ShopItem(item.id(), input, item.buyPrice(), item.sellPrice(), item.itemData()));
+				store.upsert(new ShopItem(item.id(), input, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
 				player.sendMessage(mm("<green>✔ Đã chuyển item <white>" + item.id() + "</white> sang category <white>" + ShopItem.normalizeCategory(input) + "</white>.</green>"));
 				returnToAdminMenu(player, prompt);
 			}
@@ -1198,26 +1208,90 @@ public final class ShopGuiController implements Listener {
 			.orElse("<color:" + LunaPalette.GUI_TITLE_SECONDARY + ">" + prettyCategory(categoryId) + "</color>");
 	}
 
+	private List<ShopItem> sortItems(List<ShopItem> items, SortField sortField, boolean ascending) {
+		ArrayList<ShopItem> sorted = new ArrayList<>(items);
+		Comparator<ShopItem> comparator = switch (sortField) {
+			case ADDED_DATE -> Comparator.comparingLong(ShopItem::addedDate);
+			case BUY_PRICE -> Comparator.comparingDouble(ShopItem::buyPrice);
+			case SELL_PRICE -> Comparator.comparingDouble(ShopItem::sellPrice);
+			case NAME -> Comparator.comparing(this::itemSortName, String.CASE_INSENSITIVE_ORDER);
+			case ID -> Comparator.comparing(ShopItem::id, String.CASE_INSENSITIVE_ORDER);
+		};
+
+		if (!ascending) {
+			comparator = comparator.reversed();
+		}
+
+		sorted.sort(comparator.thenComparing(ShopItem::id, String.CASE_INSENSITIVE_ORDER));
+		return sorted;
+	}
+
+	private String itemSortName(ShopItem item) {
+		ItemStack stack = item.itemStack();
+		if (!stack.hasItemMeta()) {
+			return stack.getType().getKey().asString();
+		}
+
+		ItemMeta meta = stack.getItemMeta();
+		if (meta.hasCustomName() && meta.customName() != null) {
+			return plainText.serialize(meta.customName());
+		}
+
+		return stack.getType().getKey().asString();
+	}
+
+	private SortField nextSortField(SortField sortField) {
+		SortField[] values = SortField.values();
+		int next = (sortField.ordinal() + 1) % values.length;
+		return values[next];
+	}
+
+	private String sortLabel(SortField sortField) {
+		return switch (sortField) {
+			case ADDED_DATE -> "Ngày thêm";
+			case BUY_PRICE -> "Giá mua";
+			case SELL_PRICE -> "Giá bán";
+			case NAME -> "Tên";
+			case ID -> "ID";
+		};
+	}
+
+	private enum SortField {
+		ADDED_DATE,
+		BUY_PRICE,
+		SELL_PRICE,
+		NAME,
+		ID
+	}
+
 	private enum TradeMode {
 		BUY,
 		SELL
 	}
 
-	private record BrowseContext(String category, String query, int page, boolean search) {
+	private record BrowseContext(String category, String query, int page, boolean search, SortField sortField, boolean sortAscending) {
 		static BrowseContext category(String category, int page) {
-			return new BrowseContext(category, null, page, false);
+			return new BrowseContext(category, null, page, false, SortField.ADDED_DATE, false);
 		}
 
 		static BrowseContext search(String query, int page) {
-			return new BrowseContext(null, query, page, true);
+			return new BrowseContext(null, query, page, true, SortField.ADDED_DATE, false);
 		}
 
 		static BrowseContext categorySearch(String category, String query, int page) {
-			return new BrowseContext(category, query, page, true);
+			return new BrowseContext(category, query, page, true, SortField.ADDED_DATE, false);
 		}
 
 		BrowseContext withPage(int value) {
-			return new BrowseContext(category, query, value, search);
+			return new BrowseContext(category, query, value, search, sortField, sortAscending);
+		}
+
+		BrowseContext withSortField(SortField value) {
+			return new BrowseContext(category, query, 0, search, value, sortAscending);
+		}
+
+		BrowseContext toggleSortDirection() {
+			return new BrowseContext(category, query, 0, search, sortField, !sortAscending);
 		}
 	}
 

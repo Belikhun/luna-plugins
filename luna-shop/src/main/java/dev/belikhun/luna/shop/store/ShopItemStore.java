@@ -3,6 +3,7 @@ package dev.belikhun.luna.shop.store;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -72,13 +73,14 @@ public final class ShopItemStore {
 			String category = configuration.getString(root + ".category", "general");
 			double buyPrice = configuration.getDouble(root + ".buy-price", 0D);
 			double sellPrice = configuration.getDouble(root + ".sell-price", 0D);
+			long addedDate = configuration.getLong(root + ".added-date", System.currentTimeMillis());
 			String itemData = configuration.getString(root + ".item-data", "");
 			if (itemData == null || itemData.isBlank()) {
 				continue;
 			}
 
 			String normalizedId = ShopItem.normalizeId(id);
-			items.put(normalizedId, new ShopItem(normalizedId, category, buyPrice, sellPrice, itemData));
+			items.put(normalizedId, new ShopItem(normalizedId, category, buyPrice, sellPrice, itemData, addedDate));
 		}
 
 		ensureCategoryFallbacks();
@@ -95,10 +97,15 @@ public final class ShopItemStore {
 
 		for (ShopItem item : all()) {
 			String root = "shop-items." + item.id();
+			ItemStack stack = item.itemStack();
 			configuration.set(root + ".id", item.id());
 			configuration.set(root + ".category", item.category());
 			configuration.set(root + ".buy-price", item.buyPrice());
 			configuration.set(root + ".sell-price", item.sellPrice());
+			configuration.set(root + ".added-date", item.addedDate());
+			configuration.set(root + ".item-id", stack.getType().getKey().asString());
+			configuration.set(root + ".item-name", itemNameForExport(stack));
+			configuration.set(root + ".item-lore", itemLoreForExport(stack));
 			configuration.set(root + ".item-data", item.itemData());
 		}
 
@@ -228,7 +235,7 @@ public final class ShopItemStore {
 				continue;
 			}
 
-			entry.setValue(new ShopItem(item.id(), normalizedNew, item.buyPrice(), item.sellPrice(), item.itemData()));
+			entry.setValue(new ShopItem(item.id(), normalizedNew, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
 		}
 
 		save();
@@ -263,7 +270,7 @@ public final class ShopItemStore {
 					continue;
 				}
 
-				entry.setValue(new ShopItem(item.id(), target, item.buyPrice(), item.sellPrice(), item.itemData()));
+				entry.setValue(new ShopItem(item.id(), target, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
 			}
 		}
 
@@ -324,6 +331,38 @@ public final class ShopItemStore {
 		}
 
 		return stack.getType().name();
+	}
+
+	private String itemNameForExport(ItemStack stack) {
+		if (!stack.hasItemMeta()) {
+			return stack.getType().getKey().asString();
+		}
+
+		ItemMeta meta = stack.getItemMeta();
+		if (meta.hasCustomName() && meta.customName() != null) {
+			return PLAIN_TEXT.serialize(meta.customName());
+		}
+
+		return stack.getType().getKey().asString();
+	}
+
+	private List<String> itemLoreForExport(ItemStack stack) {
+		if (!stack.hasItemMeta()) {
+			return List.of();
+		}
+
+		ItemMeta meta = stack.getItemMeta();
+		List<Component> lore = meta.lore();
+		if (lore == null || lore.isEmpty()) {
+			return List.of();
+		}
+
+		ArrayList<String> lines = new ArrayList<>();
+		for (Component line : lore) {
+			lines.add(PLAIN_TEXT.serialize(line));
+		}
+
+		return lines;
 	}
 
 	private void ensureCategoryFallbacks() {

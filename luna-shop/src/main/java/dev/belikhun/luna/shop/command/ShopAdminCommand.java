@@ -204,7 +204,7 @@ public final class ShopAdminCommand implements BasicCommand {
 				}
 
 				store.updateCategoryDisplayName(args[2], displayName);
-				sender.sendRichMessage("<green>✔ Đã cập nhật tên hiển thị cho danh mục <white>" + ShopItem.normalizeCategory(args[2]) + "</white>.</green>");
+				sender.sendRichMessage("<green>✔ Đã cập nhật tên hiển thị cho danh mục <white>" + ShopItem.normalizeCategory(args[2]) + "</white>: " + displayName + "<green>.</green>");
 			}
 			case "rename" -> {
 				if (args.length < 4) {

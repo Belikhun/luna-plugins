@@ -13,9 +13,14 @@ commands:
   shop:
     description: Mở cửa hàng Luna.
     usage: /shop [search <từ_khóa>|category <tên_danh_mục>]
+    aliases: [buy, store, b]
   shopadmin:
     description: Quản trị vật phẩm shop.
-    usage: /shopadmin <add|remove|list|reload|open>
+    usage: /shopadmin <add|remove|list|history|reload|open>
+    permission: lunashop.admin
+  lunashop:
+    description: Quản trị và reload Luna Shop.
+    usage: /lunashop [reload]
     permission: lunashop.admin
 dependencies:
   server:

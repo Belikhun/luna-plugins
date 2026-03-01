@@ -1,5 +1,7 @@
 package dev.belikhun.luna.core.api.string;
 
+import net.kyori.adventure.text.minimessage.MiniMessage;
+
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.NumberFormat;
@@ -8,8 +10,12 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class Formatters {
+	private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+	private static final Pattern LEGACY_COLOR_PATTERN = Pattern.compile("(?i)(?:§|&)[0-9A-FK-ORX]");
+
 	private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 		.withZone(ZoneId.systemDefault());
 
@@ -66,5 +72,14 @@ public final class Formatters {
 		}
 
 		return text.toString().trim();
+	}
+
+	public static String stripFormats(String value) {
+		if (value == null || value.isBlank()) {
+			return "";
+		}
+
+		String stripped = MINI_MESSAGE.stripTags(value);
+		return LEGACY_COLOR_PATTERN.matcher(stripped).replaceAll("");
 	}
 }

@@ -205,7 +205,21 @@ public final class LunaLore {
 
 		return (int) Arrays.stream(plain.split("[_\\p{Punct}\\s]+"))
 			.filter(part -> !part.isBlank())
+			.filter(LunaLore::containsLetterOrDigit)
+			.filter(part -> part.codePointCount(0, part.length()) > 3)
 			.count();
+	}
+
+	private static boolean containsLetterOrDigit(String value) {
+		for (int i = 0; i < value.length();) {
+			int codePoint = value.codePointAt(i);
+			if (Character.isLetterOrDigit(codePoint)) {
+				return true;
+			}
+			i += Character.charCount(codePoint);
+		}
+
+		return false;
 	}
 
 	private record OpenTag(String name, String openTag) {
