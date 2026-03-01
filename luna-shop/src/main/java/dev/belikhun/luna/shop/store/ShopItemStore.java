@@ -155,7 +155,6 @@ public final class ShopItemStore {
 
 	public void upsert(ShopItem item) {
 		items.put(item.id(), item);
-		categories.putIfAbsent(item.category(), ShopCategory.defaultCategory(item.category()));
 		save();
 	}
 
