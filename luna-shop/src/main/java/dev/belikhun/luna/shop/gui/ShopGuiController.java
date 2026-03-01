@@ -4,11 +4,13 @@ import dev.belikhun.luna.core.api.gui.GuiManager;
 import dev.belikhun.luna.core.api.gui.GuiView;
 import dev.belikhun.luna.core.api.gui.LunaPagination;
 import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaLore;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.core.api.ui.LunaUi;
 import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
+import dev.belikhun.luna.shop.service.ShopTransactionEntry;
 import dev.belikhun.luna.shop.service.ShopResult;
 import dev.belikhun.luna.shop.service.ShopService;
 import dev.belikhun.luna.shop.store.ShopItemStore;
@@ -28,6 +30,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -37,6 +40,7 @@ import java.util.UUID;
 
 public final class ShopGuiController implements Listener {
 	private static final int PAGE_SIZE = 45;
+	private static final int HISTORY_PAGE_SIZE = 45;
 	private static final long CONFIRMATION_TIMEOUT_TICKS = 20L * 15L;
 	private static final long ALERT_RESET_TICKS = 20L * 5L;
 	private static final int[] QUICK_AMOUNT_SLOTS = {28, 29, 30, 32, 33, 34};
@@ -292,6 +296,7 @@ public final class ShopGuiController implements Listener {
 			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openMainMenu(clicker, currentPage + 1));
 		}
 		view.setItem(49, nav(Material.COMPASS, "<aqua>🔍 Tìm kiếm mặt hàng"), (clicker, event, gui) -> beginSearch(clicker, null));
+		view.setItem(50, nav(Material.BOOK, "<yellow>⌚ Lịch sử giao dịch"), (clicker, event, gui) -> openTransactionHistory(clicker, 0));
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
 
 		player.openInventory(view.getInventory());
@@ -362,6 +367,89 @@ public final class ShopGuiController implements Listener {
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
 
 		player.openInventory(view.getInventory());
+	}
+
+	public void openTransactionHistory(Player player, int page) {
+		openTransactionHistory(player, player.getUniqueId(), player.getName(), page, false);
+	}
+
+	public void openTransactionHistoryAdmin(Player admin, UUID targetUuid, String targetName, int page) {
+		openTransactionHistory(admin, targetUuid, targetName, page, true);
+	}
+
+	private void openTransactionHistory(Player viewer, UUID targetUuid, String targetName, int page, boolean adminView) {
+		String normalizedTargetName = (targetName == null || targetName.isBlank()) ? "Unknown" : targetName;
+		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna Shop", "Lịch Sử"));
+		guiManager.track(view);
+
+		if (!service.isTransactionHistoryEnabled()) {
+			fillFooter(view);
+			view.setItem(22, item(Material.BARRIER, "<red>❌ Database chưa bật", List.of(
+				plainLine(LunaPalette.WARNING_500, "Lịch sử giao dịch yêu cầu database"),
+				plainLine(LunaPalette.NEUTRAL_100, "Hãy bật LunaCore database API")
+			)));
+			view.setItem(49, nav(Material.CHEST, adminView ? "<yellow>Quay lại quản lý" : "<yellow>Danh mục chính"), (clicker, event, gui) -> {
+				if (adminView) {
+					openManagementMenu(clicker, 0);
+					return;
+				}
+
+				openMainMenu(clicker, 0);
+			});
+			view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
+			viewer.openInventory(view.getInventory());
+			return;
+		}
+
+		int total = service.transactionHistoryCount(targetUuid);
+		int maxPage = LunaPagination.maxPage(total, HISTORY_PAGE_SIZE);
+		int currentPage = LunaPagination.clampPage(page, maxPage);
+		List<ShopTransactionEntry> entries = service.transactionHistory(targetUuid, currentPage, HISTORY_PAGE_SIZE);
+
+		for (int i = 0; i < entries.size() && i < HISTORY_PAGE_SIZE; i++) {
+			ShopTransactionEntry entry = entries.get(i);
+			Material material = entry.success() ? Material.LIME_DYE : Material.RED_DYE;
+			String actionText = entry.action().equalsIgnoreCase("BUY") ? "MUA" : "BÁN";
+			String actionColor = entry.action().equalsIgnoreCase("BUY") ? LunaPalette.SUCCESS_500 : LunaPalette.WARNING_500;
+			String resultColor = entry.success() ? LunaPalette.SUCCESS_500 : LunaPalette.DANGER_500;
+			String statusText = entry.success() ? "THÀNH CÔNG" : "THẤT BẠI";
+
+			view.setItem(i, item(material, "<color:" + actionColor + ">" + actionText + "</color> <white>#" + entry.transactionId().substring(0, Math.min(8, entry.transactionId().length())) + "</white>", List.of(
+				"<white>№ Item: <yellow>" + entry.itemId(),
+				"<white>♦ Danh mục: " + displayCategory(entry.category()),
+				"<white>♦ Số lượng: <yellow>" + entry.amount(),
+				"<white>♦ Đơn giá: <gold>" + service.formatMoney(entry.unitPrice()),
+				"<white>♦ Tổng tiền: <gold>" + service.formatMoney(entry.totalPrice()),
+				"<white>♦ Kết quả: <color:" + resultColor + ">" + statusText + "</color>",
+				"<white>⌚ Thời gian: <gray>" + Formatters.date(Instant.ofEpochMilli(entry.createdAt())),
+				entry.success() ? "" : "<white>⚠ Lý do: <color:" + LunaPalette.DANGER_500 + ">" + entry.reason() + "</color>"
+			)));
+		}
+
+		fillFooter(view);
+		if (currentPage > 0) {
+			view.setItem(45, nav(Material.ARROW, "<yellow>← Trang trước"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, currentPage - 1, adminView));
+		}
+		if (currentPage < maxPage) {
+			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, currentPage + 1, adminView));
+		}
+
+		view.setItem(49, nav(Material.CHEST, adminView ? "<yellow>Quay lại quản lý" : "<yellow>Danh mục chính"), (clicker, event, gui) -> {
+			if (adminView) {
+				openManagementMenu(clicker, 0);
+				return;
+			}
+
+			openMainMenu(clicker, 0);
+		});
+		view.setItem(50, item(Material.PAPER, "<aqua>ℹ Thông tin", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Người chơi: <white>" + normalizedTargetName),
+			plainLine(LunaPalette.NEUTRAL_100, "Tổng giao dịch: <white>" + total),
+			plainLine(LunaPalette.NEUTRAL_100, "Trang: <white>" + (currentPage + 1) + "</white>/<white>" + (maxPage + 1) + "</white>")
+		)));
+		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
+
+		viewer.openInventory(view.getInventory());
 	}
 
 	private void openTradeMenu(Player player, TradeSession session) {

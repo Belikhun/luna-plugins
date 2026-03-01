@@ -6,10 +6,13 @@ import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.shop.gui.ShopGuiController;
 import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
+import dev.belikhun.luna.shop.service.ShopService;
+import dev.belikhun.luna.shop.service.ShopTransactionPlayer;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 import org.bukkit.Material;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -17,6 +20,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -27,11 +31,13 @@ public final class ShopAdminCommand implements BasicCommand {
 
 	private final JavaPlugin plugin;
 	private final ShopItemStore store;
+	private final ShopService service;
 	private final ShopGuiController guiController;
 
-	public ShopAdminCommand(JavaPlugin plugin, ShopItemStore store, ShopGuiController guiController) {
+	public ShopAdminCommand(JavaPlugin plugin, ShopItemStore store, ShopService service, ShopGuiController guiController) {
 		this.plugin = plugin;
 		this.store = store;
+		this.service = service;
 		this.guiController = guiController;
 	}
 
@@ -53,6 +59,7 @@ public final class ShopAdminCommand implements BasicCommand {
 			case "category" -> handleCategory(sender, args);
 			case "remove" -> handleRemove(sender, args);
 			case "list" -> handleList(sender);
+			case "history" -> handleHistory(sender, args);
 			case "reload" -> handleReload(sender);
 			case "open" -> {
 				if (sender instanceof Player player) {
@@ -263,6 +270,45 @@ public final class ShopAdminCommand implements BasicCommand {
 		sender.sendRichMessage("<green>✔ Đã reload dữ liệu shop từ items.yml.</green>");
 	}
 
+	private void handleHistory(CommandSender sender, String[] args) {
+		if (!(sender instanceof Player admin)) {
+			sender.sendRichMessage("<red>❌ Chỉ người chơi mới mở GUI lịch sử được.</red>");
+			return;
+		}
+
+		if (args.length < 2) {
+			sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("history"), CommandStrings.required("player", "text"), CommandStrings.optional("page", "number")));
+			return;
+		}
+
+		Player target = Bukkit.getPlayerExact(args[1]);
+		ShopTransactionPlayer historicalTarget = null;
+		if (target == null) {
+			historicalTarget = service.findHistoricalPlayer(args[1]).orElse(null);
+			if (historicalTarget == null) {
+				sender.sendRichMessage("<red>❌ Không tìm thấy lịch sử cho người chơi: <white>" + args[1] + "</white>.</red>");
+				return;
+			}
+		}
+
+		int page = 0;
+		if (args.length >= 3) {
+			try {
+				page = Math.max(0, Integer.parseInt(args[2]) - 1);
+			} catch (NumberFormatException exception) {
+				sender.sendRichMessage("<red>❌ Trang phải là số hợp lệ.</red>");
+				return;
+			}
+		}
+
+		if (target != null) {
+			guiController.openTransactionHistoryAdmin(admin, target.getUniqueId(), target.getName(), page);
+			return;
+		}
+
+		guiController.openTransactionHistoryAdmin(admin, historicalTarget.uuid(), historicalTarget.name(), page);
+	}
+
 	private void sendHelp(CommandSender sender) {
 		sender.sendRichMessage(ADMIN_HEADER);
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number")));
@@ -274,6 +320,7 @@ public final class ShopAdminCommand implements BasicCommand {
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("delete"), CommandStrings.required("id", "text"), CommandStrings.optional("moveTo", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("remove"), CommandStrings.required("id", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("list")));
+		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("history"), CommandStrings.required("player", "text"), CommandStrings.optional("page", "number")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("reload")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("open")));
 	}
@@ -286,15 +333,28 @@ public final class ShopAdminCommand implements BasicCommand {
 		}
 
 		if (args.length == 0) {
-			return List.of("add", "category", "remove", "list", "reload", "open");
+			return List.of("add", "category", "remove", "list", "history", "reload", "open");
 		}
 
 		if (args.length == 1 && args[0].isEmpty()) {
-			return List.of("add", "category", "remove", "list", "reload", "open");
+			return List.of("add", "category", "remove", "list", "history", "reload", "open");
 		}
 
 		if (args.length == 1) {
-			return CommandCompletions.filterPrefix(List.of("add", "category", "remove", "list", "reload", "open"), args[0]);
+			return CommandCompletions.filterPrefix(List.of("add", "category", "remove", "list", "history", "reload", "open"), args[0]);
+		}
+
+		if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
+			LinkedHashSet<String> names = new LinkedHashSet<>();
+			for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+				names.add(onlinePlayer.getName());
+			}
+			names.addAll(service.suggestHistoricalPlayers(args[1], 30));
+			return CommandCompletions.filterPrefix(new ArrayList<>(names), args[1]);
+		}
+
+		if (args.length == 3 && args[0].equalsIgnoreCase("history")) {
+			return CommandCompletions.filterPrefix(List.of("1", "2", "3", "5", "10"), args[2]);
 		}
 
 		if (args.length == 2 && args[1].isEmpty() && args[0].equalsIgnoreCase("category")) {

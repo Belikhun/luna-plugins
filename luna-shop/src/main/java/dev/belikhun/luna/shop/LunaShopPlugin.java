@@ -1,12 +1,15 @@
 package dev.belikhun.luna.shop;
 
+import dev.belikhun.luna.core.LunaCore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
 import dev.belikhun.luna.shop.command.ShopCommand;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
 import dev.belikhun.luna.shop.economy.VaultEconomyService;
 import dev.belikhun.luna.shop.gui.ShopGuiController;
+import dev.belikhun.luna.shop.migration.ShopTransactionHistoryMigration;
 import dev.belikhun.luna.shop.service.ShopService;
+import dev.belikhun.luna.shop.service.ShopTransactionStore;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 
 import java.io.File;
@@ -41,6 +44,11 @@ public final class LunaShopPlugin extends JavaPlugin {
 
         this.itemStore = new ShopItemStore(this, logger.scope("Store"));
         itemStore.load();
+        LunaCore.services().migrationManager().registerDatabaseMigration(new ShopTransactionHistoryMigration());
+        ShopTransactionStore transactionStore = new ShopTransactionStore(
+            LunaCore.services().databaseManager().getDatabase(),
+            logger.scope("Transactions")
+        );
 
         ShopEconomyService economyService = VaultEconomyService.create(this).orElse(null);
         if (economyService == null) {
@@ -49,11 +57,11 @@ public final class LunaShopPlugin extends JavaPlugin {
             return;
         }
 
-        this.shopService = new ShopService(economyService, itemStore);
+        this.shopService = new ShopService(economyService, itemStore, transactionStore, logger.scope("Transactions"));
         this.guiController = new ShopGuiController(this, shopService, itemStore);
 
         registerCommand("shop", new ShopCommand(guiController, itemStore));
-        registerCommand("shopadmin", new ShopAdminCommand(this, itemStore, guiController));
+        registerCommand("shopadmin", new ShopAdminCommand(this, itemStore, shopService, guiController));
         logger.success("LunaShop đã khởi động thành công với " + itemStore.all().size() + " mặt hàng.");
     }
 

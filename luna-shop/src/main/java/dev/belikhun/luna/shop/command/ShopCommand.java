@@ -57,6 +57,11 @@ public final class ShopCommand implements BasicCommand {
 			return;
 		}
 
+		if (args[0].equalsIgnoreCase("history")) {
+			guiController.openTransactionHistory(player, 0);
+			return;
+		}
+
 		if (store.findCategory(args[0]).isPresent()) {
 			guiController.openCategoryMenu(player, args[0], 0);
 			return;
@@ -71,6 +76,7 @@ public final class ShopCommand implements BasicCommand {
 			List<String> root = new ArrayList<>();
 			root.add("search");
 			root.add("category");
+			root.add("history");
 			root.addAll(store.categories());
 			return root.stream().sorted().toList();
 		}
@@ -79,6 +85,7 @@ public final class ShopCommand implements BasicCommand {
 			List<String> root = new ArrayList<>();
 			root.add("search");
 			root.add("category");
+			root.add("history");
 			root.addAll(store.categories());
 			return root.stream().sorted().toList();
 		}
@@ -87,6 +94,7 @@ public final class ShopCommand implements BasicCommand {
 			List<String> root = new ArrayList<>();
 			root.add("search");
 			root.add("category");
+			root.add("history");
 			root.addAll(store.categories());
 			return CommandCompletions.filterPrefix(root, args[0]);
 		}
