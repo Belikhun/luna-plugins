@@ -37,4 +37,8 @@ subprojects {
             expand("version" to pluginVersion)
         }
     }
+
+    tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
+        destinationDirectory.set(rootProject.layout.projectDirectory.dir("output"))
+    }
 }
