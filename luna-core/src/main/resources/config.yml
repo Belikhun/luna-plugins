@@ -31,6 +31,7 @@ strings:
   money:
     currencySymbol: "₫"
     grouping: true
+    format: "{amount}{symbol}"
 
 logging:
   ansi: true

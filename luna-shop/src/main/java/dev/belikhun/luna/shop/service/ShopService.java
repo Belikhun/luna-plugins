@@ -1,5 +1,8 @@
 package dev.belikhun.luna.shop.service;
 
+import dev.belikhun.luna.core.LunaCore;
+import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
 import dev.belikhun.luna.shop.model.ShopItem;
 import dev.belikhun.luna.shop.store.ShopItemStore;
@@ -10,14 +13,25 @@ import org.bukkit.inventory.ItemStack;
 public final class ShopService {
 	private final ShopEconomyService economy;
 	private final ShopItemStore store;
+	private final String moneySymbol;
+	private final boolean moneyGrouping;
+	private final String moneyFormat;
 
 	public ShopService(ShopEconomyService economy, ShopItemStore store) {
 		this.economy = economy;
 		this.store = store;
+		ConfigStore coreConfig = LunaCore.services().configStore();
+		this.moneySymbol = coreConfig.get("strings.money.currencySymbol").asString("₫");
+		this.moneyGrouping = coreConfig.get("strings.money.grouping").asBoolean(true);
+		this.moneyFormat = coreConfig.get("strings.money.format").asString("{amount}{symbol}");
 	}
 
 	public ShopEconomyService economy() {
 		return economy;
+	}
+
+	public String formatMoney(double amount) {
+		return Formatters.money(amount, moneySymbol, moneyGrouping, moneyFormat);
 	}
 
 	public ShopResult buy(Player player, ShopItem shopItem, int amount) {
@@ -45,7 +59,7 @@ public final class ShopService {
 		}
 
 		give(player.getInventory(), sample, amount);
-		return ShopResult.ok("<green>✔ Mua thành công <white>" + amount + "</white> vật phẩm với giá <gold>" + economy.format(total) + "</gold>.</green>");
+		return ShopResult.ok("<green>✔ Mua thành công <white>" + amount + "</white> vật phẩm với giá " + formatMoney(total) + "<green>.</green>");
 	}
 
 	public ShopResult sell(Player player, ShopItem shopItem, int amount) {
@@ -70,7 +84,7 @@ public final class ShopService {
 			return ShopResult.fail("<red>❌ Không thể cộng tiền vào ví của bạn.</red>");
 		}
 
-		return ShopResult.ok("<green>✔ Bán thành công <white>" + amount + "</white> vật phẩm và nhận <gold>" + economy.format(total) + "</gold>.</green>");
+		return ShopResult.ok("<green>✔ Bán thành công <white>" + amount + "</white> vật phẩm và nhận " + formatMoney(total) + "<green>.</green>");
 	}
 
 	public ShopResult sellAllSimilar(Player player, ShopItem shopItem) {

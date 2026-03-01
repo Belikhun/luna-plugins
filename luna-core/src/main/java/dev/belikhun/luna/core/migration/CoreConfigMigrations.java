@@ -41,6 +41,7 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "help.search.cancelKeywords", java.util.List.of("huy", "cancel"));
 				ensureDefault(store, "strings.money.currencySymbol", "₫");
 				ensureDefault(store, "strings.money.grouping", true);
+				ensureDefault(store, "strings.money.format", "{amount}{symbol}");
 				ensureDefault(store, "logging.ansi", true);
 				ensureDefault(store, "logging.defaultScope", "LunaCore");
 				ensureDefault(store, "logging.level", "INFO");
@@ -63,6 +64,7 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "logging.ansi", true);
 				ensureDefault(store, "logging.defaultScope", "LunaCore");
 				ensureDefault(store, "logging.level", "INFO");
+				ensureDefault(store, "strings.money.format", "{amount}{symbol}");
 			}
 		});
 	}

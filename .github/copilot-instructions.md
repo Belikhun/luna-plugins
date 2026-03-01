@@ -28,7 +28,57 @@
 - YAML: **spaces only** (see `.editorconfig`).
 
 ## GUI UX rules
-- **Scannable UI text**: add blank spacer lines between logical sections in GUI item lore.
+- **Text Formatting Rule v2**
+  - **Readability baseline**:
+    - Use scannable text with logical blank lines between sections.
+    - On dark GUI backgrounds, avoid dark/low-contrast text colors.
+    - In item names/lore, each line must contain at most **7 words**.
+  - **Color and gradient tiering**:
+    - **Low tier**: basic solid colors only (no gradient).
+    - **Mid tier**: more eye-catching solid colors.
+    - **High tier**: simple/basic gradients.
+    - **Higher tier**: richer, more colorful gradients.
+    - Keep gradients for headings/highlights; body lines should remain stable and readable.
+  - **Inline value highlight**:
+    - Color/gradient may be used inside a sentence to emphasize key values (stats, prices, multipliers), similar to game-style stat highlighting.
+    - Prefer solid color first; use short gradient only for truly critical values.
+    - Keep highlight density low; do not color every value in one sentence.
+  - **Text styles**:
+    - Bold: for key values and critical labels.
+    - Italic: only for minor notes; use sparingly.
+    - Underline: only for important action keywords.
+    - Strike: only for unavailable/invalid/overridden content.
+  - **Lore marker and icons**:
+    - Use `▍` only for multi-line information blocks.
+    - Do not use `▍` on single standalone/non-information lines.
+    - Use only Minecraft-safe symbols from the allowed icon list.
+  - **Structure patterns**:
+    - **Leveled indentation**: keep hierarchy shallow (max 2 levels in lore).
+    - **List usage**: use list style for grouped items/actions with consistent phrasing.
+    - **Textblock usage**: use short multi-line blocks for grouped info (2–4 lines), with clear start and end.
+- **Surface-based color usage**:
+  - **Chat and scoreboard** (dark background):
+    - Prefer bright/high-contrast colors for important text.
+    - Use mid colors only for less important/supporting information.
+    - Avoid dark/low-contrast colors.
+  - **Inventory title (GUI name)** (white/light inventory background):
+    - Prefer dark colors for strong readability.
+    - Keep title contrast high and avoid overly bright washed-out colors.
+  - **Action bar, boss bar, title/subtitle** (rendered over world scene):
+    - Use neutral or bright colors for robust readability across day/night and mixed world lighting.
+    - Avoid very dark colors that can disappear on dark scenes.
+- **Core palette usage (`LunaPalette`)**:
+  - Use palette tokens from `luna-core/api/ui/LunaPalette.java`; avoid hard-coded hex in feature modules.
+  - Shade intent:
+    - Bright: `*_100`, `*_300` (high-contrast text on dark surfaces).
+    - Mid: `*_500` (default accent and actionable text).
+    - Dark: `*_700`, `*_900` (titles/labels on light surfaces).
+  - Use semantic families by meaning:
+    - Success: `SUCCESS_*`
+    - Warning: `WARNING_*` or `AMBER_*`
+    - Error: `DANGER_*`
+    - Info: `INFO_*` or `SKY_*`
+  - For gradients, compose from palette tokens of adjacent shades/families instead of arbitrary colors.
 
 ## Language/localization
 - All player-facing text **must be Vietnamese** with full accents (chat, GUI, HUD, templates).
@@ -66,3 +116,10 @@
   - `luna-core/src/main/java/dev/belikhun/luna/core/LunaCorePlugin.java`
   - `luna-shop/src/main/java/dev/belikhun/luna/shop/LunaShopPlugin.java`
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
+
+## Reuse and deduplication rules
+- Avoid duplicated code across modules. Before adding a new helper, check whether a similar method already exists.
+- If logic is used (or expected to be used) by 2+ plugins/modules, move it into `luna-core` and reuse it from feature modules.
+- Keep feature modules (e.g. `luna-shop`) focused on feature/business flows; shared concerns must live in `luna-core` (text formatting, lore wrapping, pagination, command completion, GUI helpers, common validators).
+- Prefer extending existing core utility classes before creating new feature-local helpers with overlapping behavior.
+- During refactors, replace duplicate call-sites with core utilities instead of maintaining parallel implementations.

@@ -1,8 +1,11 @@
 package dev.belikhun.luna.shop.store;
 
+import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -20,13 +23,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class ShopItemStore {
+	private static final PlainTextComponentSerializer PLAIN_TEXT = PlainTextComponentSerializer.plainText();
+
 	private final JavaPlugin plugin;
+	private final LunaLogger logger;
 	private final File file;
 	private final ConcurrentMap<String, ShopItem> items;
 	private final ConcurrentMap<String, ShopCategory> categories;
 
-	public ShopItemStore(JavaPlugin plugin) {
+	public ShopItemStore(JavaPlugin plugin, LunaLogger logger) {
 		this.plugin = plugin;
+		this.logger = logger;
 		this.file = new File(plugin.getDataFolder(), "items.yml");
 		this.items = new ConcurrentHashMap<>();
 		this.categories = new ConcurrentHashMap<>();
@@ -43,12 +50,13 @@ public final class ShopItemStore {
 				String root = "categories." + key;
 				String id = configuration.getString(root + ".id", key);
 				String iconData = configuration.getString(root + ".icon-data", "");
+				String displayName = configuration.getString(root + ".display-name", "");
 				if (iconData == null || iconData.isBlank()) {
 					continue;
 				}
 
 				String normalizedId = ShopItem.normalizeCategory(id);
-				categories.put(normalizedId, new ShopCategory(normalizedId, iconData));
+				categories.put(normalizedId, new ShopCategory(normalizedId, iconData, displayName));
 			}
 		}
 
@@ -82,6 +90,7 @@ public final class ShopItemStore {
 			String root = "categories." + category.id();
 			configuration.set(root + ".id", category.id());
 			configuration.set(root + ".icon-data", category.iconData());
+			configuration.set(root + ".display-name", category.displayName());
 		}
 
 		for (ShopItem item : all()) {
@@ -96,7 +105,7 @@ public final class ShopItemStore {
 		try {
 			configuration.save(file);
 		} catch (IOException exception) {
-			plugin.getLogger().severe("Không thể lưu items.yml: " + exception.getMessage());
+			logger.error("Không thể lưu items.yml: " + exception.getMessage(), exception);
 		}
 	}
 
@@ -112,6 +121,22 @@ public final class ShopItemStore {
 		}
 
 		return Optional.ofNullable(items.get(ShopItem.normalizeId(id)));
+	}
+
+	public Optional<ShopItem> findBySimilarItem(ItemStack itemStack) {
+		if (itemStack == null || itemStack.getType().isAir()) {
+			return Optional.empty();
+		}
+
+		ItemStack normalized = itemStack.clone();
+		normalized.setAmount(1);
+		for (ShopItem item : items.values()) {
+			if (item.itemStack().isSimilar(normalized)) {
+				return Optional.of(item);
+			}
+		}
+
+		return Optional.empty();
 	}
 
 	public boolean remove(String id) {
@@ -166,9 +191,26 @@ public final class ShopItemStore {
 	}
 
 	public void upsertCategoryIcon(String categoryId, ItemStack icon) {
+		String normalizedId = ShopItem.normalizeCategory(categoryId);
+		ShopCategory existing = categories.get(normalizedId);
 		ShopCategory category = ShopCategory.fromIcon(categoryId, icon);
+		if (existing != null && existing.hasDisplayName()) {
+			category = category.withDisplayName(existing.displayName());
+		}
 		categories.put(category.id(), category);
 		save();
+	}
+
+	public boolean updateCategoryDisplayName(String categoryId, String displayName) {
+		String normalizedId = ShopItem.normalizeCategory(categoryId);
+		ShopCategory category = categories.get(normalizedId);
+		if (category == null) {
+			return false;
+		}
+
+		categories.put(normalizedId, category.withDisplayName(displayName));
+		save();
+		return true;
 	}
 
 	public boolean renameCategory(String oldId, String newId) {
@@ -180,7 +222,7 @@ public final class ShopItemStore {
 		}
 
 		categories.remove(normalizedOld);
-		categories.put(normalizedNew, new ShopCategory(normalizedNew, old.iconData()));
+		categories.put(normalizedNew, new ShopCategory(normalizedNew, old.iconData(), old.displayName()));
 		for (Map.Entry<String, ShopItem> entry : items.entrySet()) {
 			ShopItem item = entry.getValue();
 			if (!item.category().equalsIgnoreCase(normalizedOld)) {
@@ -232,7 +274,7 @@ public final class ShopItemStore {
 
 	public List<ShopItem> byCategory(String category) {
 		String normalized = ShopItem.normalizeCategory(category);
-		return all().stream().filter(item -> item.category().equalsIgnoreCase(normalized)).toList();
+		return new ArrayList<>(all().stream().filter(item -> item.category().equalsIgnoreCase(normalized)).toList());
 	}
 
 	public List<ShopItem> search(String keyword) {
@@ -241,7 +283,7 @@ public final class ShopItemStore {
 			return all();
 		}
 
-		return all().stream().filter(item -> {
+		return new ArrayList<>(all().stream().filter(item -> {
 			if (item.id().toLowerCase().contains(normalized)) {
 				return true;
 			}
@@ -250,17 +292,15 @@ public final class ShopItemStore {
 				return true;
 			}
 
-			String displayName = item.itemStack().hasItemMeta() && item.itemStack().getItemMeta().hasDisplayName()
-				? item.itemStack().getItemMeta().getDisplayName()
-				: item.itemStack().getType().name();
+			String displayName = nameForSearch(item.itemStack());
 			return displayName.toLowerCase().contains(normalized);
-		}).toList();
+		}).toList());
 	}
 
 	public List<ShopItem> searchInCategory(String category, String keyword) {
 		String normalizedCategory = ShopItem.normalizeCategory(category);
 		String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
-		return byCategory(normalizedCategory).stream().filter(item -> {
+		return new ArrayList<>(byCategory(normalizedCategory).stream().filter(item -> {
 			if (normalizedKeyword.isBlank()) {
 				return true;
 			}
@@ -269,11 +309,22 @@ public final class ShopItemStore {
 				return true;
 			}
 
-			String displayName = item.itemStack().hasItemMeta() && item.itemStack().getItemMeta().hasDisplayName()
-				? item.itemStack().getItemMeta().getDisplayName()
-				: item.itemStack().getType().name();
+			String displayName = nameForSearch(item.itemStack());
 			return displayName.toLowerCase().contains(normalizedKeyword);
-		}).toList();
+		}).toList());
+	}
+
+	private String nameForSearch(ItemStack stack) {
+		if (!stack.hasItemMeta()) {
+			return stack.getType().name();
+		}
+
+		ItemMeta meta = stack.getItemMeta();
+		if (meta.hasCustomName() && meta.customName() != null) {
+			return PLAIN_TEXT.serialize(meta.customName());
+		}
+
+		return stack.getType().name();
 	}
 
 	private void ensureCategoryFallbacks() {

@@ -20,10 +20,10 @@ public record DatabaseConfig(
 				sqliteName = sqliteName + ".db";
 			}
 			baseUrl = type.jdbcPattern().formatted(sqliteName);
-		} else {
-			baseUrl = type.jdbcPattern().formatted(host, port, name);
+			return baseUrl;
 		}
 
+		baseUrl = type.jdbcPattern().formatted(host, port, name);
 		StringBuilder url = new StringBuilder(baseUrl);
 		if (options != null && !options.isEmpty()) {
 			url.append("?");

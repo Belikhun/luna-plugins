@@ -5,6 +5,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 
 import java.util.Map;
@@ -27,7 +28,8 @@ public final class GuiManager implements Listener {
 
 	@EventHandler
 	public void onClick(InventoryClickEvent event) {
-		GuiView view = views.get(event.getInventory());
+		Inventory topInventory = event.getView().getTopInventory();
+		GuiView view = views.get(topInventory);
 		if (view == null) {
 			return;
 		}
@@ -39,10 +41,27 @@ public final class GuiManager implements Listener {
 	}
 
 	@EventHandler
+	public void onDrag(InventoryDragEvent event) {
+		Inventory topInventory = event.getView().getTopInventory();
+		if (!views.containsKey(topInventory)) {
+			return;
+		}
+
+		int topSize = topInventory.getSize();
+		for (int rawSlot : event.getRawSlots()) {
+			if (rawSlot < topSize) {
+				event.setCancelled(true);
+				return;
+			}
+		}
+	}
+
+	@EventHandler
 	public void onClose(InventoryCloseEvent event) {
-		GuiView view = views.get(event.getInventory());
+		Inventory topInventory = event.getView().getTopInventory();
+		GuiView view = views.get(topInventory);
 		if (view != null) {
-			views.remove(event.getInventory());
+			views.remove(topInventory);
 		}
 	}
 }

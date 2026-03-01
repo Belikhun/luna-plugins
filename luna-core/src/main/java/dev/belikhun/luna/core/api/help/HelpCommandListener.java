@@ -3,6 +3,10 @@ package dev.belikhun.luna.core.api.help;
 import dev.belikhun.luna.core.LunaCoreServices;
 import dev.belikhun.luna.core.api.gui.GuiManager;
 import dev.belikhun.luna.core.api.gui.GuiView;
+import dev.belikhun.luna.core.api.gui.LunaPagination;
+import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.ui.LunaLore;
+import dev.belikhun.luna.core.api.ui.LunaUi;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -12,9 +16,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -104,7 +106,7 @@ public final class HelpCommandListener implements Listener {
 
 	private void openFrontPage(Player player, int page) {
 		int size = normalizeSize(services.configStore().get("help.gui.size").asInt(54));
-		GuiView gui = new GuiView(size, miniMessage.deserialize("<gradient:#f8c630:#f39c12>📚 Trung Tâm Trợ Giúp Luna</gradient>"));
+		GuiView gui = new GuiView(size, LunaUi.guiTitle("📚 Trung Tâm Trợ Giúp Luna"));
 		guiManager.track(gui);
 
 		String query = searchQueries.get(player.getUniqueId());
@@ -120,8 +122,8 @@ public final class HelpCommandListener implements Listener {
 			categories = filtered;
 		}
 
-		int maxPage = maxPage(categories.size());
-		int currentPage = clampPage(page, maxPage);
+		int maxPage = LunaPagination.maxPage(categories.size(), CONTENT_SIZE);
+		int currentPage = LunaPagination.clampPage(page, maxPage);
 		int start = currentPage * CONTENT_SIZE;
 		int end = Math.min(categories.size(), start + CONTENT_SIZE);
 		for (int index = start; index < end; index++) {
@@ -132,10 +134,10 @@ public final class HelpCommandListener implements Listener {
 
 		fillFooter(gui);
 		if (currentPage > 0) {
-			gui.setItem(45, navItem(Material.ARROW, "<yellow>⬅ Trang trước", List.of("<gray>Quay về trang danh mục trước.")), (clicker, event, view) -> openFrontPage(clicker, currentPage - 1));
+			gui.setItem(45, navItem(Material.ARROW, "<yellow>← Trang trước", List.of("<gray>Quay về trang danh mục trước.")), (clicker, event, view) -> openFrontPage(clicker, currentPage - 1));
 		}
 		if (currentPage < maxPage) {
-			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau ➡", List.of("<gray>Xem thêm danh mục lệnh.")), (clicker, event, view) -> openFrontPage(clicker, currentPage + 1));
+			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau →", List.of("<gray>Xem thêm danh mục lệnh.")), (clicker, event, view) -> openFrontPage(clicker, currentPage + 1));
 		}
 
 		gui.setItem(49, navItem(Material.COMPASS, "<aqua>🔍 Tìm kiếm lệnh", List.of("<gray>Nhấn để nhập từ khóa trên chat.", "<gray>Gõ <white>huy</white> để hủy.")), (clicker, event, view) -> beginSearch(clicker));
@@ -153,13 +155,13 @@ public final class HelpCommandListener implements Listener {
 
 	private void openCategoryPage(Player player, HelpCategory category, int page) {
 		int size = normalizeSize(services.configStore().get("help.gui.size").asInt(54));
-		GuiView gui = new GuiView(size, miniMessage.deserialize("<gold>📁 " + category.title()));
+		GuiView gui = new GuiView(size, LunaUi.guiTitle("♦ " + category.title()));
 		guiManager.track(gui);
 
 		List<HelpEntry> entries = services.helpRegistry().visibleEntriesByCategory(player, category.id());
 		entries.sort(Comparator.comparing(entry -> entry.command().toLowerCase(Locale.ROOT)));
-		int maxPage = maxPage(entries.size());
-		int currentPage = clampPage(page, maxPage);
+		int maxPage = LunaPagination.maxPage(entries.size(), CONTENT_SIZE);
+		int currentPage = LunaPagination.clampPage(page, maxPage);
 		int start = currentPage * CONTENT_SIZE;
 		int end = Math.min(entries.size(), start + CONTENT_SIZE);
 		for (int index = start; index < end; index++) {
@@ -170,10 +172,10 @@ public final class HelpCommandListener implements Listener {
 
 		fillFooter(gui);
 		if (currentPage > 0) {
-			gui.setItem(45, navItem(Material.ARROW, "<yellow>⬅ Trang trước", List.of("<gray>Quay về trang lệnh trước.")), (clicker, event, view) -> openCategoryPage(clicker, category, currentPage - 1));
+			gui.setItem(45, navItem(Material.ARROW, "<yellow>← Trang trước", List.of("<gray>Quay về trang lệnh trước.")), (clicker, event, view) -> openCategoryPage(clicker, category, currentPage - 1));
 		}
 		if (currentPage < maxPage) {
-			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau ➡", List.of("<gray>Xem thêm lệnh trong danh mục.")), (clicker, event, view) -> openCategoryPage(clicker, category, currentPage + 1));
+			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau →", List.of("<gray>Xem thêm lệnh trong danh mục.")), (clicker, event, view) -> openCategoryPage(clicker, category, currentPage + 1));
 		}
 
 		gui.setItem(49, navItem(Material.CHEST, "<aqua>Quay lại danh mục", List.of("<gray>Trở về trang chính trợ giúp.")), (clicker, event, view) -> openFrontPage(clicker, 0));
@@ -184,13 +186,13 @@ public final class HelpCommandListener implements Listener {
 
 	private void openSearchResults(Player player, String query, int page) {
 		int size = normalizeSize(services.configStore().get("help.gui.size").asInt(54));
-		GuiView gui = new GuiView(size, miniMessage.deserialize("<aqua>🔎 Kết Quả: <white>" + query));
+		GuiView gui = new GuiView(size, LunaUi.guiTitle("🔍 Kết Quả: " + query));
 		guiManager.track(gui);
 
 		List<HelpEntry> entries = services.helpRegistry().search(player, query);
 		entries.sort(Comparator.comparing(entry -> entry.command().toLowerCase(Locale.ROOT)));
-		int maxPage = maxPage(entries.size());
-		int currentPage = clampPage(page, maxPage);
+		int maxPage = LunaPagination.maxPage(entries.size(), CONTENT_SIZE);
+		int currentPage = LunaPagination.clampPage(page, maxPage);
 		int start = currentPage * CONTENT_SIZE;
 		int end = Math.min(entries.size(), start + CONTENT_SIZE);
 		for (int index = start; index < end; index++) {
@@ -201,10 +203,10 @@ public final class HelpCommandListener implements Listener {
 
 		fillFooter(gui);
 		if (currentPage > 0) {
-			gui.setItem(45, navItem(Material.ARROW, "<yellow>⬅ Trang trước", List.of("<gray>Quay về trang kết quả trước.")), (clicker, event, view) -> openSearchResults(clicker, query, currentPage - 1));
+			gui.setItem(45, navItem(Material.ARROW, "<yellow>← Trang trước", List.of("<gray>Quay về trang kết quả trước.")), (clicker, event, view) -> openSearchResults(clicker, query, currentPage - 1));
 		}
 		if (currentPage < maxPage) {
-			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau ➡", List.of("<gray>Xem thêm kết quả.")), (clicker, event, view) -> openSearchResults(clicker, query, currentPage + 1));
+			gui.setItem(53, navItem(Material.ARROW, "<yellow>Trang sau →", List.of("<gray>Xem thêm kết quả.")), (clicker, event, view) -> openSearchResults(clicker, query, currentPage + 1));
 		}
 
 		gui.setItem(49, navItem(Material.COMPASS, "<aqua>Nhập từ khóa mới", List.of("<gray>Tìm kiếm lại từ đầu.")), (clicker, event, view) -> beginSearch(clicker));
@@ -226,80 +228,124 @@ public final class HelpCommandListener implements Listener {
 	private ItemStack categoryItem(Player player, HelpCategory category) {
 		int commandCount = services.helpRegistry().countVisibleEntries(player, category.id());
 		List<Component> lore = new ArrayList<>();
-		lore.add(miniMessage.deserialize("<gray>Plugin: <white>" + category.plugin()));
+		addLoreLines(lore, "<white>Plugin: <yellow>" + category.plugin());
 		if (!category.description().isBlank()) {
-			lore.add(miniMessage.deserialize("<gray>" + category.description()));
+			addLoreLines(lore, "<white>" + category.description());
 		}
 		lore.add(Component.empty());
-		lore.add(miniMessage.deserialize("<gray>● Tổng lệnh: <green>" + commandCount));
-		lore.add(miniMessage.deserialize("<gray>Nhấn để xem danh sách lệnh chi tiết."));
+		addLoreLines(lore, "<white>● Tổng lệnh: <green>" + commandCount);
+		addLoreLines(lore, "<white>Nhấn để xem lệnh chi tiết");
 		return item(category.material(), "<gold>" + category.title(), lore);
 	}
 
 	private ItemStack commandItem(HelpEntry entry) {
 		List<Component> lore = new ArrayList<>();
-		lore.add(miniMessage.deserialize("<gray>Plugin: <white>" + entry.plugin()));
-		lore.add(miniMessage.deserialize("<gray>Danh mục: <white>" + entry.categoryId()));
+		addLoreLines(lore, "<white>Plugin: <yellow>" + entry.plugin());
+		addLoreLines(lore, "<white>Danh mục: <yellow>" + entry.categoryId());
 		lore.add(Component.empty());
-		lore.add(miniMessage.deserialize("<gray>Mô tả:</gray> <white>" + entry.description()));
+		addLoreLines(lore, "<white>Mô tả: <yellow>" + entry.description());
 		lore.add(Component.empty());
-		lore.add(miniMessage.deserialize("<aqua>Cú pháp:</aqua>"));
-		lore.add(miniMessage.deserialize(formatSyntax(entry)));
+		addLoreLines(lore, "<aqua>Cú pháp:");
+		addLoreLines(lore, formatSyntax(entry));
 
 		if (!entry.arguments().isEmpty()) {
 			lore.add(Component.empty());
-			lore.add(miniMessage.deserialize("<gold>Tham số:</gold>"));
+			addLoreLines(lore, "<gold>Tham số:");
 			for (HelpArgument argument : entry.arguments()) {
 				String required = argument.required() ? "<red>Bắt buộc</red>" : "<yellow>Tùy chọn</yellow>";
-				lore.add(miniMessage.deserialize("<gray>● <white>" + argument.syntaxToken() + "</white> - " + required));
+				addLoreLines(lore, "<white>● <yellow>" + argument.syntaxToken() + "</yellow> - " + required);
 				if (!argument.description().isBlank()) {
-					lore.add(miniMessage.deserialize("<dark_gray>  ↳ " + argument.description()));
+					addLoreLines(lore, "<white>↳ " + argument.description());
 				}
 				if (!argument.enumValues().isEmpty()) {
-					lore.add(miniMessage.deserialize("<dark_gray>  ↳ Giá trị: <aqua>" + String.join("</aqua><gray> | </gray><aqua>", argument.enumValues()) + "</aqua>"));
+					addLoreLines(lore, "<white>↳ Giá trị: <aqua>" + String.join("</aqua><white> | </white><aqua>", argument.enumValues()) + "</aqua>");
 				}
 			}
 		}
 
 		if (!entry.usageExamples().isEmpty()) {
 			lore.add(Component.empty());
-			lore.add(miniMessage.deserialize("<green>Ví dụ:</green>"));
+			addLoreLines(lore, "<green>Ví dụ:");
 			for (String example : entry.usageExamples()) {
-				lore.add(miniMessage.deserialize("<gray>• <white>" + example));
+				addLoreLines(lore, "<white>• </white>" + CommandStrings.syntaxRaw(example));
 			}
 		}
 
-		return item(entry.material(), "<yellow>" + entry.command(), lore);
+		return item(entry.material(), CommandStrings.syntaxRaw(entry.command()), lore);
 	}
 
 	private String formatSyntax(HelpEntry entry) {
-		StringBuilder builder = new StringBuilder("<white>").append(entry.command());
+		List<CommandStrings.Segment> segments = new ArrayList<>();
 		for (HelpArgument argument : entry.arguments()) {
+			String token = normalizeArgumentName(argument.syntaxToken());
+			String type = normalizeArgumentType(argument);
 			if (argument.required()) {
-				builder.append(" <red>").append(argument.syntaxToken()).append("</red>");
-			} else {
-				builder.append(" <yellow>").append(argument.syntaxToken()).append("</yellow>");
+				segments.add(CommandStrings.required(token, type));
+				continue;
+			}
+			segments.add(CommandStrings.optional(token, type));
+		}
+		return CommandStrings.syntaxRaw(entry.command(), segments.toArray(new CommandStrings.Segment[0]));
+	}
+
+	private String normalizeArgumentName(String syntaxToken) {
+		if (syntaxToken == null) {
+			return "tham_số";
+		}
+
+		String normalized = syntaxToken.trim();
+		if ((normalized.startsWith("<") && normalized.endsWith(">")) || (normalized.startsWith("[") && normalized.endsWith("]"))) {
+			normalized = normalized.substring(1, normalized.length() - 1).trim();
+		}
+
+		int typeSplit = normalized.indexOf(':');
+		if (typeSplit >= 0 && typeSplit < normalized.length() - 1) {
+			normalized = normalized.substring(0, typeSplit).trim();
+		}
+
+		return normalized.isBlank() ? "tham_số" : normalized;
+	}
+
+	private String normalizeArgumentType(HelpArgument argument) {
+		String syntaxToken = argument.syntaxToken() == null ? "" : argument.syntaxToken().trim();
+		int typeSplit = syntaxToken.indexOf(':');
+		if (typeSplit >= 0 && typeSplit < syntaxToken.length() - 1) {
+			String explicitType = syntaxToken.substring(typeSplit + 1).trim();
+			if (!explicitType.isBlank()) {
+				return explicitType;
 			}
 		}
-		return builder.toString();
+
+		if (!argument.enumValues().isEmpty()) {
+			return String.join("|", argument.enumValues());
+		}
+
+		String tokenLower = normalizeArgumentName(syntaxToken).toLowerCase(Locale.ROOT);
+		if (tokenLower.contains("price") || tokenLower.contains("amount") || tokenLower.contains("count") || tokenLower.contains("page") || tokenLower.contains("số")) {
+			return "number";
+		}
+
+		return "text";
 	}
 
 	private ItemStack navItem(Material material, String title, List<String> loreLines) {
 		List<Component> lore = new ArrayList<>();
 		for (String line : loreLines) {
-			lore.add(miniMessage.deserialize(line));
+			for (String wrapped : LunaLore.wrapLoreLine(line)) {
+				lore.add(wrapped.isEmpty() ? Component.empty() : LunaUi.mini(wrapped));
+			}
 		}
 		return item(material, title, lore);
 	}
 
+	private void addLoreLines(List<Component> lore, String line) {
+		for (String wrapped : LunaLore.wrapLoreLine(line)) {
+			lore.add(wrapped.isEmpty() ? Component.empty() : miniMessage.deserialize(wrapped));
+		}
+	}
+
 	private ItemStack item(Material material, String title, List<Component> lore) {
-		ItemStack item = new ItemStack(material);
-		ItemMeta meta = item.getItemMeta();
-		meta.displayName(miniMessage.deserialize(title));
-		meta.lore(lore);
-		meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
-		item.setItemMeta(meta);
-		return item;
+		return LunaUi.item(material, title, lore);
 	}
 
 	private void fillFooter(GuiView gui) {
@@ -316,20 +362,6 @@ public final class HelpCommandListener implements Listener {
 			normalized += 9 - mod;
 		}
 		return Math.min(normalized, 54);
-	}
-
-	private int maxPage(int itemCount) {
-		if (itemCount <= 0) {
-			return 0;
-		}
-		return (itemCount - 1) / CONTENT_SIZE;
-	}
-
-	private int clampPage(int page, int maxPage) {
-		if (page < 0) {
-			return 0;
-		}
-		return Math.min(page, maxPage);
 	}
 
 	private boolean matchesQuery(HelpEntry entry, String query) {

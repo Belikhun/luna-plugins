@@ -24,11 +24,20 @@ public final class Formatters {
 	}
 
 	public static String money(double value, String currencySymbol) {
+		return money(value, currencySymbol, true, "{amount} {symbol}");
+	}
+
+	public static String money(double value, String currencySymbol, boolean grouping, String template) {
 		DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.forLanguageTag("vi-VN"));
 		symbols.setGroupingSeparator('.');
 		symbols.setDecimalSeparator(',');
-		DecimalFormat format = new DecimalFormat("#,##0.##", symbols);
-		return format.format(value) + " " + currencySymbol;
+		DecimalFormat format = new DecimalFormat(grouping ? "#,##0.##" : "0.##", symbols);
+		String amount = format.format(value);
+		String normalizedSymbol = currencySymbol == null ? "" : currencySymbol;
+		String normalizedTemplate = (template == null || template.isBlank()) ? "{amount} {symbol}" : template;
+		return normalizedTemplate
+			.replace("{amount}", amount)
+			.replace("{symbol}", normalizedSymbol);
 	}
 
 	public static String date(Instant instant) {

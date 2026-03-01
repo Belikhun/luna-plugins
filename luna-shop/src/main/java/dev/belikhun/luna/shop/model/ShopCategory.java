@@ -9,10 +9,13 @@ import java.util.Objects;
 public final class ShopCategory {
 	private final String id;
 	private final String iconData;
+	private final String displayName;
 
-	public ShopCategory(String id, String iconData) {
+	public ShopCategory(String id, String iconData, String displayName) {
 		this.id = ShopItem.normalizeCategory(id);
 		this.iconData = Objects.requireNonNull(iconData, "iconData");
+		String normalizedDisplayName = displayName == null ? "" : displayName.trim();
+		this.displayName = normalizedDisplayName;
 	}
 
 	public String id() {
@@ -21,6 +24,14 @@ public final class ShopCategory {
 
 	public String iconData() {
 		return iconData;
+	}
+
+	public String displayName() {
+		return displayName;
+	}
+
+	public boolean hasDisplayName() {
+		return !displayName.isBlank();
 	}
 
 	public ItemStack iconItem() {
@@ -32,7 +43,11 @@ public final class ShopCategory {
 		ItemStack cloned = icon == null ? new ItemStack(Material.CHEST) : icon.clone();
 		cloned.setAmount(1);
 		String encoded = Base64.getEncoder().encodeToString(cloned.serializeAsBytes());
-		return new ShopCategory(id, encoded);
+		return new ShopCategory(id, encoded, "");
+	}
+
+	public ShopCategory withDisplayName(String value) {
+		return new ShopCategory(id, iconData, value);
 	}
 
 	public static ShopCategory defaultCategory(String id) {

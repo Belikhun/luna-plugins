@@ -3,6 +3,9 @@ package dev.belikhun.luna.shop.model;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Base64;
+import java.util.HexFormat;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Objects;
 
 public final class ShopItem {
@@ -50,6 +53,29 @@ public final class ShopItem {
 		cloned.setAmount(1);
 		String encoded = Base64.getEncoder().encodeToString(cloned.serializeAsBytes());
 		return new ShopItem(id, category, buyPrice, sellPrice, encoded);
+	}
+
+	public static ShopItem fromItemStackAutoId(String category, double buyPrice, double sellPrice, ItemStack itemStack) {
+		String id = hashId(itemStack);
+		return fromItemStack(id, category, buyPrice, sellPrice, itemStack);
+	}
+
+	public static String hashId(ItemStack itemStack) {
+		if (itemStack == null) {
+			return "0000000";
+		}
+
+		ItemStack normalized = itemStack.clone();
+		normalized.setAmount(1);
+		byte[] serialized = normalized.serializeAsBytes();
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			byte[] hash = digest.digest(serialized);
+			String hex = HexFormat.of().formatHex(hash);
+			return normalizeId(hex.substring(Math.max(0, hex.length() - 7)));
+		} catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("Thuật toán SHA-256 không khả dụng", exception);
+		}
 	}
 
 	public static String normalizeId(String value) {
