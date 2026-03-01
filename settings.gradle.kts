@@ -14,3 +14,4 @@ plugins {
 rootProject.name = "luna"
 include("luna-core")
 include("luna-shop")
+include("luna-countdown")

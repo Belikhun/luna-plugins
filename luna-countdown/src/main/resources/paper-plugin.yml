@@ -1,0 +1,39 @@
+name: LunaCountdown
+main: dev.belikhun.luna.countdown.Countdown
+author: Belikhun
+version: '${version}'
+api-version: '1.20'
+
+dependencies:
+  server:
+    LunaCore:
+      required: true
+
+commands:
+  countdown:
+    description: "Điều khiển đếm ngược"
+    usage: /countdown <start|stop|stopall>
+    permission: countdown.countdown
+    permission-message: Bạn không có quyền countdown.countdown
+    aliases:
+      - "cd"
+  shutdown:
+    description: "Tắt máy chủ sau 1 khoảng thời gian"
+    usage: /shutdown <delay>
+    permission: countdown.shutdown
+    permission-message: Bạn không có quyền countdown.shutdown
+    aliases:
+      - "stoptimer"
+
+permissions:
+  countdown.*:
+    description: "Toàn bộ quyền cho Countdown"
+    children:
+      countdown.countdown: true
+      countdown.shutdown: true
+  countdown.countdown:
+    description: "Cho phép bắt đầu đếm ngược"
+    default: op
+  countdown.shutdown:
+    description: "Cho phép tắt máy chủ"
+    default: op
