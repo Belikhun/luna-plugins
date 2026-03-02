@@ -2,7 +2,6 @@ package dev.belikhun.luna.hat;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -39,25 +38,21 @@ public class Hat extends JavaPlugin {
 
 	private void registerPermissions() {
 		Permission basePerm = new Permission("hat.*", PermissionDefault.OP);
-		Bukkit.getPluginManager().addPermission(basePerm);
-
 		Permission blockPerm = new Permission("hat.blocks", PermissionDefault.TRUE);
 		blockPerm.addParent(basePerm, true);
-		Bukkit.getPluginManager().addPermission(blockPerm);
-
 		Permission itemPerm = new Permission("hat.items", PermissionDefault.TRUE);
 		itemPerm.addParent(basePerm, true);
-		Bukkit.getPluginManager().addPermission(itemPerm);
 
-		Material[] materials = Material.values();
-		for (Material mat : materials) {
-			Permission perm = new Permission("hat." + mat.name(), PermissionDefault.TRUE);
-			if (mat.isBlock()) {
-				perm.addParent(blockPerm, true);
-			} else {
-				perm.addParent(itemPerm, true);
-			}
-			Bukkit.getPluginManager().addPermission(perm);
+		registerPermissionIfAbsent(basePerm);
+		registerPermissionIfAbsent(blockPerm);
+		registerPermissionIfAbsent(itemPerm);
+	}
+
+	private void registerPermissionIfAbsent(Permission permission) {
+		if (Bukkit.getPluginManager().getPermission(permission.getName()) != null) {
+			return;
 		}
+
+		Bukkit.getPluginManager().addPermission(permission);
 	}
 }

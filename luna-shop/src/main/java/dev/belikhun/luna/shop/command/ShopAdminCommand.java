@@ -306,6 +306,11 @@ public final class ShopAdminCommand implements BasicCommand {
 			return;
 		}
 
+		if (historicalTarget == null) {
+			sender.sendRichMessage("<red>❌ Không tìm thấy lịch sử cho người chơi: <white>" + args[1] + "</white>.</red>");
+			return;
+		}
+
 		guiController.openTransactionHistoryAdmin(admin, historicalTarget.uuid(), historicalTarget.name(), page);
 	}
 

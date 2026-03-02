@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.EquipmentSlot;
@@ -48,34 +49,121 @@ public class HatHandler implements BasicCommand, Listener {
 
 	@EventHandler
 	public void onClickInHelmetSlot(InventoryClickEvent event) {
-		if (event.getInventory().getType() == InventoryType.CRAFTING
-			&& event.getRawSlot() == 5
-			&& event.getWhoClicked().getItemOnCursor().getType() != Material.AIR
-			&& event.getWhoClicked().getItemOnCursor().getType().getEquipmentSlot() != EquipmentSlot.HEAD) {
-
-			Player player = (Player) event.getWhoClicked();
-			ItemStack cursorItem = player.getItemOnCursor();
-			ItemStack oldHelmet = player.getInventory().getHelmet();
-
-			if (checkValidHat(player, cursorItem)) {
-				event.setCancelled(true);
-
-				ItemStack hatOne = cursorItem.clone();
-				hatOne.setAmount(1);
-
-				ItemStack cursorRemaining = null;
-				if (cursorItem.getAmount() > 1) {
-					cursorRemaining = cursorItem.clone();
-					cursorRemaining.setAmount(cursorItem.getAmount() - 1);
-				}
-
-				player.setItemOnCursor(cursorRemaining == null ? new ItemStack(Material.AIR) : cursorRemaining);
-				player.getInventory().setHelmet(hatOne);
-				giveOrDrop(player, oldHelmet);
-				player.updateInventory();
-				player.sendMessage(LunaUi.mini("<green>✔ Đã đội vật phẩm lên mũ.</green>"));
-			}
+		if (!(event.getWhoClicked() instanceof Player player)) {
+			return;
 		}
+
+		if (isNumberKeyPlaceIntoHelmetSlot(event)) {
+			handleNumberKeyEquip(player, event);
+			return;
+		}
+
+		if (!isCursorPlaceIntoHelmetSlot(event)) {
+			return;
+		}
+
+		ItemStack cursorItem = event.getCursor();
+		if (cursorItem == null || cursorItem.getType() == Material.AIR) {
+			return;
+		}
+
+		if (cursorItem.getType().getEquipmentSlot() == EquipmentSlot.HEAD) {
+			return;
+		}
+
+		if (!checkValidHat(player, cursorItem)) {
+			return;
+		}
+
+		event.setCancelled(true);
+		PlayerInventory inventory = player.getInventory();
+		ItemStack oldHelmet = inventory.getHelmet();
+		ItemStack hatOne = cursorItem.clone();
+		hatOne.setAmount(1);
+
+		ItemStack cursorRemaining = new ItemStack(Material.AIR);
+		if (cursorItem.getAmount() > 1) {
+			cursorRemaining = cursorItem.clone();
+			cursorRemaining.setAmount(cursorItem.getAmount() - 1);
+		}
+		final ItemStack finalCursorRemaining = cursorRemaining;
+
+		inventory.setHelmet(hatOne);
+
+		if (oldHelmet == null || oldHelmet.getType() == Material.AIR) {
+			player.setItemOnCursor(finalCursorRemaining);
+		} else {
+			player.setItemOnCursor(oldHelmet);
+			giveOrDrop(player, finalCursorRemaining);
+		}
+
+		player.updateInventory();
+		player.sendMessage(LunaUi.mini("<green>✔ Đã đội vật phẩm lên mũ.</green>"));
+	}
+
+	private boolean isCursorPlaceIntoHelmetSlot(InventoryClickEvent event) {
+		ClickType click = event.getClick();
+		if (!(click == ClickType.LEFT || click == ClickType.RIGHT)) {
+			return false;
+		}
+
+		return isHelmetSlotClick(event);
+	}
+
+	private boolean isNumberKeyPlaceIntoHelmetSlot(InventoryClickEvent event) {
+		return event.getClick() == ClickType.NUMBER_KEY && isHelmetSlotClick(event);
+	}
+
+	private boolean isHelmetSlotClick(InventoryClickEvent event) {
+		if (event.getSlotType() != InventoryType.SlotType.ARMOR) {
+			return false;
+		}
+
+		boolean legacyHelmetRawSlot = event.getView().getTopInventory().getType() == InventoryType.CRAFTING
+			&& event.getRawSlot() == 5;
+		boolean playerHelmetSlot = event.getClickedInventory() instanceof PlayerInventory && event.getSlot() == 39;
+
+		return playerHelmetSlot || legacyHelmetRawSlot;
+	}
+
+	private void handleNumberKeyEquip(Player player, InventoryClickEvent event) {
+		int hotbarButton = event.getHotbarButton();
+		if (hotbarButton < 0 || hotbarButton > 8) {
+			return;
+		}
+
+		PlayerInventory inventory = player.getInventory();
+		ItemStack hotbarItem = inventory.getItem(hotbarButton);
+		if (hotbarItem == null || hotbarItem.getType() == Material.AIR) {
+			return;
+		}
+
+		if (hotbarItem.getType().getEquipmentSlot() == EquipmentSlot.HEAD) {
+			return;
+		}
+
+		if (!checkValidHat(player, hotbarItem)) {
+			return;
+		}
+
+		event.setCancelled(true);
+
+		ItemStack oldHelmet = inventory.getHelmet();
+		ItemStack hatOne = hotbarItem.clone();
+		hatOne.setAmount(1);
+
+		if (hotbarItem.getAmount() > 1) {
+			ItemStack remaining = hotbarItem.clone();
+			remaining.setAmount(hotbarItem.getAmount() - 1);
+			inventory.setItem(hotbarButton, remaining);
+		} else {
+			inventory.setItem(hotbarButton, new ItemStack(Material.AIR));
+		}
+
+		inventory.setHelmet(hatOne);
+		giveOrDrop(player, oldHelmet);
+		player.updateInventory();
+		player.sendMessage(LunaUi.mini("<green>✔ Đã đội vật phẩm lên mũ.</green>"));
 	}
 
 	private void equipFromMainHand(Player player, ItemStack held) {
@@ -108,11 +196,20 @@ public class HatHandler implements BasicCommand, Listener {
 	}
 
 	private boolean checkValidHat(Player player, ItemStack held) {
-		if (player.hasPermission("hat." + held.getType().name()) || held.getType() == Material.AIR) {
+		if (held.getType() == Material.AIR) {
 			return true;
-		} else {
-			player.sendMessage(LunaUi.mini("<red>❌ Bạn không có quyền đội vật phẩm này.</red>"));
 		}
+
+		boolean hasCategoryPerm = held.getType().isBlock()
+			? player.hasPermission("hat.blocks")
+			: player.hasPermission("hat.items");
+
+		if (hasCategoryPerm) {
+			return true;
+		}
+
+		player.sendMessage(LunaUi.mini("<red>❌ Bạn không có quyền đội vật phẩm này.</red>"));
 		return false;
 	}
+
 }

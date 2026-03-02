@@ -1148,8 +1148,7 @@ public final class ShopGuiController implements Listener {
 	private List<Component> appendShopLore(ItemMeta meta, List<String> shopLoreLines) {
 		ArrayList<Component> mergedLore = new ArrayList<>();
 		List<Component> originalLore = meta.lore();
-		boolean hasOriginalLore = meta.hasLore() && originalLore != null && !originalLore.isEmpty();
-		if (hasOriginalLore) {
+		if (originalLore != null && !originalLore.isEmpty()) {
 			for (Component originalLine : originalLore) {
 				mergedLore.add(normalizeLoreComponent(originalLine));
 			}
