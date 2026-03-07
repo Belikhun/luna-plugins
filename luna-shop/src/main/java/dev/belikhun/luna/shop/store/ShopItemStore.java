@@ -35,7 +35,7 @@ public final class ShopItemStore {
 	public ShopItemStore(JavaPlugin plugin, LunaLogger logger) {
 		this.plugin = plugin;
 		this.logger = logger;
-		this.file = new File(plugin.getDataFolder(), "items.yml");
+		this.file = new File(this.plugin.getDataFolder(), "items.yml");
 		this.items = new ConcurrentHashMap<>();
 		this.categories = new ConcurrentHashMap<>();
 	}

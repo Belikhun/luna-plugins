@@ -18,6 +18,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.Damageable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -152,9 +153,35 @@ public final class ToolRepairConfirmGui implements Listener {
 			return;
 		}
 
+		Damageable damageable = (Damageable) itemInHand.getItemMeta();
+		int damageBefore = damageable.getDamage();
+		int maxDurability = itemInHand.getType().getMaxDurability();
+
 		service.repair(itemInHand);
+		logRepairHistory(player, itemInHand, quote, damageBefore, maxDurability);
 		send(player, "messages.item-repaired", Map.of("cost", service.formatMoney(quote.finalCost())));
 		player.closeInventory();
+	}
+
+	private void logRepairHistory(Player player, ItemStack item, ToolRepairService.RepairQuote quote, int damageBefore, int maxDurability) {
+		int x = player.getLocation().getBlockX();
+		int y = player.getLocation().getBlockY();
+		int z = player.getLocation().getBlockZ();
+		String location = player.getWorld().getName() + "@" + x + "," + y + "," + z;
+		String itemType = item.getType().name().toLowerCase(Locale.ROOT);
+
+		logger.audit(
+			"RepairHistory player=" + player.getName()
+				+ " uuid=" + player.getUniqueId()
+				+ " item=" + itemType
+				+ " durabilityBefore=" + (maxDurability - damageBefore) + "/" + maxDurability
+				+ " damageBefore=" + damageBefore
+				+ " baseCost=" + service.formatMoney(quote.baseCost())
+				+ " damageCost=" + service.formatMoney(quote.damageCost())
+				+ " finalCost=" + service.formatMoney(quote.finalCost())
+				+ " remainingBefore=" + formatPercent(quote.remainingDurabilityPercent()) + "%"
+				+ " location=" + location
+		);
 	}
 
 	private void fillBackground(Inventory inventory) {
