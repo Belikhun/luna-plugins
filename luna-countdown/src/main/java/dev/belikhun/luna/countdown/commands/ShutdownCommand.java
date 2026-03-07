@@ -23,7 +23,7 @@ import java.util.Collection;
 
 public class ShutdownCommand implements BasicCommand {
 	public static CountInstance instance;
-	
+
 	public ShutdownCommand() { }
 
 	@Override
@@ -66,7 +66,7 @@ public class ShutdownCommand implements BasicCommand {
 
 		if (args.length >= 2)
 			message = StringUtils.join(Arrays.copyOfRange(args, 1, args.length), ' ');
-		
+
 		start(message, length);
 	}
 
@@ -82,17 +82,17 @@ public class ShutdownCommand implements BasicCommand {
 					? "<white>Máy chủ sẽ tắt sau " + CountInstance.readableTime(seconds)
 						+ "<white> nữa! <gray>(lí do: " + Countdown.escape(reason) + ")</gray></white>"
 					: "<white>Máy chủ sẽ tắt sau " + CountInstance.readableTime(seconds) + "<white> nữa!</white>";
-				
+
 				Countdown.broadcast(message);
 			}
 
 			@Override
 			public void update(BossBar bar, double remain) {
 				String message = (reason != null)
-					? "<color:" + LunaPalette.DANGER_500 + "><bold>⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</bold></color><white> sau "
+					? "<color:" + LunaPalette.DANGER_500 + ">⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</color><white> sau "
 						+ CountInstance.readableTime(remain)
 						+ " <gray>(" + Countdown.escape(reason) + ")</gray></white>"
-					: "<color:" + LunaPalette.DANGER_500 + "><bold>⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</bold></color><white> sau "
+					: "<color:" + LunaPalette.DANGER_500 + ">⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</color><white> sau "
 						+ CountInstance.readableTime(remain) + "</white>";
 
 				bar.setTitle(Countdown.legacy(message));

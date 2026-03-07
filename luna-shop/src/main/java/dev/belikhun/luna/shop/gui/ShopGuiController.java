@@ -3,6 +3,7 @@ package dev.belikhun.luna.shop.gui;
 import dev.belikhun.luna.core.api.gui.GuiManager;
 import dev.belikhun.luna.core.api.gui.GuiView;
 import dev.belikhun.luna.core.api.gui.LunaPagination;
+import dev.belikhun.luna.core.api.gui.NumberSelectorGui;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaLore;
@@ -25,6 +26,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -56,22 +58,28 @@ public final class ShopGuiController implements Listener {
 	private final ShopService service;
 	private final ShopItemStore store;
 	private final GuiManager guiManager;
+	private final NumberSelectorGui numberSelector;
 	private final PlainTextComponentSerializer plainText;
 	private final Map<UUID, SearchRequest> waitingSearch;
-	private final Map<UUID, TradeSession> waitingAmount;
+	private final Map<UUID, ItemEditorTextPrompt> waitingItemEditorText;
+	private final Map<UUID, CreateItemDraft> waitingCreateItemCategory;
 	private final Map<UUID, AdminPrompt> waitingAdminPrompt;
 	private final Map<UUID, UUID> pendingConfirmations;
+	private final Map<UUID, ItemEditorSession> openItemEditors;
 
 	public ShopGuiController(JavaPlugin plugin, ShopService service, ShopItemStore store) {
 		this.plugin = plugin;
 		this.service = service;
 		this.store = store;
 		this.guiManager = new GuiManager();
+		this.numberSelector = new NumberSelectorGui(plugin, this.guiManager);
 		this.plainText = PlainTextComponentSerializer.plainText();
 		this.waitingSearch = new HashMap<>();
-		this.waitingAmount = new HashMap<>();
+		this.waitingItemEditorText = new HashMap<>();
+		this.waitingCreateItemCategory = new HashMap<>();
 		this.waitingAdminPrompt = new HashMap<>();
 		this.pendingConfirmations = new HashMap<>();
+		this.openItemEditors = new HashMap<>();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -197,64 +205,14 @@ public final class ShopGuiController implements Listener {
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(item.buyPrice()),
 				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(item.sellPrice()),
 				"",
-				actionLine("Chuột trái", "cập nhật item từ tay"),
-				actionLine("Chuột phải", "xóa item"),
-				actionLine("Shift+Chuột trái", "sửa giá qua chat"),
-				actionLine("Shift+Chuột phải", "đổi danh mục qua chat"),
-				actionLine("Phím Q", "sửa hạn mức qua chat")
+				actionLine("Chuột trái", "mở trình chỉnh sửa")
 			));
 			loreLines.addAll(adminTradeLimitLore(item));
 			meta.lore(appendShopLore(meta, loreLines));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
 
-			view.setItem(slot, icon, (clicker, event, gui) -> {
-				if (event.getClick() == ClickType.DROP || event.getClick() == ClickType.CONTROL_DROP) {
-					beginAdminPrompt(clicker, AdminPromptType.EDIT_ITEM_LIMITS, item.id(), null, currentPage);
-					return;
-				}
-
-				if (event.isShiftClick() && event.isRightClick()) {
-					beginAdminPrompt(clicker, AdminPromptType.MOVE_ITEM_CATEGORY, item.id(), null, currentPage);
-					return;
-				}
-
-				if (event.isShiftClick() && event.isLeftClick()) {
-					beginAdminPrompt(clicker, AdminPromptType.EDIT_ITEM_PRICES, item.id(), null, currentPage);
-					return;
-				}
-
-				if (event.isRightClick()) {
-					openConfirmationDialog(
-						clicker,
-						"<red>⚠ Xác nhận xóa mặt hàng",
-						List.of(
-							"<gray>Bạn sắp xóa item shop:",
-							"<white>" + item.id(),
-							"",
-							"<red>Hành động này không thể hoàn tác."
-						),
-						() -> {
-							store.remove(item.id());
-							clicker.sendMessage(mm("<green>✔ Đã xóa item <white>" + item.id() + "</white> khỏi shop.</green>"));
-							openItemManagement(clicker, currentPage);
-						},
-						() -> openItemManagement(clicker, currentPage)
-					);
-					return;
-				}
-
-				ItemStack hand = clicker.getInventory().getItemInMainHand();
-				if (hand.getType().isAir()) {
-					clicker.sendMessage(mm("<red>❌ Hãy cầm item trên tay để cập nhật.</red>"));
-					return;
-				}
-
-				ShopItem updated = ShopItem.fromItemStack(item.id(), item.category(), item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), hand, item.addedDate());
-				store.upsert(updated);
-				clicker.sendMessage(mm("<green>✔ Đã cập nhật item <white>" + item.id() + "</white>.</green>"));
-				openItemManagement(clicker, currentPage);
-			});
+			view.setItem(slot, icon, (clicker, event, gui) -> openItemEditor(clicker, item.id(), currentPage));
 		}
 
 		fillFooter(view);
@@ -265,7 +223,7 @@ public final class ShopGuiController implements Listener {
 			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openItemManagement(clicker, currentPage + 1));
 		}
 
-		view.setItem(49, nav(Material.ANVIL, "<aqua>➕ Tạo item mới"), (clicker, event, gui) -> beginAdminPrompt(clicker, AdminPromptType.CREATE_ITEM, null, null, currentPage));
+		view.setItem(49, nav(Material.ANVIL, "<aqua>➕ Tạo item mới"), (clicker, event, gui) -> beginCreateItemFlow(clicker, currentPage));
 		view.setItem(50, nav(Material.CHEST, "<yellow>Quản lý danh mục"), (clicker, event, gui) -> openCategoryManagement(clicker, 0));
 		view.setItem(52, nav(Material.ARROW, "<yellow>← Quay lại"), (clicker, event, gui) -> openManagementMenu(clicker, 0));
 		player.openInventory(view.getInventory());
@@ -309,6 +267,161 @@ public final class ShopGuiController implements Listener {
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
 
 		player.openInventory(view.getInventory());
+	}
+
+	private void openItemEditor(Player player, String itemId, int page) {
+		ShopItem item = store.find(itemId).orElse(null);
+		if (item == null) {
+			player.sendMessage(mm("<red>❌ Item không tồn tại.</red>"));
+			openItemManagement(player, page);
+			return;
+		}
+
+		openItemEditors.put(player.getUniqueId(), new ItemEditorSession(item.id(), page));
+
+		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna Shop", "Quản Lý", "Sửa Mặt Hàng"));
+		guiManager.track(view);
+		fillFooter(view);
+
+		ItemStack preview = item.itemStack().clone();
+		ItemMeta previewMeta = preview.getItemMeta();
+		ArrayList<String> previewLore = new ArrayList<>(List.of(
+			"<gray>№ <white>" + item.id(),
+			"<gray>♦ Danh mục: " + displayCategory(item.category()),
+			"<green>💰 Giá mua: <gold>" + service.formatMoney(item.buyPrice()),
+			"<yellow>💵 Giá bán: <gold>" + service.formatMoney(item.sellPrice())
+		));
+		previewLore.addAll(adminTradeLimitLore(item));
+		previewMeta.lore(appendShopLore(previewMeta, previewLore));
+		previewMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+		preview.setItemMeta(previewMeta);
+		view.setItem(13, preview);
+
+		view.setItem(28, item(Material.NAME_TAG, "<aqua>✎ Sửa ID", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <white>" + item.id() + "</white>"),
+			actionLine("Chuột trái", "nhập ID mới bằng chat")
+		)), (clicker, event, gui) -> beginItemEditorTextPrompt(clicker, item.id(), page, ItemEditField.ID, item.id()));
+
+		view.setItem(29, item(Material.EMERALD, "<green>💰 Sửa giá mua", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <gold>" + service.formatMoney(item.buyPrice()) + "</gold>"),
+			actionLine("Chuột trái", "mở bộ chọn số")
+		)), (clicker, event, gui) -> beginItemEditorNumberSelector(clicker, item.id(), page, ItemEditField.BUY_PRICE, item.buyPrice()));
+
+		view.setItem(30, item(Material.GOLD_INGOT, "<yellow>💵 Sửa giá bán", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <gold>" + service.formatMoney(item.sellPrice()) + "</gold>"),
+			actionLine("Chuột trái", "mở bộ chọn số")
+		)), (clicker, event, gui) -> beginItemEditorNumberSelector(clicker, item.id(), page, ItemEditField.SELL_PRICE, item.sellPrice()));
+
+		view.setItem(31, item(Material.CHEST, "<aqua>♦ Sửa danh mục", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: " + displayCategory(item.category())),
+			actionLine("Chuột trái", "nhập category bằng chat")
+		)), (clicker, event, gui) -> beginItemEditorTextPrompt(clicker, item.id(), page, ItemEditField.CATEGORY, item.category()));
+
+		view.setItem(32, item(Material.LIME_DYE, "<green>⌚ Hạn mức mua", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <white>" + limitSettingText(item.buyTradeLimit()) + "</white>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Nhập <white>0</white> để bỏ giới hạn"),
+			actionLine("Chuột trái", "mở bộ chọn số")
+		)), (clicker, event, gui) -> beginItemEditorNumberSelector(clicker, item.id(), page, ItemEditField.BUY_LIMIT, item.buyTradeLimit()));
+
+		view.setItem(33, item(Material.ORANGE_DYE, "<yellow>⌚ Hạn mức bán", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Hiện tại: <white>" + limitSettingText(item.sellTradeLimit()) + "</white>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Nhập <white>0</white> để bỏ giới hạn"),
+			actionLine("Chuột trái", "mở bộ chọn số")
+		)), (clicker, event, gui) -> beginItemEditorNumberSelector(clicker, item.id(), page, ItemEditField.SELL_LIMIT, item.sellTradeLimit()));
+
+		view.setItem(34, item(Material.ANVIL, "<aqua>🔧 Cập nhật metadata", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Lấy item đang cầm làm metadata mới"),
+			actionLine("Chuột trái", "cập nhật ngay")
+		)), (clicker, event, gui) -> {
+			ItemStack hand = clicker.getInventory().getItemInMainHand();
+			if (hand.getType().isAir()) {
+				clicker.sendMessage(mm("<red>❌ Hãy cầm item trên tay để cập nhật metadata.</red>"));
+				openItemEditor(clicker, item.id(), page);
+				return;
+			}
+
+			ShopItem updated = ShopItem.fromItemStack(item.id(), item.category(), item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), hand, item.addedDate());
+			store.upsert(updated);
+			clicker.sendMessage(mm("<green>✔ Đã cập nhật metadata cho item <white>" + item.id() + "</white>.</green>"));
+			openItemEditor(clicker, item.id(), page);
+		});
+
+		view.setItem(39, item(Material.BARRIER, "<red>❌ Xóa mặt hàng", List.of(
+			plainLine(LunaPalette.DANGER_500, "Hành động không thể hoàn tác"),
+			actionLine("Chuột trái", "xác nhận xóa")
+		)), (clicker, event, gui) -> openConfirmationDialog(
+			clicker,
+			"<red>⚠ Xác nhận xóa mặt hàng",
+			List.of(
+				"<gray>Bạn sắp xóa item shop:",
+				"<white>" + item.id(),
+				"",
+				"<red>Hành động này không thể hoàn tác."
+			),
+			() -> {
+				store.remove(item.id());
+				openItemEditors.remove(clicker.getUniqueId());
+				clicker.sendMessage(mm("<green>✔ Đã xóa item <white>" + item.id() + "</white> khỏi shop.</green>"));
+				openItemManagement(clicker, page);
+			},
+			() -> openItemEditor(clicker, item.id(), page)
+		));
+
+		view.setItem(49, nav(Material.ARROW, "<yellow>← Quay lại danh sách"), (clicker, event, gui) -> {
+			openItemEditors.remove(clicker.getUniqueId());
+			openItemManagement(clicker, page);
+		});
+		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> {
+			openItemEditors.remove(clicker.getUniqueId());
+			clicker.closeInventory();
+		});
+
+		player.openInventory(view.getInventory());
+	}
+
+	private void beginItemEditorTextPrompt(Player player, String itemId, int page, ItemEditField field, String initialValue) {
+		openItemEditors.put(player.getUniqueId(), new ItemEditorSession(itemId, page));
+		String label = switch (field) {
+			case ID -> "<aqua>Nhập ID mới";
+			case CATEGORY -> "<aqua>Nhập category";
+			default -> "<aqua>Nhập giá trị";
+		};
+
+		waitingItemEditorText.put(player.getUniqueId(), new ItemEditorTextPrompt(itemId, page, field));
+		player.closeInventory();
+		player.sendMessage(mm(label + " <gray>(hiện tại: <white>" + (initialValue == null ? "" : initialValue) + "</white>)</gray>"));
+		player.sendMessage(mm("<aqua>✦ Nhập trên chat. Gõ <white>huy</white> để hủy.</aqua>"));
+	}
+
+	private void beginItemEditorNumberSelector(Player player, String itemId, int page, ItemEditField field, double initialValue) {
+		openItemEditors.put(player.getUniqueId(), new ItemEditorSession(itemId, page));
+		String title = switch (field) {
+			case BUY_PRICE -> "<green>Nhập giá mua";
+			case SELL_PRICE -> "<yellow>Nhập giá bán";
+			case BUY_LIMIT -> "<green>Nhập hạn mức mua";
+			case SELL_LIMIT -> "<yellow>Nhập hạn mức bán";
+			default -> "<aqua>Nhập số";
+		};
+
+		boolean integerMode = field == ItemEditField.BUY_LIMIT || field == ItemEditField.SELL_LIMIT;
+		double maxValue = integerMode ? 1000000D : 1000000000D;
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(mm(title), "Giá trị", (submitPlayer, value) -> {
+				double normalized = integerMode ? Math.max(0D, Math.rint(value)) : Math.max(0D, value);
+				applyItemEditorInput(submitPlayer, itemId, page, field, String.valueOf(normalized));
+			}, closePlayer -> openItemEditor(closePlayer, itemId, page))
+			.withDisplayMaterial(Material.PAPER)
+			.withInitialValue(initialValue)
+			.withRange(0D, maxValue)
+			.withIntegerMode(integerMode)
+			.withValueFormatter(value -> {
+				if (integerMode) {
+					return String.valueOf((int) Math.rint(value));
+				}
+				return service.formatMoney(value);
+			});
+
+		numberSelector.open(player, request);
 	}
 
 	public void openCategoryMenu(Player player, String category, int page) {
@@ -556,11 +669,11 @@ public final class ShopGuiController implements Listener {
 		view.setItem(CONFIRM_SLOT, confirmItem, (clicker, event, gui) -> handleTradeConfirm(clicker, shopItem, normalized, gui, CONFIRM_SLOT, confirmItem));
 
 		view.setItem(49, item(Material.NAME_TAG, "<aqua>✦ Nhập thủ công", List.of(
-			line(LunaPalette.INFO_500, "ℹ Tự nhập số lượng muốn giao dịch"),
+			line(LunaPalette.INFO_500, "ℹ Mở bộ chọn số lượng"),
 			"",
-			line(LunaPalette.NEUTRAL_100, "Ví dụ: <white>96</white>, <white>256</white>, <white>1024</white>"),
-			plainLine(LunaPalette.NEUTRAL_100, "Gõ <white>huy</white> để hủy")
-		)), (clicker, event, gui) -> beginManualAmount(clicker, normalized));
+			line(LunaPalette.NEUTRAL_100, "Bước chỉnh: <white>1..512</white>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Có thể nhập trực tiếp qua chat")
+		)), (clicker, event, gui) -> beginTradeAmountSelector(clicker, normalized));
 		view.setItem(45, item(Material.ARROW, "<yellow>← Quay lại", List.of(
 			plainLine(LunaPalette.WARNING_500, "Quay về danh sách trước"),
 			"",
@@ -667,6 +780,45 @@ public final class ShopGuiController implements Listener {
 		Player player = event.getPlayer();
 		UUID uuid = player.getUniqueId();
 
+		if (waitingItemEditorText.containsKey(uuid)) {
+			event.setCancelled(true);
+			ItemEditorTextPrompt prompt = waitingItemEditorText.remove(uuid);
+			String input = plainText.serialize(event.message()).trim();
+			plugin.getServer().getScheduler().runTask(plugin, () -> {
+				if (input.isBlank() || input.equalsIgnoreCase("huy") || input.equalsIgnoreCase("cancel")) {
+					player.sendMessage(mm("<yellow>ℹ Đã hủy chỉnh sửa.</yellow>"));
+					openItemEditor(player, prompt.itemId(), prompt.page());
+					return;
+				}
+
+				applyItemEditorInput(player, prompt.itemId(), prompt.page(), prompt.field(), input);
+			});
+			return;
+		}
+
+		if (waitingCreateItemCategory.containsKey(uuid)) {
+			event.setCancelled(true);
+			CreateItemDraft draft = waitingCreateItemCategory.remove(uuid);
+			String input = plainText.serialize(event.message()).trim();
+			plugin.getServer().getScheduler().runTask(plugin, () -> {
+				if (input.isBlank() || input.equalsIgnoreCase("huy") || input.equalsIgnoreCase("cancel")) {
+					player.sendMessage(mm("<yellow>ℹ Đã hủy tạo item.</yellow>"));
+					openItemManagement(player, draft.page());
+					return;
+				}
+
+				String category = ShopItem.normalizeCategory(input);
+				if (store.findCategory(category).isEmpty()) {
+					player.sendMessage(mm("<red>❌ Category không tồn tại. Hãy nhập lại hoặc gõ <white>huy</white>.</red>"));
+					waitingCreateItemCategory.put(player.getUniqueId(), draft);
+					return;
+				}
+
+				openCreateItemBuyPriceSelector(player, draft.withCategory(category));
+			});
+			return;
+		}
+
 		if (waitingSearch.containsKey(uuid)) {
 			event.setCancelled(true);
 			SearchRequest request = waitingSearch.remove(uuid);
@@ -694,38 +846,98 @@ public final class ShopGuiController implements Listener {
 			return;
 		}
 
-		if (waitingAmount.containsKey(uuid)) {
-			event.setCancelled(true);
-			TradeSession session = waitingAmount.remove(uuid);
-			String input = plainText.serialize(event.message()).trim();
-			plugin.getServer().getScheduler().runTask(plugin, () -> {
-				if (input.isBlank() || input.equalsIgnoreCase("huy") || input.equalsIgnoreCase("cancel")) {
-					player.sendMessage(mm("<yellow>ℹ Đã hủy nhập số lượng.</yellow>"));
-					openTradeMenu(player, session);
-					return;
-				}
-
-				try {
-					int value = Integer.parseInt(input);
-					if (value <= 0) {
-						player.sendMessage(mm("<red>❌ Số lượng phải lớn hơn 0.</red>"));
-						openTradeMenu(player, session);
-						return;
-					}
-
-					openTradeMenu(player, session.withAmount(clampAmount(value)));
-				} catch (NumberFormatException exception) {
-					player.sendMessage(mm("<red>❌ Giá trị không hợp lệ. Vui lòng nhập số nguyên.</red>"));
-					openTradeMenu(player, session);
-				}
-			});
-		}
-
 		if (waitingAdminPrompt.containsKey(uuid)) {
 			event.setCancelled(true);
 			AdminPrompt prompt = waitingAdminPrompt.remove(uuid);
 			String input = plainText.serialize(event.message()).trim();
 			plugin.getServer().getScheduler().runTask(plugin, () -> handleAdminPrompt(player, prompt, input));
+			return;
+		}
+	}
+
+	private void applyItemEditorInput(Player player, String itemId, int page, ItemEditField field, String input) {
+		ShopItem item = store.find(itemId).orElse(null);
+		if (item == null) {
+			player.sendMessage(mm("<red>❌ Item không tồn tại.</red>"));
+			openItemManagement(player, page);
+			return;
+		}
+
+		try {
+			ShopItem updated = switch (field) {
+				case ID -> applyItemId(item, input);
+				case BUY_PRICE -> applyBuyPrice(item, input);
+				case SELL_PRICE -> applySellPrice(item, input);
+				case CATEGORY -> applyCategory(item, input);
+				case BUY_LIMIT -> applyBuyLimit(item, input);
+				case SELL_LIMIT -> applySellLimit(item, input);
+			};
+
+			if (!updated.id().equals(item.id())) {
+				store.remove(item.id());
+			}
+
+			store.upsert(updated);
+			player.sendMessage(mm("<green>✔ Đã cập nhật <white>" + updated.id() + "</white>.</green>"));
+			openItemEditor(player, updated.id(), page);
+		} catch (IllegalArgumentException exception) {
+			player.sendMessage(mm("<red>❌ " + exception.getMessage() + "</red>"));
+			openItemEditor(player, item.id(), page);
+		}
+	}
+
+	private ShopItem applyItemId(ShopItem item, String rawValue) {
+		String normalized = ShopItem.normalizeId(rawValue);
+		if (normalized.isBlank()) {
+			throw new IllegalArgumentException("ID không hợp lệ.");
+		}
+
+		ShopItem duplicate = store.find(normalized).orElse(null);
+		if (duplicate != null && !duplicate.id().equals(item.id())) {
+			throw new IllegalArgumentException("ID này đã tồn tại trong shop.");
+		}
+
+		return new ShopItem(normalized, item.category(), item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate());
+	}
+
+	private ShopItem applyBuyPrice(ShopItem item, String rawValue) {
+		double value = parseNonNegativeDouble(rawValue, "Giá mua phải là số >= 0.");
+		return new ShopItem(item.id(), item.category(), value, item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate());
+	}
+
+	private ShopItem applySellPrice(ShopItem item, String rawValue) {
+		double value = parseNonNegativeDouble(rawValue, "Giá bán phải là số >= 0.");
+		return new ShopItem(item.id(), item.category(), item.buyPrice(), value, item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate());
+	}
+
+	private ShopItem applyCategory(ShopItem item, String rawValue) {
+		String categoryId = ShopItem.normalizeCategory(rawValue);
+		if (store.findCategory(categoryId).isEmpty()) {
+			throw new IllegalArgumentException("Category không tồn tại.");
+		}
+
+		return new ShopItem(item.id(), categoryId, item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate());
+	}
+
+	private ShopItem applyBuyLimit(ShopItem item, String rawValue) {
+		int value = parseTradeLimitInput(rawValue);
+		return new ShopItem(item.id(), item.category(), item.buyPrice(), item.sellPrice(), value, item.sellTradeLimit(), item.itemData(), item.addedDate());
+	}
+
+	private ShopItem applySellLimit(ShopItem item, String rawValue) {
+		int value = parseTradeLimitInput(rawValue);
+		return new ShopItem(item.id(), item.category(), item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), value, item.itemData(), item.addedDate());
+	}
+
+	private double parseNonNegativeDouble(String raw, String errorMessage) {
+		try {
+			double value = Double.parseDouble(raw.trim());
+			if (value < 0D) {
+				throw new IllegalArgumentException(errorMessage);
+			}
+			return value;
+		} catch (NumberFormatException exception) {
+			throw new IllegalArgumentException(errorMessage);
 		}
 	}
 
@@ -950,10 +1162,137 @@ public final class ShopGuiController implements Listener {
 		player.sendMessage(mm("<aqua>🔍 Nhập từ khóa trong danh mục " + displayCategory(category) + "<aqua>. Gõ <white>huy</white> để hủy.</aqua>"));
 	}
 
-	private void beginManualAmount(Player player, TradeSession session) {
-		waitingAmount.put(player.getUniqueId(), session);
+	private void beginTradeAmountSelector(Player player, TradeSession session) {
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(
+				LunaUi.guiTitleBreadcrumb("Luna Shop", "Giao Dịch", "Số Lượng"),
+				"Số lượng giao dịch",
+				(submitPlayer, value) -> {
+					int amount = clampAmount((int) Math.rint(value));
+					openTradeMenu(submitPlayer, session.withAmount(amount));
+				},
+				closePlayer -> openTradeMenu(closePlayer, session)
+			)
+			.withDisplayMaterial(Material.PAPER)
+			.withInitialValue(session.amount())
+			.withRange(1D, 4096D)
+			.withIntegerMode(true)
+			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+
+		numberSelector.open(player, request);
+	}
+
+	private void beginCreateItemFlow(Player player, int page) {
+		ItemStack hand = player.getInventory().getItemInMainHand();
+		if (hand.getType().isAir()) {
+			player.sendMessage(mm("<red>❌ Hãy cầm item trên tay để tạo mặt hàng.</red>"));
+			openItemManagement(player, page);
+			return;
+		}
+
+		waitingCreateItemCategory.put(player.getUniqueId(), CreateItemDraft.initial(page, hand.clone()));
 		player.closeInventory();
-		player.sendMessage(mm("<aqua>✦ Nhập số lượng tùy chỉnh trên chat. Gõ <white>huy</white> để hủy.</aqua>"));
+		player.sendMessage(mm("<aqua>✦ Nhập <white>category</white> cho item mới. Gõ <white>huy</white> để hủy.</aqua>"));
+	}
+
+	private void openCreateItemBuyPriceSelector(Player player, CreateItemDraft draft) {
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(
+				LunaUi.guiTitleBreadcrumb("Luna Shop", "Quản Lý", "Tạo Item", "Giá Mua"),
+				"Giá mua",
+				(submitPlayer, value) -> openCreateItemSellPriceSelector(submitPlayer, draft.withBuyPrice(Math.max(0D, value))),
+				closePlayer -> {
+					closePlayer.sendMessage(mm("<yellow>ℹ Đã hủy tạo item.</yellow>"));
+					openItemManagement(closePlayer, draft.page());
+				}
+			)
+			.withDisplayMaterial(Material.EMERALD)
+			.withInitialValue(Math.max(0D, draft.buyPrice()))
+			.withRange(0D, 1000000000D)
+			.withIntegerMode(false)
+			.withValueFormatter(service::formatMoney);
+
+		numberSelector.open(player, request);
+	}
+
+	private void openCreateItemSellPriceSelector(Player player, CreateItemDraft draft) {
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(
+				LunaUi.guiTitleBreadcrumb("Luna Shop", "Quản Lý", "Tạo Item", "Giá Bán"),
+				"Giá bán",
+				(submitPlayer, value) -> openCreateItemBuyLimitSelector(submitPlayer, draft.withSellPrice(Math.max(0D, value))),
+				closePlayer -> {
+					closePlayer.sendMessage(mm("<yellow>ℹ Đã hủy tạo item.</yellow>"));
+					openItemManagement(closePlayer, draft.page());
+				}
+			)
+			.withDisplayMaterial(Material.GOLD_INGOT)
+			.withInitialValue(Math.max(0D, draft.sellPrice()))
+			.withRange(0D, 1000000000D)
+			.withIntegerMode(false)
+			.withValueFormatter(service::formatMoney);
+
+		numberSelector.open(player, request);
+	}
+
+	private void openCreateItemBuyLimitSelector(Player player, CreateItemDraft draft) {
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(
+				LunaUi.guiTitleBreadcrumb("Luna Shop", "Quản Lý", "Tạo Item", "Hạn Mức Mua"),
+				"Hạn mức mua",
+				(submitPlayer, value) -> openCreateItemSellLimitSelector(submitPlayer, draft.withBuyLimit((int) Math.max(0D, Math.rint(value)))),
+				closePlayer -> {
+					closePlayer.sendMessage(mm("<yellow>ℹ Đã hủy tạo item.</yellow>"));
+					openItemManagement(closePlayer, draft.page());
+				}
+			)
+			.withDisplayMaterial(Material.LIME_DYE)
+			.withInitialValue(Math.max(0, draft.buyLimit()))
+			.withRange(0D, 1000000D)
+			.withIntegerMode(true)
+			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+
+		numberSelector.open(player, request);
+	}
+
+	private void openCreateItemSellLimitSelector(Player player, CreateItemDraft draft) {
+		NumberSelectorGui.Request request = NumberSelectorGui
+			.request(
+				LunaUi.guiTitleBreadcrumb("Luna Shop", "Quản Lý", "Tạo Item", "Hạn Mức Bán"),
+				"Hạn mức bán",
+				(submitPlayer, value) -> finishCreateItem(submitPlayer, draft.withSellLimit((int) Math.max(0D, Math.rint(value)))),
+				closePlayer -> {
+					closePlayer.sendMessage(mm("<yellow>ℹ Đã hủy tạo item.</yellow>"));
+					openItemManagement(closePlayer, draft.page());
+				}
+			)
+			.withDisplayMaterial(Material.ORANGE_DYE)
+			.withInitialValue(Math.max(0, draft.sellLimit()))
+			.withRange(0D, 1000000D)
+			.withIntegerMode(true)
+			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+
+		numberSelector.open(player, request);
+	}
+
+	private void finishCreateItem(Player player, CreateItemDraft draft) {
+		if (store.findCategory(draft.category()).isEmpty()) {
+			player.sendMessage(mm("<red>❌ Category không còn tồn tại.</red>"));
+			openItemManagement(player, draft.page());
+			return;
+		}
+
+		var duplicate = store.findBySimilarItem(draft.itemStack());
+		if (duplicate.isPresent()) {
+			player.sendMessage(mm("<red>❌ Item này đã có trong shop với id <white>" + duplicate.get().id() + "</white>.</red>"));
+			openItemManagement(player, draft.page());
+			return;
+		}
+
+		ShopItem created = ShopItem.fromItemStackAutoId(draft.category(), draft.buyPrice(), draft.sellPrice(), draft.buyLimit(), draft.sellLimit(), draft.itemStack());
+		store.upsert(created);
+		player.sendMessage(mm("<green>✔ Đã tạo mặt hàng <white>" + created.id() + "</white>.</green>"));
+		openItemManagement(player, draft.page());
 	}
 
 	private void returnToBrowse(Player player, BrowseContext context) {
@@ -1473,6 +1812,55 @@ public final class ShopGuiController implements Listener {
 
 		TradeSession withMode(TradeMode value) {
 			return new TradeSession(itemId, value, amount, context);
+		}
+	}
+
+	private enum ItemEditField {
+		ID,
+		BUY_PRICE,
+		SELL_PRICE,
+		CATEGORY,
+		BUY_LIMIT,
+		SELL_LIMIT
+	}
+
+	private record ItemEditorSession(String itemId, int page) {
+	}
+
+	private record ItemEditorTextPrompt(String itemId, int page, ItemEditField field) {
+	}
+
+	private record CreateItemDraft(
+		int page,
+		String category,
+		double buyPrice,
+		double sellPrice,
+		int buyLimit,
+		int sellLimit,
+		ItemStack itemStack
+	) {
+		static CreateItemDraft initial(int page, ItemStack itemStack) {
+			return new CreateItemDraft(page, "", 0D, 0D, 0, 0, itemStack);
+		}
+
+		CreateItemDraft withCategory(String value) {
+			return new CreateItemDraft(page, value, buyPrice, sellPrice, buyLimit, sellLimit, itemStack);
+		}
+
+		CreateItemDraft withBuyPrice(double value) {
+			return new CreateItemDraft(page, category, value, sellPrice, buyLimit, sellLimit, itemStack);
+		}
+
+		CreateItemDraft withSellPrice(double value) {
+			return new CreateItemDraft(page, category, buyPrice, value, buyLimit, sellLimit, itemStack);
+		}
+
+		CreateItemDraft withBuyLimit(int value) {
+			return new CreateItemDraft(page, category, buyPrice, sellPrice, value, sellLimit, itemStack);
+		}
+
+		CreateItemDraft withSellLimit(int value) {
+			return new CreateItemDraft(page, category, buyPrice, sellPrice, buyLimit, value, itemStack);
 		}
 	}
 
