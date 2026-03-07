@@ -203,11 +203,13 @@ public final class ShopGuiController implements Listener {
 				"<gray>№ <white>" + item.id(),
 				"<gray>♦ Danh mục: " + displayCategory(item.category()),
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(item.buyPrice()),
-				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(item.sellPrice()),
+				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(item.sellPrice())
+			));
+			loreLines.addAll(adminTradeLimitLore(item));
+			loreLines.addAll(List.of(
 				"",
 				actionLine("Chuột trái", "mở trình chỉnh sửa")
 			));
-			loreLines.addAll(adminTradeLimitLore(item));
 			meta.lore(appendShopLore(meta, loreLines));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
@@ -1619,8 +1621,8 @@ public final class ShopGuiController implements Listener {
 
 		ArrayList<String> lines = new ArrayList<>();
 		lines.add("");
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày: <white>" + limitSettingText(item.buyTradeLimit())));
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày: <white>" + limitSettingText(item.sellTradeLimit())));
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày: <white>" + limitSettingText(item.buyTradeLimit()) + "</white>"));
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày: <white>" + limitSettingText(item.sellTradeLimit()) + "</white>"));
 		lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset mỗi ngày Minecraft"));
 
 		return lines;

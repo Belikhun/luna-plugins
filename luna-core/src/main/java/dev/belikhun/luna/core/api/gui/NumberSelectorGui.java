@@ -7,9 +7,11 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -58,6 +60,34 @@ public final class NumberSelectorGui implements Listener {
 		this.suppressClose = ConcurrentHashMap.newKeySet();
 		this.submitting = ConcurrentHashMap.newKeySet();
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
+		registerVentureChatBridge();
+	}
+
+	private void registerVentureChatBridge() {
+		registerReflectiveChatEvent("mineverse.Aust1n46.chat.api.events.VentureChatEvent");
+		registerReflectiveChatEvent("mineverse.Aust1n46.chat.api.events.ChannelChatEvent");
+	}
+
+	private void registerReflectiveChatEvent(String className) {
+		try {
+			Class<?> type = Class.forName(className);
+			if (!org.bukkit.event.Event.class.isAssignableFrom(type)) {
+				return;
+			}
+
+			@SuppressWarnings("unchecked")
+			Class<? extends org.bukkit.event.Event> eventClass = (Class<? extends org.bukkit.event.Event>) type;
+			plugin.getServer().getPluginManager().registerEvent(
+				eventClass,
+				this,
+				EventPriority.HIGHEST,
+				(listener, event) -> handleReflectiveChatEvent(event),
+				plugin,
+				false
+			);
+		} catch (ClassNotFoundException ignored) {
+			// VentureChat not present or event class changed; keep default chat handlers.
+		}
 	}
 
 	public void open(Player player, Request request) {
@@ -67,16 +97,79 @@ public final class NumberSelectorGui implements Listener {
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onChat(AsyncChatEvent event) {
-		Player player = event.getPlayer();
+		interceptManualInput(event.getPlayer(), plainText.serialize(event.message()).trim(), event);
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onLegacyChat(AsyncPlayerChatEvent event) {
+		interceptManualInput(event.getPlayer(), event.getMessage().trim(), event);
+	}
+
+	private void handleReflectiveChatEvent(org.bukkit.event.Event event) {
+		Player player = extractPlayer(event);
+		if (player == null) {
+			return;
+		}
+
+		String raw = extractMessage(event);
+		if (raw == null) {
+			return;
+		}
+
+		interceptManualInput(player, raw.trim(), event instanceof Cancellable cancellable ? cancellable : null);
+	}
+
+	private void interceptManualInput(Player player, String raw, Cancellable cancellable) {
 		UUID playerId = player.getUniqueId();
 		Session waiting = waitingManualInput.get(playerId);
 		if (waiting == null) {
 			return;
 		}
 
-		event.setCancelled(true);
-		String raw = plainText.serialize(event.message()).trim();
+		if (cancellable != null) {
+			cancellable.setCancelled(true);
+		}
+
 		plugin.getServer().getScheduler().runTask(plugin, () -> handleManualInput(player, waiting, raw));
+	}
+
+	private Player extractPlayer(org.bukkit.event.Event event) {
+		Object direct = invokeNoArg(event, "getPlayer");
+		if (direct instanceof Player player) {
+			return player;
+		}
+
+		Object venturePlayer = invokeNoArg(event, "getMineverseChatPlayer");
+		if (venturePlayer != null) {
+			Object nested = invokeNoArg(venturePlayer, "getPlayer");
+			if (nested instanceof Player player) {
+				return player;
+			}
+		}
+
+		return null;
+	}
+
+	private String extractMessage(org.bukkit.event.Event event) {
+		Object message = invokeNoArg(event, "getMessage");
+		if (message != null) {
+			return String.valueOf(message);
+		}
+
+		Object chat = invokeNoArg(event, "getChat");
+		if (chat != null) {
+			return String.valueOf(chat);
+		}
+
+		return null;
+	}
+
+	private Object invokeNoArg(Object target, String methodName) {
+		try {
+			return target.getClass().getMethod(methodName).invoke(target);
+		} catch (ReflectiveOperationException ignored) {
+			return null;
+		}
 	}
 
 	@EventHandler
