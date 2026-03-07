@@ -1607,9 +1607,9 @@ public final class ShopGuiController implements Listener {
 		int remainingBuy = service.remainingBuyLimit(player, item);
 		int remainingSell = service.remainingSellLimit(player, item);
 		ArrayList<String> lines = new ArrayList<>();
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Mua còn: " + limitValueText(remainingBuy, item.buyTradeLimit())));
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Bán còn: " + limitValueText(remainingSell, item.sellTradeLimit())));
-		lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau: " + service.tradeLimitResetDuration()));
+		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Mua còn:", LunaPalette.SUCCESS_500, limitValueText(remainingBuy, item.buyTradeLimit())));
+		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Bán còn:", LunaPalette.WARNING_500, limitValueText(remainingSell, item.sellTradeLimit())));
+		lines.add(coloredPairLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau:", LunaPalette.NEUTRAL_100, service.tradeLimitResetDuration()));
 
 		return lines;
 	}
@@ -1621,8 +1621,8 @@ public final class ShopGuiController implements Listener {
 
 		ArrayList<String> lines = new ArrayList<>();
 		lines.add("");
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày: " + limitSettingText(item.buyTradeLimit())));
-		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày: " + limitSettingText(item.sellTradeLimit())));
+		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày:", LunaPalette.SUCCESS_500, limitSettingText(item.buyTradeLimit())));
+		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày:", LunaPalette.WARNING_500, limitSettingText(item.sellTradeLimit())));
 		lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset mỗi ngày Minecraft"));
 
 		return lines;
@@ -1634,6 +1634,10 @@ public final class ShopGuiController implements Listener {
 		}
 
 		return Math.max(0, remaining) + "/" + maxLimit;
+	}
+
+	private String coloredPairLine(String labelColor, String label, String valueColor, String value) {
+		return "<color:" + labelColor + ">" + label + "</color> <color:" + valueColor + ">" + value + "</color>";
 	}
 
 	private String limitSettingText(int maxLimit) {
