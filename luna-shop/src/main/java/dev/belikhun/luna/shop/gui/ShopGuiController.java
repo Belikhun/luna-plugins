@@ -49,7 +49,7 @@ public final class ShopGuiController implements Listener {
 	private static final int[] DECREASE_VALUES = {-8, -4, -2, -1};
 	private static final int[] INCREASE_SLOTS = {41, 42, 43, 44};
 	private static final int[] INCREASE_VALUES = {1, 2, 4, 8};
-    private static final int CONFIRM_SLOT = 40;
+	private static final int CONFIRM_SLOT = 40;
 
 	private final JavaPlugin plugin;
 	private final ShopService service;
@@ -896,17 +896,6 @@ public final class ShopGuiController implements Listener {
 		}
 
 		openMainMenu(player, context.page());
-	}
-
-	private void fillTradeBody(GuiView view) {
-		ItemStack spacer = item(Material.BLACK_STAINED_GLASS_PANE, "<gray> ", List.of());
-		for (int slot = 0; slot < 54; slot++) {
-			if (slot == 20 || slot == 22 || slot == 23 || slot == 24 || slot == 28 || slot == 29 || slot == 30 || slot == 31 || slot == 32 || slot == 33 || slot == 34 || slot == 37 || slot == 38 || slot == 39 || slot == 40 || slot == 41 || slot == 42 || slot == 43 || slot == 44 || slot >= 45) {
-				continue;
-			}
-
-			view.setItem(slot, spacer);
-		}
 	}
 
 	private ItemStack confirmButton(ShopItem shopItem, TradeMode mode, int amount) {

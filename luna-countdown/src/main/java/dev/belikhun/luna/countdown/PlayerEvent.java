@@ -7,12 +7,12 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 public class PlayerEvent implements Listener {
 	@EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        CountInstance.handlePlayerJoin(event.getPlayer());
-    }
+	public void onPlayerJoin(PlayerJoinEvent event) {
+		CountInstance.handlePlayerJoin(event.getPlayer());
+	}
 
 	@EventHandler
-    public void onPlayerQuit(PlayerQuitEvent event) {
-        CountInstance.handlePlayerQuit(event.getPlayer());
-    }
+	public void onPlayerQuit(PlayerQuitEvent event) {
+		CountInstance.handlePlayerQuit(event.getPlayer());
+	}
 }

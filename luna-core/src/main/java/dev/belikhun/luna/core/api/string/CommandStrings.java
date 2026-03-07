@@ -101,10 +101,6 @@ public final class CommandStrings {
 		return "<color:" + typeColor(type) + ">" + normalize(name) + "</color>";
 	}
 
-	private static String renderType(String type) {
-		return "<color:" + typeColor(type) + ">" + normalizeType(type) + "</color>";
-	}
-
 	private static String typeColor(String type) {
 		String normalized = normalizeType(type).toLowerCase();
 		String color = LunaPalette.NEUTRAL_300;

@@ -1,0 +1,16 @@
+name: LunaSmp
+version: ${version}
+main: dev.belikhun.luna.smp.LunaSmpPlugin
+api-version: '1.21'
+description: Plugin SMP tổng hợp cho Luna survival server.
+authors:
+  - Belikhun
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    Vault:
+      load: BEFORE
+      required: true

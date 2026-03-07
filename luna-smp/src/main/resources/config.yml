@@ -1,0 +1,14 @@
+tool-repair:
+  base-cost: 50.0
+  cost-percentage: 500.0
+
+messages:
+  no-console: "<red>❌ Lệnh này chỉ dùng trong game.</red>"
+  no-permission: "<red>❌ Bạn không có quyền dùng lệnh này.</red>"
+  repair-usage: "<yellow>ℹ Cách dùng:</yellow> <gray>/repair</gray>"
+  must-hold-item: "<yellow>⚠ Bạn cần cầm dụng cụ ở tay chính.</yellow>"
+  not-repairable: "<red>❌ Vật phẩm này không thể sửa bằng lệnh này.</red>"
+  not-damaged: "<yellow>ℹ Dụng cụ của bạn chưa bị hư hại.</yellow>"
+  not-enough-money: "<red>❌ Bạn không đủ tiền để sửa. Cần <gold>{cost}</gold>.</red>"
+  repair-cancelled: "<yellow>ℹ Bạn đã hủy sửa dụng cụ.</yellow>"
+  item-repaired: "<green>✔ Đã sửa dụng cụ thành công! Phí: <gold>{cost}</gold></green>"
