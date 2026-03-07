@@ -57,6 +57,7 @@ public final class ShopAdminCommand implements BasicCommand {
 		switch (args[0].toLowerCase(Locale.ROOT)) {
 			case "add" -> handleAdd(sender, args);
 			case "category" -> handleCategory(sender, args);
+			case "limit" -> handleLimit(sender, args);
 			case "remove" -> handleRemove(sender, args);
 			case "list" -> handleList(sender);
 			case "history" -> handleHistory(sender, args);
@@ -79,7 +80,7 @@ public final class ShopAdminCommand implements BasicCommand {
 		}
 
 		if (args.length < 4) {
-			sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number")));
+			sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number"), CommandStrings.optional("buyLimit", "number|none"), CommandStrings.optional("sellLimit", "number|none")));
 			return;
 		}
 
@@ -91,11 +92,20 @@ public final class ShopAdminCommand implements BasicCommand {
 
 		double buyPrice;
 		double sellPrice;
+		int buyLimit = 0;
+		int sellLimit = 0;
 		try {
 			buyPrice = Double.parseDouble(args[2]);
 			sellPrice = Double.parseDouble(args[3]);
+			if (args.length >= 6) {
+				buyLimit = parseTradeLimit(args[4]);
+				sellLimit = parseTradeLimit(args[5]);
+			}
 		} catch (NumberFormatException exception) {
 			sender.sendRichMessage("<red>❌ Giá mua/bán phải là số hợp lệ.</red>");
+			return;
+		} catch (IllegalArgumentException exception) {
+			sender.sendRichMessage("<red>❌ Hạn mức phải là số nguyên >= 0 hoặc <white>none</white>.</red>");
 			return;
 		}
 
@@ -116,9 +126,74 @@ public final class ShopAdminCommand implements BasicCommand {
 			return;
 		}
 
-		ShopItem shopItem = ShopItem.fromItemStackAutoId(category, buyPrice, sellPrice, hand);
+		ShopItem shopItem = ShopItem.fromItemStackAutoId(category, buyPrice, sellPrice, buyLimit, sellLimit, hand);
 		store.upsert(shopItem);
 		sender.sendRichMessage("<green>✔ Đã lưu item <white>" + shopItem.id() + "</white> vào danh mục <white>" + shopItem.category() + "</white>.</green>");
+	}
+
+	private void handleLimit(CommandSender sender, String[] args) {
+		if (args.length < 2) {
+			sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("limit"), CommandStrings.requiredChoice("hành_động", "set", "remove", "show"), CommandStrings.optional("tham_số", "...")));
+			return;
+		}
+
+		switch (args[1].toLowerCase(Locale.ROOT)) {
+			case "set" -> {
+				if (args.length < 5) {
+					sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("set"), CommandStrings.required("itemId", "text"), CommandStrings.required("buyLimit", "number|none"), CommandStrings.required("sellLimit", "number|none")));
+					return;
+				}
+
+				ShopItem item = store.find(args[2]).orElse(null);
+				if (item == null) {
+					sender.sendRichMessage("<red>❌ Không tìm thấy item theo id.</red>");
+					return;
+				}
+
+				int buyLimit;
+				int sellLimit;
+				try {
+					buyLimit = parseTradeLimit(args[3]);
+					sellLimit = parseTradeLimit(args[4]);
+				} catch (IllegalArgumentException exception) {
+					sender.sendRichMessage("<red>❌ Hạn mức phải là số nguyên >= 0 hoặc <white>none</white>.</red>");
+					return;
+				}
+
+				store.upsert(new ShopItem(item.id(), item.category(), item.buyPrice(), item.sellPrice(), buyLimit, sellLimit, item.itemData(), item.addedDate()));
+				sender.sendRichMessage("<green>✔ Đã cập nhật hạn mức cho <white>" + item.id() + "</white> | mua: <yellow>" + displayLimit(buyLimit) + "</yellow>, bán: <yellow>" + displayLimit(sellLimit) + "</yellow>.</green>");
+			}
+			case "remove" -> {
+				if (args.length < 3) {
+					sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("remove"), CommandStrings.required("itemId", "text")));
+					return;
+				}
+
+				ShopItem item = store.find(args[2]).orElse(null);
+				if (item == null) {
+					sender.sendRichMessage("<red>❌ Không tìm thấy item theo id.</red>");
+					return;
+				}
+
+				store.upsert(new ShopItem(item.id(), item.category(), item.buyPrice(), item.sellPrice(), 0, 0, item.itemData(), item.addedDate()));
+				sender.sendRichMessage("<green>✔ Đã gỡ toàn bộ hạn mức của item <white>" + item.id() + "</white>.</green>");
+			}
+			case "show" -> {
+				if (args.length < 3) {
+					sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("show"), CommandStrings.required("itemId", "text")));
+					return;
+				}
+
+				ShopItem item = store.find(args[2]).orElse(null);
+				if (item == null) {
+					sender.sendRichMessage("<red>❌ Không tìm thấy item theo id.</red>");
+					return;
+				}
+
+				sender.sendRichMessage("<aqua>ℹ Hạn mức của <white>" + item.id() + "</white>: mua/ngày <yellow>" + displayLimit(item.buyTradeLimit()) + "</yellow>, bán/ngày <yellow>" + displayLimit(item.sellTradeLimit()) + "</yellow>.</aqua>");
+			}
+			default -> sender.sendRichMessage(CommandStrings.usage("/shopadmin", CommandStrings.literal("limit"), CommandStrings.requiredChoice("hành_động", "set", "remove", "show"), CommandStrings.optional("tham_số", "...")));
+		}
 	}
 
 	private void handleCategory(CommandSender sender, String[] args) {
@@ -261,7 +336,7 @@ public final class ShopAdminCommand implements BasicCommand {
 		List<ShopItem> items = store.all();
 		sender.sendRichMessage("<gold>♦ Danh sách mặt hàng hiện có: <white>" + items.size() + "</white></gold>");
 		for (ShopItem item : items) {
-			sender.sendRichMessage("<gray>● <white>" + item.id() + "</white> <dark_gray>(" + item.category() + ")</dark_gray> <green>Mua: " + item.buyPrice() + "</green> <yellow>Bán: " + item.sellPrice() + "</yellow>");
+			sender.sendRichMessage("<gray>● <white>" + item.id() + "</white> <dark_gray>(" + item.category() + ")</dark_gray> <green>Mua: " + service.formatMoney(item.buyPrice()) + "</green> <yellow>Bán: " + service.formatMoney(item.sellPrice()) + "</yellow> <gray>| HM mua: " + displayLimit(item.buyTradeLimit()) + ", HM bán: " + displayLimit(item.sellTradeLimit()) + "</gray>");
 		}
 	}
 
@@ -316,13 +391,16 @@ public final class ShopAdminCommand implements BasicCommand {
 
 	private void sendHelp(CommandSender sender) {
 		sender.sendRichMessage(ADMIN_HEADER);
-		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number")));
+		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number"), CommandStrings.optional("buyLimit", "number|none"), CommandStrings.optional("sellLimit", "number|none")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("create"), CommandStrings.required("id", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("seticon"), CommandStrings.required("id", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("displayname"), CommandStrings.required("id", "text"), CommandStrings.required("displayName", "mini_message...")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("list")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("rename"), CommandStrings.required("oldId", "text"), CommandStrings.required("newId", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("category"), CommandStrings.literal("delete"), CommandStrings.required("id", "text"), CommandStrings.optional("moveTo", "text")));
+		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("set"), CommandStrings.required("itemId", "text"), CommandStrings.required("buyLimit", "number|none"), CommandStrings.required("sellLimit", "number|none")));
+		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("remove"), CommandStrings.required("itemId", "text")));
+		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("limit"), CommandStrings.literal("show"), CommandStrings.required("itemId", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("remove"), CommandStrings.required("id", "text")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("list")));
 		sender.sendRichMessage(CommandStrings.syntax("/shopadmin", CommandStrings.literal("history"), CommandStrings.required("player", "text"), CommandStrings.optional("page", "number")));
@@ -338,15 +416,15 @@ public final class ShopAdminCommand implements BasicCommand {
 		}
 
 		if (args.length == 0) {
-			return List.of("add", "category", "remove", "list", "history", "reload", "open");
+			return List.of("add", "category", "limit", "remove", "list", "history", "reload", "open");
 		}
 
 		if (args.length == 1 && args[0].isEmpty()) {
-			return List.of("add", "category", "remove", "list", "history", "reload", "open");
+			return List.of("add", "category", "limit", "remove", "list", "history", "reload", "open");
 		}
 
 		if (args.length == 1) {
-			return CommandCompletions.filterPrefix(List.of("add", "category", "remove", "list", "history", "reload", "open"), args[0]);
+			return CommandCompletions.filterPrefix(List.of("add", "category", "limit", "remove", "list", "history", "reload", "open"), args[0]);
 		}
 
 		if (args.length == 2 && args[0].equalsIgnoreCase("history")) {
@@ -436,6 +514,34 @@ public final class ShopAdminCommand implements BasicCommand {
 			return CommandCompletions.filterPrefix(List.of("50", "500", "2500"), args[3]);
 		}
 
+		if (args.length == 5 && args[0].equalsIgnoreCase("add")) {
+			return CommandCompletions.filterPrefix(List.of("none", "32", "64", "128"), args[4]);
+		}
+
+		if (args.length == 6 && args[0].equalsIgnoreCase("add")) {
+			return CommandCompletions.filterPrefix(List.of("none", "32", "64", "128"), args[5]);
+		}
+
+		if (args.length == 2 && args[0].equalsIgnoreCase("limit")) {
+			return CommandCompletions.filterPrefix(List.of("set", "remove", "show"), args[1]);
+		}
+
+		if (args.length == 3 && args[0].equalsIgnoreCase("limit")) {
+			List<String> ids = new ArrayList<>();
+			for (ShopItem item : store.all()) {
+				ids.add(item.id());
+			}
+			return CommandCompletions.filterPrefix(ids, args[2]);
+		}
+
+		if (args.length == 4 && args[0].equalsIgnoreCase("limit") && args[1].equalsIgnoreCase("set")) {
+			return CommandCompletions.filterPrefix(List.of("none", "32", "64", "128"), args[3]);
+		}
+
+		if (args.length == 5 && args[0].equalsIgnoreCase("limit") && args[1].equalsIgnoreCase("set")) {
+			return CommandCompletions.filterPrefix(List.of("none", "32", "64", "128"), args[4]);
+		}
+
 		if (args.length == 3 && args[0].equalsIgnoreCase("category") && (args[1].equalsIgnoreCase("seticon") || args[1].equalsIgnoreCase("rename") || args[1].equalsIgnoreCase("delete"))) {
 			return CommandCompletions.filterPrefix(new ArrayList<>(store.categories()), args[2]);
 		}
@@ -465,6 +571,33 @@ public final class ShopAdminCommand implements BasicCommand {
 		}
 
 		return List.of();
+	}
+
+	private int parseTradeLimit(String raw) {
+		if (raw == null) {
+			throw new IllegalArgumentException("missing");
+		}
+
+		String normalized = raw.trim().toLowerCase(Locale.ROOT);
+		if (normalized.isBlank() || normalized.equals("none") || normalized.equals("off") || normalized.equals("unlimited")) {
+			return 0;
+		}
+
+		int value;
+		try {
+			value = Integer.parseInt(normalized);
+		} catch (NumberFormatException exception) {
+			throw new IllegalArgumentException("invalid", exception);
+		}
+		if (value < 0) {
+			throw new IllegalArgumentException("negative");
+		}
+
+		return value;
+	}
+
+	private String displayLimit(int value) {
+		return value <= 0 ? "không giới hạn" : String.valueOf(value);
 	}
 
 	@Override

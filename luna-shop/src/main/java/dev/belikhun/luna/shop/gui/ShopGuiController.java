@@ -24,6 +24,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -190,7 +191,7 @@ public final class ShopGuiController implements Listener {
 			int slot = i - start;
 			ItemStack icon = item.itemStack().clone();
 			ItemMeta meta = icon.getItemMeta();
-			meta.lore(appendShopLore(meta, List.of(
+			ArrayList<String> loreLines = new ArrayList<>(List.of(
 				"<gray>№ <white>" + item.id(),
 				"<gray>♦ Danh mục: " + displayCategory(item.category()),
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(item.buyPrice()),
@@ -199,12 +200,20 @@ public final class ShopGuiController implements Listener {
 				actionLine("Chuột trái", "cập nhật item từ tay"),
 				actionLine("Chuột phải", "xóa item"),
 				actionLine("Shift+Chuột trái", "sửa giá qua chat"),
-				actionLine("Shift+Chuột phải", "đổi danh mục qua chat")
-			)));
+				actionLine("Shift+Chuột phải", "đổi danh mục qua chat"),
+				actionLine("Phím Q", "sửa hạn mức qua chat")
+			));
+			loreLines.addAll(adminTradeLimitLore(item));
+			meta.lore(appendShopLore(meta, loreLines));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
 
 			view.setItem(slot, icon, (clicker, event, gui) -> {
+				if (event.getClick() == ClickType.DROP || event.getClick() == ClickType.CONTROL_DROP) {
+					beginAdminPrompt(clicker, AdminPromptType.EDIT_ITEM_LIMITS, item.id(), null, currentPage);
+					return;
+				}
+
 				if (event.isShiftClick() && event.isRightClick()) {
 					beginAdminPrompt(clicker, AdminPromptType.MOVE_ITEM_CATEGORY, item.id(), null, currentPage);
 					return;
@@ -241,7 +250,7 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				ShopItem updated = ShopItem.fromItemStack(item.id(), item.category(), item.buyPrice(), item.sellPrice(), hand);
+				ShopItem updated = ShopItem.fromItemStack(item.id(), item.category(), item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), hand, item.addedDate());
 				store.upsert(updated);
 				clicker.sendMessage(mm("<green>✔ Đã cập nhật item <white>" + item.id() + "</white>.</green>"));
 				openItemManagement(clicker, currentPage);
@@ -331,15 +340,20 @@ public final class ShopGuiController implements Listener {
 			int slot = i - start;
 			ItemStack icon = shopItem.itemStack().clone();
 			ItemMeta meta = icon.getItemMeta();
-			meta.lore(appendShopLore(meta, List.of(
+			ArrayList<String> loreLines = new ArrayList<>(List.of(
 				"<gray>№ <white>" + shopItem.id(),
 				"<gray>♦ Danh mục: " + displayCategory(shopItem.category()),
 				"<green>💰 Giá mua: <gold>" + service.formatMoney(shopItem.buyPrice()),
 				"<yellow>💵 Giá bán: <gold>" + service.formatMoney(shopItem.sellPrice()),
+				""
+			));
+			loreLines.addAll(playerTradeLimitLore(player, shopItem));
+			loreLines.addAll(List.of(
 				"",
 				actionLine("Chuột trái", "mua"),
 				actionLine("Chuột phải", "bán")
-			)));
+			));
+			meta.lore(appendShopLore(meta, loreLines));
 			meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 			icon.setItemMeta(meta);
 
@@ -479,17 +493,22 @@ public final class ShopGuiController implements Listener {
 
 		ItemStack display = shopItem.itemStack().clone();
 		ItemMeta meta = display.getItemMeta();
-		double buyTotal = shopItem.buyPrice() * amount;
-		double sellTotal = shopItem.sellPrice() * amount;
-		meta.lore(appendShopLore(meta, List.of(
+		int cappedBuyAmount = service.capBuyAmount(player, shopItem, amount);
+		int cappedSellAmount = service.capSellAmount(player, shopItem, amount);
+		double buyTotal = shopItem.buyPrice() * cappedBuyAmount;
+		double sellTotal = shopItem.sellPrice() * cappedSellAmount;
+		ArrayList<String> displayLore = new ArrayList<>(List.of(
 			"<white>№ <yellow>" + shopItem.id(),
 			"<white>♦ Danh mục: " + displayCategory(shopItem.category()),
 			"<white>♦ Số lượng: <yellow>" + amount,
-			"<green>💰 Tổng mua: <gold>" + service.formatMoney(buyTotal),
-			"<yellow>💵 Tổng bán: <gold>" + service.formatMoney(sellTotal),
+			"<green>💰 Tổng mua (áp dụng): <gold>" + service.formatMoney(buyTotal),
+			"<yellow>💵 Tổng bán (áp dụng): <gold>" + service.formatMoney(sellTotal),
 			"",
 			"<white>💰 Số dư hiện tại: <yellow>" + service.formatMoney(service.economy().balance(player))
-		)));
+		));
+		displayLore.add("");
+		displayLore.addAll(playerTradeLimitLore(player, shopItem));
+		meta.lore(appendShopLore(meta, displayLore));
 		meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 		display.setItemMeta(meta);
 		view.setItem(13, display);
@@ -503,12 +522,18 @@ public final class ShopGuiController implements Listener {
 			ItemStack quickButtonItem = amountButton(shopItem, normalized.mode(), amountValue);
 			view.setItem(quickSlot, quickButtonItem, (clicker, event, gui) -> {
 				TradeSession quickSession = normalized.withAmount(amountValue);
-				if (quickSession.mode() == TradeMode.BUY && !hasEnoughMoney(clicker, shopItem, quickSession.amount())) {
+				int effectiveAmount = effectiveTradeAmount(clicker, shopItem, quickSession.mode(), quickSession.amount());
+				if (effectiveAmount <= 0) {
+					showLimitReachedAlert(clicker, gui, quickSlot, quickSession.mode(), shopItem, quickButtonItem);
+					return;
+				}
+
+				if (quickSession.mode() == TradeMode.BUY && !hasEnoughMoney(clicker, shopItem, effectiveAmount)) {
 					showInsufficientAlert(clicker, gui, quickSlot, quickSession.mode(), shopItem, quickSession.amount(), quickButtonItem);
 					return;
 				}
 
-				if (quickSession.mode() == TradeMode.SELL && !hasEnoughItems(clicker, shopItem, quickSession.amount())) {
+				if (quickSession.mode() == TradeMode.SELL && !hasEnoughItems(clicker, shopItem, effectiveAmount)) {
 					showInsufficientAlert(clicker, gui, quickSlot, quickSession.mode(), shopItem, quickSession.amount(), quickButtonItem);
 					return;
 				}
@@ -544,22 +569,28 @@ public final class ShopGuiController implements Listener {
 
 		if (normalized.mode() == TradeMode.SELL) {
 			int quickSellAllAmount = service.countSimilar(player.getInventory(), shopItem.itemStack());
-			ItemStack quickSellAllItem = quickSellAllButton(shopItem, quickSellAllAmount);
+			ItemStack quickSellAllItem = quickSellAllButton(player, shopItem, quickSellAllAmount);
 			view.setItem(23, quickSellAllItem, (clicker, event, gui) -> {
 				int sellAmount = service.countSimilar(clicker.getInventory(), shopItem.itemStack());
+				int effectiveSellAmount = service.capSellAmount(clicker, shopItem, sellAmount);
 				if (sellAmount <= 0) {
 					clicker.sendMessage(mm("<red>❌ Bạn không có vật phẩm tương tự để bán nhanh.</red>"));
 					showInsufficientAlert(clicker, gui, 23, TradeMode.SELL, shopItem, 1, quickSellAllItem);
 					return;
 				}
 
-				double expected = shopItem.sellPrice() * sellAmount;
+				if (effectiveSellAmount <= 0) {
+					showLimitReachedAlert(clicker, gui, 23, TradeMode.SELL, shopItem, quickSellAllItem);
+					return;
+				}
+
+				double expected = shopItem.sellPrice() * effectiveSellAmount;
 				openConfirmationDialog(
 					clicker,
 					"<yellow>⚠ Xác nhận bán nhanh toàn bộ",
 					List.of(
 						"<gray>Vật phẩm: <white>" + shopItem.id(),
-						"<gray>Số lượng sẽ bán: <white>" + sellAmount,
+						"<gray>Số lượng sẽ bán: <white>" + effectiveSellAmount,
 						"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(expected)
 					),
 					() -> {
@@ -585,18 +616,24 @@ public final class ShopGuiController implements Listener {
 	}
 
 	private void handleTradeConfirm(Player player, ShopItem shopItem, TradeSession session, GuiView view, int clickedSlot, ItemStack restoreItem) {
-		if (session.mode() == TradeMode.BUY && !hasEnoughMoney(player, shopItem, session.amount())) {
+		int effectiveAmount = effectiveTradeAmount(player, shopItem, session.mode(), session.amount());
+		if (effectiveAmount <= 0) {
+			showLimitReachedAlert(player, view, clickedSlot, session.mode(), shopItem, restoreItem);
+			return;
+		}
+
+		if (session.mode() == TradeMode.BUY && !hasEnoughMoney(player, shopItem, effectiveAmount)) {
 			showInsufficientAlert(player, view, clickedSlot, session.mode(), shopItem, session.amount(), restoreItem);
 			return;
 		}
 
-		if (session.mode() == TradeMode.SELL && !hasEnoughItems(player, shopItem, session.amount())) {
+		if (session.mode() == TradeMode.SELL && !hasEnoughItems(player, shopItem, effectiveAmount)) {
 			showInsufficientAlert(player, view, clickedSlot, session.mode(), shopItem, session.amount(), restoreItem);
 			return;
 		}
 
 		if (session.mode() == TradeMode.BUY) {
-			double total = shopItem.buyPrice() * session.amount();
+			double total = shopItem.buyPrice() * effectiveAmount;
 			double balance = service.economy().balance(player);
 			if (balance > 0D && total > balance * 0.5D) {
 				openConfirmationDialog(
@@ -751,11 +788,21 @@ public final class ShopGuiController implements Listener {
 
 				double buyPrice;
 				double sellPrice;
+				int buyTradeLimit = 0;
+				int sellTradeLimit = 0;
 				try {
 					buyPrice = Double.parseDouble(parts[1]);
 					sellPrice = Double.parseDouble(parts[2]);
+					if (parts.length >= 5) {
+						buyTradeLimit = parseTradeLimitInput(parts[3]);
+						sellTradeLimit = parseTradeLimitInput(parts[4]);
+					}
 				} catch (NumberFormatException exception) {
 					player.sendMessage(mm("<red>❌ Giá phải là số hợp lệ.</red>"));
+					returnToAdminMenu(player, prompt);
+					return;
+				} catch (IllegalArgumentException exception) {
+					player.sendMessage(mm("<red>❌ Hạn mức phải là số nguyên >= 0 hoặc <white>none</white>.</red>"));
 					returnToAdminMenu(player, prompt);
 					return;
 				}
@@ -780,7 +827,7 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				ShopItem created = ShopItem.fromItemStackAutoId(category, buyPrice, sellPrice, hand);
+				ShopItem created = ShopItem.fromItemStackAutoId(category, buyPrice, sellPrice, buyTradeLimit, sellTradeLimit, hand);
 				store.upsert(created);
 				player.sendMessage(mm("<green>✔ Đã tạo mặt hàng <white>" + created.id() + "</white>.</green>"));
 				returnToAdminMenu(player, prompt);
@@ -817,8 +864,38 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				store.upsert(new ShopItem(item.id(), item.category(), buyPrice, sellPrice, item.itemData(), item.addedDate()));
+				store.upsert(new ShopItem(item.id(), item.category(), buyPrice, sellPrice, item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate()));
 				player.sendMessage(mm("<green>✔ Đã cập nhật giá cho item <white>" + item.id() + "</white>.</green>"));
+				returnToAdminMenu(player, prompt);
+			}
+			case EDIT_ITEM_LIMITS -> {
+				ShopItem item = store.find(prompt.primary()).orElse(null);
+				if (item == null) {
+					player.sendMessage(mm("<red>❌ Item không tồn tại.</red>"));
+					returnToAdminMenu(player, prompt);
+					return;
+				}
+
+				String[] parts = input.split("\\s+");
+				if (parts.length < 2) {
+					player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">ℹ Dùng:</color> " + CommandStrings.arguments(CommandStrings.required("buyLimit", "number|none"), CommandStrings.required("sellLimit", "number|none"))));
+					returnToAdminMenu(player, prompt);
+					return;
+				}
+
+				int buyLimit;
+				int sellLimit;
+				try {
+					buyLimit = parseTradeLimitInput(parts[0]);
+					sellLimit = parseTradeLimitInput(parts[1]);
+				} catch (IllegalArgumentException exception) {
+					player.sendMessage(mm("<red>❌ Hạn mức phải là số nguyên >= 0 hoặc <white>none</white>.</red>"));
+					returnToAdminMenu(player, prompt);
+					return;
+				}
+
+				store.upsert(new ShopItem(item.id(), item.category(), item.buyPrice(), item.sellPrice(), buyLimit, sellLimit, item.itemData(), item.addedDate()));
+				player.sendMessage(mm("<green>✔ Đã cập nhật hạn mức cho item <white>" + item.id() + "</white>.</green>"));
 				returnToAdminMenu(player, prompt);
 			}
 			case MOVE_ITEM_CATEGORY -> {
@@ -835,7 +912,7 @@ public final class ShopGuiController implements Listener {
 					return;
 				}
 
-				store.upsert(new ShopItem(item.id(), input, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
+				store.upsert(new ShopItem(item.id(), input, item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate()));
 				player.sendMessage(mm("<green>✔ Đã chuyển item <white>" + item.id() + "</white> sang category <white>" + ShopItem.normalizeCategory(input) + "</white>.</green>"));
 				returnToAdminMenu(player, prompt);
 			}
@@ -848,8 +925,9 @@ public final class ShopGuiController implements Listener {
 		switch (type) {
 			case CREATE_CATEGORY -> player.sendMessage(mm("<aqua>✦ Nhập <white>ID danh mục</white> trên chat. Gõ <white>huy</white> để hủy.</aqua>"));
 			case RENAME_CATEGORY -> player.sendMessage(mm("<aqua>✦ Nhập <white>ID mới</white> cho danh mục <white>" + primary + "</white>. Gõ <white>huy</white> để hủy.</aqua>"));
-			case CREATE_ITEM -> player.sendMessage(mm("<aqua>✦ Nhập theo mẫu: </aqua>" + CommandStrings.syntax("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number")) + "<gray>. Gõ <white>huy</white> để hủy.</gray>"));
+			case CREATE_ITEM -> player.sendMessage(mm("<aqua>✦ Nhập theo mẫu: </aqua>" + CommandStrings.syntax("/shopadmin", CommandStrings.literal("add"), CommandStrings.required("category", "text"), CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number"), CommandStrings.optional("buyLimit", "number|none"), CommandStrings.optional("sellLimit", "number|none")) + "<gray>. Gõ <white>huy</white> để hủy.</gray>"));
 			case EDIT_ITEM_PRICES -> player.sendMessage(mm("<aqua>✦ Nhập giá mới cho <white>" + primary + "</white>: </aqua>" + CommandStrings.arguments(CommandStrings.required("buyPrice", "number"), CommandStrings.required("sellPrice", "number")) + "<gray>. Gõ <white>huy</white> để hủy.</gray>"));
+			case EDIT_ITEM_LIMITS -> player.sendMessage(mm("<aqua>✦ Nhập hạn mức cho <white>" + primary + "</white>: </aqua>" + CommandStrings.arguments(CommandStrings.required("buyLimit", "number|none"), CommandStrings.required("sellLimit", "number|none")) + "<gray>. Gõ <white>huy</white> để hủy.</gray>"));
 			case MOVE_ITEM_CATEGORY -> player.sendMessage(mm("<aqua>✦ Nhập category mới cho <white>" + primary + "</white>. Gõ <white>huy</white> để hủy.</aqua>"));
 		}
 	}
@@ -857,7 +935,7 @@ public final class ShopGuiController implements Listener {
 	private void returnToAdminMenu(Player player, AdminPrompt prompt) {
 		switch (prompt.type()) {
 			case CREATE_CATEGORY, RENAME_CATEGORY -> openCategoryManagement(player, prompt.page());
-			case CREATE_ITEM, EDIT_ITEM_PRICES, MOVE_ITEM_CATEGORY -> openItemManagement(player, prompt.page());
+			case CREATE_ITEM, EDIT_ITEM_PRICES, EDIT_ITEM_LIMITS, MOVE_ITEM_CATEGORY -> openItemManagement(player, prompt.page());
 		}
 	}
 
@@ -986,15 +1064,26 @@ public final class ShopGuiController implements Listener {
 		return stack;
 	}
 
-	private ItemStack quickSellAllButton(ShopItem shopItem, int sellAmount) {
+	private ItemStack quickSellAllButton(Player player, ShopItem shopItem, int ownedAmount) {
+		int sellAmount = service.capSellAmount(player, shopItem, Math.max(0, ownedAmount));
 		double expected = shopItem.sellPrice() * Math.max(0, sellAmount);
-		if (sellAmount <= 0) {
+		if (ownedAmount <= 0) {
 			return item(Material.HOPPER, "<yellow>★ Bán nhanh tất cả item tương tự", List.of(
 				line(LunaPalette.WARNING_500, "♦ Có thể bán: <white>0"),
 				line(LunaPalette.WARNING_500, "💵 Dự kiến nhận: <gold>" + service.formatMoney(0)),
 				"",
 				plainLine(LunaPalette.WARNING_500, "⚠ Bạn chưa có item tương tự"),
 				plainLine(LunaPalette.WARNING_500, "trong túi đồ")
+			));
+		}
+
+		if (sellAmount <= 0) {
+			return item(Material.HOPPER, "<yellow>★ Bán nhanh tất cả item tương tự", List.of(
+				line(LunaPalette.WARNING_500, "♦ Có thể bán: <white>0"),
+				line(LunaPalette.WARNING_500, "💵 Dự kiến nhận: <gold>" + service.formatMoney(0)),
+				"",
+				plainLine(LunaPalette.WARNING_500, "⚠ Đã đạt giới hạn bán hôm nay"),
+				plainLine(LunaPalette.WARNING_500, "⏳ Reset sau: <white>" + service.tradeLimitResetDuration())
 			));
 		}
 
@@ -1035,6 +1124,25 @@ public final class ShopGuiController implements Listener {
 		)));
 		player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn không đủ vật phẩm tương ứng để bán.</color>"));
 		scheduleAlertReset(player, view, slot, restoreItem);
+	}
+
+	private void showLimitReachedAlert(Player player, GuiView view, int slot, TradeMode mode, ShopItem shopItem, ItemStack restoreItem) {
+		String modeText = mode == TradeMode.BUY ? "mua" : "bán";
+		int maxLimit = mode == TradeMode.BUY ? shopItem.buyTradeLimit() : shopItem.sellTradeLimit();
+		view.setItem(slot, item(Material.ORANGE_STAINED_GLASS_PANE, "<color:" + LunaPalette.WARNING_500 + ">⚠ Hết hạn mức " + modeText + "</color>", List.of(
+			line(LunaPalette.WARNING_500, "♦ Hạn mức ngày: <white>" + (maxLimit > 0 ? maxLimit : 0)),
+			line(LunaPalette.WARNING_500, "⏳ Reset sau: <white>" + service.tradeLimitResetDuration())
+		)));
+		player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn đã đạt hạn mức " + modeText + " trong ngày. Reset sau <white>" + service.tradeLimitResetDuration() + "</white>.</color>"));
+		scheduleAlertReset(player, view, slot, restoreItem);
+	}
+
+	private int effectiveTradeAmount(Player player, ShopItem shopItem, TradeMode mode, int requestedAmount) {
+		if (mode == TradeMode.BUY) {
+			return service.capBuyAmount(player, shopItem, requestedAmount);
+		}
+
+		return service.capSellAmount(player, shopItem, requestedAmount);
 	}
 
 	private void scheduleAlertReset(Player player, GuiView view, int slot, ItemStack restoreItem) {
@@ -1132,6 +1240,70 @@ public final class ShopGuiController implements Listener {
 	private String actionLine(String button, String action) {
 		return plainLine(LunaPalette.NEUTRAL_500,
 			"▶ <color:" + LunaPalette.INFO_300 + "><bold>" + button + "</bold></color> để " + action);
+	}
+
+	private List<String> playerTradeLimitLore(Player player, ShopItem item) {
+		int remainingBuy = service.remainingBuyLimit(player, item);
+		int remainingSell = service.remainingSellLimit(player, item);
+		ArrayList<String> lines = new ArrayList<>();
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Mua còn: " + limitValueText(remainingBuy, item.buyTradeLimit())));
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Bán còn: " + limitValueText(remainingSell, item.sellTradeLimit())));
+		if (item.hasBuyTradeLimit() || item.hasSellTradeLimit()) {
+			lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau: <white>" + service.tradeLimitResetDuration()));
+		}
+
+		return lines;
+	}
+
+	private List<String> adminTradeLimitLore(ShopItem item) {
+		ArrayList<String> lines = new ArrayList<>();
+		lines.add("");
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày: <white>" + limitSettingText(item.buyTradeLimit())));
+		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày: <white>" + limitSettingText(item.sellTradeLimit())));
+		if (item.hasBuyTradeLimit() || item.hasSellTradeLimit()) {
+			lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset mỗi ngày Minecraft"));
+		}
+
+		return lines;
+	}
+
+	private String limitValueText(int remaining, int maxLimit) {
+		if (maxLimit <= 0) {
+			return "<green>Không giới hạn";
+		}
+
+		return "<yellow>" + Math.max(0, remaining) + "</yellow>/<gold>" + maxLimit;
+	}
+
+	private String limitSettingText(int maxLimit) {
+		if (maxLimit <= 0) {
+			return "Không giới hạn";
+		}
+
+		return String.valueOf(maxLimit);
+	}
+
+	private int parseTradeLimitInput(String input) {
+		if (input == null) {
+			throw new IllegalArgumentException("missing");
+		}
+
+		String normalized = input.trim().toLowerCase(Locale.ROOT);
+		if (normalized.isBlank() || normalized.equals("none") || normalized.equals("off") || normalized.equals("unlimited")) {
+			return 0;
+		}
+
+		int value;
+		try {
+			value = Integer.parseInt(normalized);
+		} catch (NumberFormatException exception) {
+			throw new IllegalArgumentException("invalid", exception);
+		}
+		if (value < 0) {
+			throw new IllegalArgumentException("negative");
+		}
+
+		return value;
 	}
 
 	private List<Component> appendShopLore(ItemMeta meta, List<String> shopLoreLines) {
@@ -1305,6 +1477,7 @@ public final class ShopGuiController implements Listener {
 		RENAME_CATEGORY,
 		CREATE_ITEM,
 		EDIT_ITEM_PRICES,
+		EDIT_ITEM_LIMITS,
 		MOVE_ITEM_CATEGORY
 	}
 

@@ -16,7 +16,7 @@ commands:
     aliases: [buy, store, b]
   shopadmin:
     description: Quản trị vật phẩm shop.
-    usage: /shopadmin <add|remove|list|history|reload|open>
+    usage: /shopadmin <add|category|limit|remove|list|history|reload|open>
     permission: lunashop.admin
   lunashop:
     description: Quản trị và reload Luna Shop.

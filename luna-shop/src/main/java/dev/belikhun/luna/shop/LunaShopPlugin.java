@@ -10,6 +10,7 @@ import dev.belikhun.luna.shop.economy.VaultEconomyService;
 import dev.belikhun.luna.shop.gui.ShopGuiController;
 import dev.belikhun.luna.shop.migration.ShopTransactionHistoryMigration;
 import dev.belikhun.luna.shop.service.ShopService;
+import dev.belikhun.luna.shop.service.ShopTradeLimitService;
 import dev.belikhun.luna.shop.service.ShopTransactionStore;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 
@@ -58,7 +59,8 @@ public final class LunaShopPlugin extends JavaPlugin {
 			return;
 		}
 
-		this.shopService = new ShopService(economyService, itemStore, transactionStore, logger.scope("Transactions"));
+		ShopTradeLimitService tradeLimitService = new ShopTradeLimitService(this);
+		this.shopService = new ShopService(economyService, itemStore, tradeLimitService, transactionStore, logger.scope("Transactions"));
 		this.guiController = new ShopGuiController(this, shopService, itemStore);
 
 		ShopCommand shopCommand = new ShopCommand(guiController, itemStore);

@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -19,12 +20,14 @@ import java.util.UUID;
 public final class ShopService {
 	private final ShopEconomyService economy;
 	private final ShopItemStore store;
+	private final ShopTradeLimitService tradeLimitService;
 	private final ShopTransactionStore transactionStore;
 	private final LunaLogger logger;
 
-	public ShopService(ShopEconomyService economy, ShopItemStore store, ShopTransactionStore transactionStore, LunaLogger logger) {
+	public ShopService(ShopEconomyService economy, ShopItemStore store, ShopTradeLimitService tradeLimitService, ShopTransactionStore transactionStore, LunaLogger logger) {
 		this.economy = economy;
 		this.store = store;
+		this.tradeLimitService = tradeLimitService;
 		this.transactionStore = transactionStore;
 		this.logger = logger;
 	}
@@ -41,33 +44,69 @@ public final class ShopService {
 		return Formatters.money(amount, moneySymbol, moneyGrouping, moneyFormat);
 	}
 
+	public int remainingBuyLimit(Player player, ShopItem shopItem) {
+		return tradeLimitService.remainingBuy(player.getUniqueId(), shopItem);
+	}
+
+	public int remainingSellLimit(Player player, ShopItem shopItem) {
+		return tradeLimitService.remainingSell(player.getUniqueId(), shopItem);
+	}
+
+	public int capBuyAmount(Player player, ShopItem shopItem, int requestedAmount) {
+		return tradeLimitService.capBuyAmount(player.getUniqueId(), shopItem, requestedAmount);
+	}
+
+	public int capSellAmount(Player player, ShopItem shopItem, int requestedAmount) {
+		return tradeLimitService.capSellAmount(player.getUniqueId(), shopItem, requestedAmount);
+	}
+
+	public String tradeLimitResetDuration() {
+		return Formatters.duration(Duration.ofMillis(tradeLimitService.millisUntilReset()));
+	}
+
 	public ShopResult buy(Player player, ShopItem shopItem, int amount) {
 		if (amount <= 0) {
 			return fail("BUY", player, shopItem, amount, "Số lượng mua không hợp lệ.", "<red>❌ Số lượng mua không hợp lệ.</red>", 0D);
 		}
 
-		double total = shopItem.buyPrice() * amount;
+		int tradeAmount = capBuyAmount(player, shopItem, amount);
+		if (tradeAmount <= 0) {
+			String reason = "Đã đạt giới hạn mua trong ngày.";
+			return fail("BUY", player, shopItem, amount, reason,
+				"<red>❌ Bạn đã chạm giới hạn mua hôm nay. Reset sau <white>" + tradeLimitResetDuration() + "</white>.</red>", 0D);
+		}
+
+		double total = shopItem.buyPrice() * tradeAmount;
 		if (shopItem.buyPrice() <= 0D) {
-			return fail("BUY", player, shopItem, amount, "Vật phẩm không thể mua.", "<red>❌ Vật phẩm này không thể mua.</red>", total);
+			return fail("BUY", player, shopItem, tradeAmount, "Vật phẩm không thể mua.", "<red>❌ Vật phẩm này không thể mua.</red>", total);
 		}
 
 		if (!economy.has(player, total)) {
-			return fail("BUY", player, shopItem, amount, "Không đủ tiền để mua.", "<red>❌ Bạn không đủ tiền để mua.</red>", total);
+			return fail("BUY", player, shopItem, tradeAmount, "Không đủ tiền để mua.", "<red>❌ Bạn không đủ tiền để mua.</red>", total);
 		}
 
 		ItemStack sample = shopItem.itemStack();
 		int maxAcceptable = maxAcceptable(player.getInventory(), sample);
-		if (maxAcceptable < amount) {
-			return fail("BUY", player, shopItem, amount, "Túi đồ không đủ chỗ.", "<red>❌ Túi đồ không đủ chỗ chứa số lượng đã chọn.</red>", total);
+		if (maxAcceptable < tradeAmount) {
+			return fail("BUY", player, shopItem, tradeAmount, "Túi đồ không đủ chỗ.", "<red>❌ Túi đồ không đủ chỗ chứa số lượng đã chọn.</red>", total);
 		}
 
 		if (!economy.withdraw(player, total)) {
-			return fail("BUY", player, shopItem, amount, "Không thể trừ tiền từ ví người chơi.", "<red>❌ Không thể trừ tiền từ ví của bạn.</red>", total);
+			return fail("BUY", player, shopItem, tradeAmount, "Không thể trừ tiền từ ví người chơi.", "<red>❌ Không thể trừ tiền từ ví của bạn.</red>", total);
 		}
 
-		give(player.getInventory(), sample, amount);
-		logSuccess("BUY", player, shopItem, amount, total);
-		return ShopResult.ok("<green>✔ Mua thành công <white>" + amount + "</white> vật phẩm với giá " + formatMoney(total) + "<green>.</green>");
+		if (!tradeLimitService.consumeBuy(player.getUniqueId(), shopItem, tradeAmount)) {
+			economy.deposit(player, total);
+			return fail("BUY", player, shopItem, tradeAmount, "Đã đạt giới hạn mua trong ngày.", "<red>❌ Hạn mức mua vừa thay đổi, vui lòng thử lại.</red>", total);
+		}
+
+		give(player.getInventory(), sample, tradeAmount);
+		logSuccess("BUY", player, shopItem, tradeAmount, total);
+		if (tradeAmount < amount) {
+			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã mua với giá " + formatMoney(total) + "<yellow>.</yellow>");
+		}
+
+		return ShopResult.ok("<green>✔ Mua thành công <white>" + tradeAmount + "</white> vật phẩm với giá " + formatMoney(total) + "<green>.</green>");
 	}
 
 	public ShopResult sell(Player player, ShopItem shopItem, int amount) {
@@ -75,25 +114,42 @@ public final class ShopService {
 			return fail("SELL", player, shopItem, amount, "Số lượng bán không hợp lệ.", "<red>❌ Số lượng bán không hợp lệ.</red>", 0D);
 		}
 
+		int tradeAmount = capSellAmount(player, shopItem, amount);
+		if (tradeAmount <= 0) {
+			String reason = "Đã đạt giới hạn bán trong ngày.";
+			return fail("SELL", player, shopItem, amount, reason,
+				"<red>❌ Bạn đã chạm giới hạn bán hôm nay. Reset sau <white>" + tradeLimitResetDuration() + "</white>.</red>", 0D);
+		}
+
 		if (shopItem.sellPrice() <= 0D) {
-			return fail("SELL", player, shopItem, amount, "Vật phẩm không thể bán.", "<red>❌ Vật phẩm này không thể bán.</red>", 0D);
+			return fail("SELL", player, shopItem, tradeAmount, "Vật phẩm không thể bán.", "<red>❌ Vật phẩm này không thể bán.</red>", 0D);
 		}
 
 		ItemStack sample = shopItem.itemStack();
 		int owned = countSimilar(player.getInventory(), sample);
-		if (owned < amount) {
-			return fail("SELL", player, shopItem, amount, "Không đủ vật phẩm để bán.", "<red>❌ Bạn không đủ vật phẩm để bán.</red>", shopItem.sellPrice() * amount);
+		if (owned < tradeAmount) {
+			return fail("SELL", player, shopItem, tradeAmount, "Không đủ vật phẩm để bán.", "<red>❌ Bạn không đủ vật phẩm để bán.</red>", shopItem.sellPrice() * tradeAmount);
 		}
 
-		removeSimilar(player.getInventory(), sample, amount);
-		double total = shopItem.sellPrice() * amount;
+		removeSimilar(player.getInventory(), sample, tradeAmount);
+		double total = shopItem.sellPrice() * tradeAmount;
 		if (!economy.deposit(player, total)) {
-			give(player.getInventory(), sample, amount);
-			return fail("SELL", player, shopItem, amount, "Không thể cộng tiền vào ví người chơi.", "<red>❌ Không thể cộng tiền vào ví của bạn.</red>", total);
+			give(player.getInventory(), sample, tradeAmount);
+			return fail("SELL", player, shopItem, tradeAmount, "Không thể cộng tiền vào ví người chơi.", "<red>❌ Không thể cộng tiền vào ví của bạn.</red>", total);
 		}
 
-		logSuccess("SELL", player, shopItem, amount, total);
-		return ShopResult.ok("<green>✔ Bán thành công <white>" + amount + "</white> vật phẩm và nhận " + formatMoney(total) + "<green>.</green>");
+		if (!tradeLimitService.consumeSell(player.getUniqueId(), shopItem, tradeAmount)) {
+			economy.withdraw(player, total);
+			give(player.getInventory(), sample, tradeAmount);
+			return fail("SELL", player, shopItem, tradeAmount, "Đã đạt giới hạn bán trong ngày.", "<red>❌ Hạn mức bán vừa thay đổi, vui lòng thử lại.</red>", total);
+		}
+
+		logSuccess("SELL", player, shopItem, tradeAmount, total);
+		if (tradeAmount < amount) {
+			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã bán và nhận " + formatMoney(total) + "<yellow>.</yellow>");
+		}
+
+		return ShopResult.ok("<green>✔ Bán thành công <white>" + tradeAmount + "</white> vật phẩm và nhận " + formatMoney(total) + "<green>.</green>");
 	}
 
 	public ShopResult sellAllSimilar(Player player, ShopItem shopItem) {

@@ -73,6 +73,8 @@ public final class ShopItemStore {
 			String category = configuration.getString(root + ".category", "general");
 			double buyPrice = configuration.getDouble(root + ".buy-price", 0D);
 			double sellPrice = configuration.getDouble(root + ".sell-price", 0D);
+			int buyTradeLimit = Math.max(0, configuration.getInt(root + ".buy-trade-limit", 0));
+			int sellTradeLimit = Math.max(0, configuration.getInt(root + ".sell-trade-limit", 0));
 			long addedDate = configuration.getLong(root + ".added-date", System.currentTimeMillis());
 			String itemData = configuration.getString(root + ".item-data", "");
 			if (itemData == null || itemData.isBlank()) {
@@ -80,7 +82,7 @@ public final class ShopItemStore {
 			}
 
 			String normalizedId = ShopItem.normalizeId(id);
-			items.put(normalizedId, new ShopItem(normalizedId, category, buyPrice, sellPrice, itemData, addedDate));
+			items.put(normalizedId, new ShopItem(normalizedId, category, buyPrice, sellPrice, buyTradeLimit, sellTradeLimit, itemData, addedDate));
 		}
 
 		ensureCategoryFallbacks();
@@ -102,6 +104,8 @@ public final class ShopItemStore {
 			configuration.set(root + ".category", item.category());
 			configuration.set(root + ".buy-price", item.buyPrice());
 			configuration.set(root + ".sell-price", item.sellPrice());
+			configuration.set(root + ".buy-trade-limit", item.buyTradeLimit());
+			configuration.set(root + ".sell-trade-limit", item.sellTradeLimit());
 			configuration.set(root + ".added-date", item.addedDate());
 			configuration.set(root + ".item-id", stack.getType().getKey().asString());
 			configuration.set(root + ".item-name", itemNameForExport(stack));
@@ -235,7 +239,7 @@ public final class ShopItemStore {
 				continue;
 			}
 
-			entry.setValue(new ShopItem(item.id(), normalizedNew, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
+			entry.setValue(new ShopItem(item.id(), normalizedNew, item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate()));
 		}
 
 		save();
@@ -270,7 +274,7 @@ public final class ShopItemStore {
 					continue;
 				}
 
-				entry.setValue(new ShopItem(item.id(), target, item.buyPrice(), item.sellPrice(), item.itemData(), item.addedDate()));
+				entry.setValue(new ShopItem(item.id(), target, item.buyPrice(), item.sellPrice(), item.buyTradeLimit(), item.sellTradeLimit(), item.itemData(), item.addedDate()));
 			}
 		}
 
