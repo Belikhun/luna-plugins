@@ -103,10 +103,10 @@ public final class ShopService {
 		give(player.getInventory(), sample, tradeAmount);
 		logSuccess("BUY", player, shopItem, tradeAmount, total);
 		if (tradeAmount < amount) {
-			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã mua với giá " + formatMoney(total) + "<yellow>.</yellow>");
+			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã mua với giá " + formatMoney(total) + ".</yellow>");
 		}
 
-		return ShopResult.ok("<green>✔ Mua thành công <white>" + tradeAmount + "</white> vật phẩm với giá " + formatMoney(total) + "<green>.</green>");
+		return ShopResult.ok("<green>✔ Mua thành công <white>" + tradeAmount + "</white> vật phẩm với giá " + formatMoney(total) + ".</green>");
 	}
 
 	public ShopResult sell(Player player, ShopItem shopItem, int amount) {
@@ -146,10 +146,10 @@ public final class ShopService {
 
 		logSuccess("SELL", player, shopItem, tradeAmount, total);
 		if (tradeAmount < amount) {
-			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã bán và nhận " + formatMoney(total) + "<yellow>.</yellow>");
+			return ShopResult.ok("<yellow>⚠ Giới hạn trong ngày chỉ còn <white>" + tradeAmount + "</white>. Đã bán và nhận " + formatMoney(total) + ".</yellow>");
 		}
 
-		return ShopResult.ok("<green>✔ Bán thành công <white>" + tradeAmount + "</white> vật phẩm và nhận " + formatMoney(total) + "<green>.</green>");
+		return ShopResult.ok("<green>✔ Bán thành công <white>" + tradeAmount + "</white> vật phẩm và nhận " + formatMoney(total) + ".</green>");
 	}
 
 	public ShopResult sellAllSimilar(Player player, ShopItem shopItem) {

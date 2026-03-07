@@ -1243,33 +1243,37 @@ public final class ShopGuiController implements Listener {
 	}
 
 	private List<String> playerTradeLimitLore(Player player, ShopItem item) {
+		if (!item.hasBuyTradeLimit() && !item.hasSellTradeLimit()) {
+			return List.of();
+		}
+
 		int remainingBuy = service.remainingBuyLimit(player, item);
 		int remainingSell = service.remainingSellLimit(player, item);
 		ArrayList<String> lines = new ArrayList<>();
 		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Mua còn: " + limitValueText(remainingBuy, item.buyTradeLimit())));
 		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Bán còn: " + limitValueText(remainingSell, item.sellTradeLimit())));
-		if (item.hasBuyTradeLimit() || item.hasSellTradeLimit()) {
-			lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau: <white>" + service.tradeLimitResetDuration()));
-		}
+		lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau: <white>" + service.tradeLimitResetDuration()));
 
 		return lines;
 	}
 
 	private List<String> adminTradeLimitLore(ShopItem item) {
+		if (!item.hasBuyTradeLimit() && !item.hasSellTradeLimit()) {
+			return List.of();
+		}
+
 		ArrayList<String> lines = new ArrayList<>();
 		lines.add("");
 		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức mua/ngày: <white>" + limitSettingText(item.buyTradeLimit())));
 		lines.add(plainLine(LunaPalette.INFO_500, "⌚ Hạn mức bán/ngày: <white>" + limitSettingText(item.sellTradeLimit())));
-		if (item.hasBuyTradeLimit() || item.hasSellTradeLimit()) {
-			lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset mỗi ngày Minecraft"));
-		}
+		lines.add(plainLine(LunaPalette.INFO_300, "⏳ Reset mỗi ngày Minecraft"));
 
 		return lines;
 	}
 
 	private String limitValueText(int remaining, int maxLimit) {
 		if (maxLimit <= 0) {
-			return "<green>Không giới hạn";
+			return "<green>Không giới hạn</green>";
 		}
 
 		return "<yellow>" + Math.max(0, remaining) + "</yellow>/<gold>" + maxLimit;
