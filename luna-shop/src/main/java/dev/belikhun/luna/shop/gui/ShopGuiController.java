@@ -398,8 +398,8 @@ public final class ShopGuiController implements Listener {
 		String title = switch (field) {
 			case BUY_PRICE -> "<green>Nhập giá mua";
 			case SELL_PRICE -> "<yellow>Nhập giá bán";
-			case BUY_LIMIT -> "<green>Nhập hạn mức mua";
-			case SELL_LIMIT -> "<yellow>Nhập hạn mức bán";
+			case BUY_LIMIT -> "<color:#374151>Nhập hạn mức mua";
+			case SELL_LIMIT -> "<color:#374151>Nhập hạn mức bán";
 			default -> "<aqua>Nhập số";
 		};
 
@@ -408,18 +408,23 @@ public final class ShopGuiController implements Listener {
 		NumberSelectorGui.Request request = NumberSelectorGui
 			.request(mm(title), "Giá trị", (submitPlayer, value) -> {
 				double normalized = integerMode ? Math.max(0D, Math.rint(value)) : Math.max(0D, value);
-				applyItemEditorInput(submitPlayer, itemId, page, field, String.valueOf(normalized));
+				String serialized = integerMode
+					? String.valueOf((int) Math.rint(normalized))
+					: String.valueOf(normalized);
+				applyItemEditorInput(submitPlayer, itemId, page, field, serialized);
 			}, closePlayer -> openItemEditor(closePlayer, itemId, page))
 			.withDisplayMaterial(Material.PAPER)
 			.withInitialValue(initialValue)
-			.withRange(0D, maxValue)
+			.withMinValue(0D)
+			.withMaxValue(maxValue)
 			.withIntegerMode(integerMode)
-			.withValueFormatter(value -> {
+			.withNumberDisplayFormatter(value -> {
 				if (integerMode) {
 					return String.valueOf((int) Math.rint(value));
 				}
 				return service.formatMoney(value);
-			});
+			})
+			.withUnit(integerMode ? "lượt" : "");
 
 		numberSelector.open(player, request);
 	}
@@ -599,13 +604,15 @@ public final class ShopGuiController implements Listener {
 
 		int amount = clampAmount(session.amount());
 		TradeSession normalized = session.withAmount(amount);
-		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna Shop", "Giao Dịch"));
+		GuiView view = new GuiView(54, tradeTitleWithAmount(amount));
 		guiManager.track(view);
 
 		fillFooter(view);
 
 		ItemStack display = shopItem.itemStack().clone();
 		ItemMeta meta = display.getItemMeta();
+		int displayStackCap = Math.max(1, Math.min(99, amount));
+		meta.setMaxStackSize(displayStackCap);
 		int cappedBuyAmount = service.capBuyAmount(player, shopItem, amount);
 		int cappedSellAmount = service.capSellAmount(player, shopItem, amount);
 		double buyTotal = shopItem.buyPrice() * cappedBuyAmount;
@@ -624,6 +631,7 @@ public final class ShopGuiController implements Listener {
 		meta.lore(appendShopLore(meta, displayLore));
 		meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
 		display.setItemMeta(meta);
+		display.setAmount(Math.min(displayStackCap, amount));
 		view.setItem(13, display);
 
 		view.setItem(20, modeButton(TradeMode.BUY, normalized.mode() == TradeMode.BUY), (clicker, event, gui) -> openTradeMenu(clicker, normalized.withMode(TradeMode.BUY)));
@@ -1175,9 +1183,11 @@ public final class ShopGuiController implements Listener {
 			)
 			.withDisplayMaterial(Material.PAPER)
 			.withInitialValue(session.amount())
-			.withRange(1D, 4096D)
+			.withMinValue(1D)
+			.withMaxValue(4096D)
 			.withIntegerMode(true)
-			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+			.withNumberDisplayFormatter(value -> String.valueOf((int) Math.rint(value)))
+			.withUnit("món");
 
 		numberSelector.open(player, request);
 	}
@@ -1208,9 +1218,10 @@ public final class ShopGuiController implements Listener {
 			)
 			.withDisplayMaterial(Material.EMERALD)
 			.withInitialValue(Math.max(0D, draft.buyPrice()))
-			.withRange(0D, 1000000000D)
+			.withMinValue(0D)
+			.withMaxValue(1000000000D)
 			.withIntegerMode(false)
-			.withValueFormatter(service::formatMoney);
+			.withNumberDisplayFormatter(service::formatMoney);
 
 		numberSelector.open(player, request);
 	}
@@ -1228,9 +1239,10 @@ public final class ShopGuiController implements Listener {
 			)
 			.withDisplayMaterial(Material.GOLD_INGOT)
 			.withInitialValue(Math.max(0D, draft.sellPrice()))
-			.withRange(0D, 1000000000D)
+			.withMinValue(0D)
+			.withMaxValue(1000000000D)
 			.withIntegerMode(false)
-			.withValueFormatter(service::formatMoney);
+			.withNumberDisplayFormatter(service::formatMoney);
 
 		numberSelector.open(player, request);
 	}
@@ -1248,9 +1260,11 @@ public final class ShopGuiController implements Listener {
 			)
 			.withDisplayMaterial(Material.LIME_DYE)
 			.withInitialValue(Math.max(0, draft.buyLimit()))
-			.withRange(0D, 1000000D)
+			.withMinValue(0D)
+			.withMaxValue(1000000D)
 			.withIntegerMode(true)
-			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+			.withNumberDisplayFormatter(value -> String.valueOf((int) Math.rint(value)))
+			.withUnit("lượt");
 
 		numberSelector.open(player, request);
 	}
@@ -1268,9 +1282,11 @@ public final class ShopGuiController implements Listener {
 			)
 			.withDisplayMaterial(Material.ORANGE_DYE)
 			.withInitialValue(Math.max(0, draft.sellLimit()))
-			.withRange(0D, 1000000D)
+			.withMinValue(0D)
+			.withMaxValue(1000000D)
 			.withIntegerMode(true)
-			.withValueFormatter(value -> String.valueOf((int) Math.rint(value)));
+			.withNumberDisplayFormatter(value -> String.valueOf((int) Math.rint(value)))
+			.withUnit("lượt");
 
 		numberSelector.open(player, request);
 	}
@@ -1677,6 +1693,14 @@ public final class ShopGuiController implements Listener {
 
 	private Component mm(String text) {
 		return LunaUi.mini(text);
+	}
+
+	private Component tradeTitleWithAmount(int amount) {
+		return LunaUi.guiTitleBreadcrumb("Luna Shop", "Giao Dịch").append(mm(
+			" <color:" + LunaPalette.NEUTRAL_500 + ">•</color> <color:" + LunaPalette.NEUTRAL_700 + ">"
+				+ amount
+				+ "</color>"
+		));
 	}
 
 	private int maxPage(int items) {

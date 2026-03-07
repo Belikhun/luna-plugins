@@ -27,14 +27,19 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public final class NumberSelectorGui implements Listener {
-	private static final int[] STEPS = {1, 2, 4, 8, 10, 16, 20, 32, 50, 64, 100, 128, 200, 256, 500, 512, 1000};
-	private static final int[] DECREASE_SLOTS = {1, 2, 3, 4, 5, 10, 11, 12, 14, 19, 20, 21, 23, 28, 29, 30, 32};
-	private static final int[] INCREASE_SLOTS = {8, 15, 16, 17, 22, 24, 25, 26, 31, 33, 34, 35, 39, 42, 43, 44, 53};
-	private static final int VALUE_SLOT = 13;
-	private static final int INFO_SLOT = 31;
-	private static final int CONFIRM_SLOT = 40;
+	private static final int[] NORMAL_STEPS = {500, 100, 50, 20, 10, 5, 2, 1};
+	private static final int[] STACK_STEPS = {8, 4, 2, 1, 128, 64, 32, 16};
+	private static final int[] NORMAL_DEC_SLOTS = {0, 1, 2, 3, 9, 10, 11, 12};
+	private static final int[] NORMAL_INC_SLOTS = {8, 7, 6, 5, 17, 16, 15, 14};
+	private static final int[] STACK_DEC_SLOTS = {27, 28, 29, 30, 36, 37, 38, 39};
+	private static final int[] STACK_INC_SLOTS = {35, 34, 33, 32, 44, 43, 42, 41};
+	private static final int VALUE_SLOT = 22;
+	private static final int INFO_SLOT = 40;
+	private static final int CONFIRM_SLOT = 53;
 	private static final int MANUAL_SLOT = 49;
 	private static final int CANCEL_SLOT = 45;
+	private static final int FOOTER_START = 45;
+	private static final int FOOTER_END = 53;
 
 	private final JavaPlugin plugin;
 	private final GuiManager guiManager;
@@ -126,21 +131,39 @@ public final class NumberSelectorGui implements Listener {
 		Request request = session.request();
 		double value = clamp(session.value(), request.minValue(), request.maxValue());
 
-		GuiView view = new GuiView(54, request.title());
+		GuiView view = new GuiView(54, titleWithValue(request, value));
 		guiManager.track(view);
+		if (request.integerMode()) {
+			view.getInventory().setMaxStackSize(maxDisplayStackSize(request));
+		}
+		fillFooter(view);
 
 		view.setItem(VALUE_SLOT, valueItem(request, value));
 		view.setItem(INFO_SLOT, infoItem(request, value));
 
-		for (int i = 0; i < STEPS.length; i++) {
-			int step = STEPS[i];
-			int decreaseSlot = DECREASE_SLOTS[i];
-			int increaseSlot = INCREASE_SLOTS[i];
-			view.setItem(decreaseSlot, adjustItem(step, false), (clicker, click, gui) -> {
+		for (int i = 0; i < NORMAL_STEPS.length; i++) {
+			int step = NORMAL_STEPS[i];
+			int decSlot = NORMAL_DEC_SLOTS[i];
+			int incSlot = NORMAL_INC_SLOTS[i];
+			view.setItem(decSlot, stepItem(step, false, StepArea.NORMAL, value, request), (clicker, event, gui) -> {
 				double next = clamp(value - step, request.minValue(), request.maxValue());
 				openSession(clicker, session.withValue(next));
 			});
-			view.setItem(increaseSlot, adjustItem(step, true), (clicker, click, gui) -> {
+			view.setItem(incSlot, stepItem(step, true, StepArea.NORMAL, value, request), (clicker, event, gui) -> {
+				double next = clamp(value + step, request.minValue(), request.maxValue());
+				openSession(clicker, session.withValue(next));
+			});
+		}
+
+		for (int i = 0; i < STACK_STEPS.length; i++) {
+			int step = STACK_STEPS[i];
+			int decSlot = STACK_DEC_SLOTS[i];
+			int incSlot = STACK_INC_SLOTS[i];
+			view.setItem(decSlot, stepItem(step, false, StepArea.STACK, value, request), (clicker, event, gui) -> {
+				double next = clamp(value - step, request.minValue(), request.maxValue());
+				openSession(clicker, session.withValue(next));
+			});
+			view.setItem(incSlot, stepItem(step, true, StepArea.STACK, value, request), (clicker, event, gui) -> {
 				double next = clamp(value + step, request.minValue(), request.maxValue());
 				openSession(clicker, session.withValue(next));
 			});
@@ -195,34 +218,95 @@ public final class NumberSelectorGui implements Listener {
 	}
 
 	private ItemStack valueItem(Request request, double value) {
-		return actionItem(request.displayMaterial(), "<aqua>◆ " + request.label(), List.of(
-			line(LunaPalette.NEUTRAL_100, "Giá trị hiện tại:"),
-			line(LunaPalette.INFO_500, "<white>" + formatValue(request, value) + "</white>"),
+		java.util.ArrayList<String> lore = new java.util.ArrayList<>(List.of(
+			line(LunaPalette.INFO_500, "ℹ Giá trị hiện tại"),
+			line(LunaPalette.NEUTRAL_100, "<white>" + formatValue(request, value) + "</white>"),
+			" ",
+			line(LunaPalette.INFO_300, "⌚ Quy đổi stack"),
+			line(LunaPalette.NEUTRAL_100, "<white>" + stackSummary(value, request.integerMode()) + "</white>"),
+			" ",
+			line(LunaPalette.WARNING_500, "↔ Khoảng cho phép"),
 			line(LunaPalette.NEUTRAL_100, "Min: <white>" + formatBoundary(request, request.minValue()) + "</white>"),
 			line(LunaPalette.NEUTRAL_100, "Max: <white>" + formatBoundary(request, request.maxValue()) + "</white>")
 		));
+
+		ItemStack item = actionItem(request.displayMaterial(), request.displayItem(), "<aqua>◆ " + request.label(), lore);
+
+		if (request.integerMode()) {
+			int stackCap = maxDisplayStackSize(request);
+			ItemMeta meta = item.getItemMeta();
+			if (meta != null) {
+				meta.setMaxStackSize(stackCap);
+				item.setItemMeta(meta);
+			}
+
+			int amount = (int) Math.max(1D, Math.min(stackCap, Math.rint(normalizeOutput(value, true))));
+			item.setAmount(amount);
+
+			if (Math.rint(normalizeOutput(value, true)) > stackCap) {
+				lore.add(" ");
+				lore.add(line(LunaPalette.WARNING_500, "⚠ Icon chỉ đến 99"));
+				lore.add(line(LunaPalette.NEUTRAL_100, "Số thật vẫn chính xác"));
+				item = actionItem(request.displayMaterial(), item, "<aqua>◆ " + request.label(), lore);
+				item.setAmount(amount);
+			}
+		}
+
+		return item;
 	}
 
 	private ItemStack infoItem(Request request, double value) {
 		return actionItem(Material.BOOK, "<yellow>⌚ Hướng dẫn", List.of(
-			line(LunaPalette.WARNING_500, "Dùng nút +/- để chỉnh nhanh"),
-			line(LunaPalette.NEUTRAL_100, "Bước hỗ trợ: <white>1..1000</white>"),
+			line(LunaPalette.WARNING_500, "Nửa trái: giảm theo bước"),
+			line(LunaPalette.WARNING_500, "Nửa phải: tăng theo bước"),
+			line(LunaPalette.NEUTRAL_100, "Bước thường: <white>1..500</white>"),
+			line(LunaPalette.NEUTRAL_100, "Bước stack: <white>1..128</white>"),
 			line(LunaPalette.NEUTRAL_100, "Kiểu số: <white>" + (request.integerMode() ? "Số nguyên" : "Số thập phân") + "</white>"),
 			line(LunaPalette.NEUTRAL_100, "Giá trị: <white>" + formatValue(request, value) + "</white>")
 		));
 	}
 
-	private ItemStack adjustItem(int amount, boolean increase) {
+	private ItemStack stepItem(int amount, boolean increase, StepArea area, double currentValue, Request request) {
+		Material material;
+		if (area == StepArea.STACK) {
+			material = increase ? Material.LIME_STAINED_GLASS_PANE : Material.PINK_STAINED_GLASS_PANE;
+		} else {
+			material = increase ? Material.GREEN_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE;
+		}
+
+		double nextValue = clamp(
+			increase ? currentValue + amount : currentValue - amount,
+			request.minValue(),
+			request.maxValue()
+		);
 		String sign = increase ? "+" : "-";
-		String color = increase ? LunaPalette.SUCCESS_500 : LunaPalette.DANGER_500;
-		Material material = increase ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE;
-		return actionItem(material, "<color:" + color + ">" + sign + amount + "</color>", List.of(
-			line(color, (increase ? "Tăng" : "Giảm") + " <white>" + amount + "</white>")
+
+		return actionItem(material, "<white>" + sign + "</white> <yellow>" + amount + "</yellow>", List.of(
+			line(increase ? LunaPalette.SUCCESS_500 : LunaPalette.DANGER_500, (increase ? "Tăng" : "Giảm") + " <white>" + amount + "</white>"),
+			line(LunaPalette.INFO_300, "Sau khi áp dụng: <white>" + formatValue(request, nextValue) + "</white>"),
+			line(LunaPalette.INFO_300, "Stack: <white>" + stackSummary(nextValue, request.integerMode()) + "</white>")
 		));
 	}
 
+	private void fillFooter(GuiView view) {
+		ItemStack filler = actionItem(Material.BLACK_STAINED_GLASS_PANE, "<color:#374151> </color>", List.of());
+		for (int slot = FOOTER_START; slot <= FOOTER_END; slot++) {
+			view.setItem(slot, filler);
+		}
+	}
+
 	private ItemStack actionItem(Material material, String title, List<String> loreLines) {
-		ItemStack item = new ItemStack(material);
+		return actionItem(material, null, title, loreLines);
+	}
+
+	private ItemStack actionItem(Material material, ItemStack template, String title, List<String> loreLines) {
+		ItemStack item;
+		if (template != null && !template.getType().isAir()) {
+			item = template.clone();
+		} else {
+			item = new ItemStack(material);
+		}
+
 		ItemMeta meta = item.getItemMeta();
 		meta.displayName(mm(title));
 		meta.lore(loreLines.stream().map(LunaUi::mini).toList());
@@ -235,6 +319,18 @@ public final class NumberSelectorGui implements Listener {
 		return "<color:" + color + ">" + text + "</color>";
 	}
 
+	private String stackSummary(double value, boolean integerMode) {
+		double normalized = normalizeOutput(value, integerMode);
+		if (!integerMode) {
+			return "n/a";
+		}
+
+		long whole = Math.max(0L, Math.round(normalized));
+		long fullStacks = whole / 64L;
+		long remainder = whole % 64L;
+		return fullStacks + " stack + " + remainder;
+	}
+
 	private double normalizeOutput(double value, boolean integerMode) {
 		if (!integerMode) {
 			return value;
@@ -243,11 +339,32 @@ public final class NumberSelectorGui implements Listener {
 	}
 
 	private String formatValue(Request request, double value) {
-		return request.valueFormatter().apply(normalizeOutput(value, request.integerMode()));
+		return appendUnit(request.numberDisplayFormatter().apply(normalizeOutput(value, request.integerMode())), request.unit());
 	}
 
 	private String formatBoundary(Request request, double value) {
-		return request.valueFormatter().apply(normalizeOutput(value, request.integerMode()));
+		return appendUnit(request.numberDisplayFormatter().apply(normalizeOutput(value, request.integerMode())), request.unit());
+	}
+
+	private String appendUnit(String valueText, String unit) {
+		if (unit == null || unit.isBlank()) {
+			return valueText;
+		}
+
+		return valueText + " " + unit;
+	}
+
+	private Component titleWithValue(Request request, double value) {
+		return request.title().append(mm(
+			" <color:" + LunaPalette.NEUTRAL_500 + ">•</color> <color:" + LunaPalette.NEUTRAL_700 + ">"
+				+ formatValue(request, value)
+				+ "</color>"
+		));
+	}
+
+	private int maxDisplayStackSize(Request request) {
+		double max = Math.max(1D, request.maxValue());
+		return (int) Math.max(1D, Math.min(99D, Math.rint(max)));
 	}
 
 	private double parseNumber(String input, boolean integerMode) {
@@ -278,11 +395,14 @@ public final class NumberSelectorGui implements Listener {
 		return new Request(
 			title,
 			label,
+			"",
 			Material.PAPER,
+			null,
 			0D,
 			0D,
 			4096D,
 			true,
+			null,
 			value -> {
 				long whole = Math.round(value);
 				return String.format(Locale.ROOT, "%d", whole);
@@ -295,11 +415,14 @@ public final class NumberSelectorGui implements Listener {
 	public record Request(
 		Component title,
 		String label,
+		String unit,
 		Material displayMaterial,
+		ItemStack displayItem,
 		double initialValue,
 		double minValue,
 		double maxValue,
 		boolean integerMode,
+		Function<Double, String> numberDisplayFormatter,
 		Function<Double, String> valueFormatter,
 		BiConsumer<Player, Double> onSubmit,
 		Consumer<Player> onCloseWithoutSubmit
@@ -311,8 +434,17 @@ public final class NumberSelectorGui implements Listener {
 			if (label == null || label.isBlank()) {
 				label = "Giá trị";
 			}
+			if (unit == null) {
+				unit = "";
+			}
 			if (displayMaterial == null || displayMaterial.isAir()) {
 				displayMaterial = Material.PAPER;
+			}
+			if (displayItem != null && displayItem.getType().isAir()) {
+				displayItem = null;
+			}
+			if (numberDisplayFormatter == null) {
+				numberDisplayFormatter = valueFormatter;
 			}
 			if (valueFormatter == null) {
 				if (integerMode) {
@@ -320,6 +452,9 @@ public final class NumberSelectorGui implements Listener {
 				} else {
 					valueFormatter = value -> String.format(Locale.ROOT, "%.2f", value);
 				}
+			}
+			if (numberDisplayFormatter == null) {
+				numberDisplayFormatter = valueFormatter;
 			}
 			if (onSubmit == null) {
 				throw new IllegalArgumentException("onSubmit cannot be null");
@@ -329,24 +464,53 @@ public final class NumberSelectorGui implements Listener {
 			}
 		}
 
+		public Request withTitle(Component value) {
+			return new Request(value, label, unit, displayMaterial, displayItem, initialValue, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withLabel(String value) {
+			return new Request(title, value, unit, displayMaterial, displayItem, initialValue, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withUnit(String value) {
+			return new Request(title, label, value, displayMaterial, displayItem, initialValue, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
 		public Request withDisplayMaterial(Material material) {
-			return new Request(title, label, material, initialValue, minValue, maxValue, integerMode, valueFormatter, onSubmit, onCloseWithoutSubmit);
+			return new Request(title, label, unit, material, displayItem, initialValue, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withDisplayItem(ItemStack itemStack) {
+			return new Request(title, label, unit, displayMaterial, itemStack == null ? null : itemStack.clone(), initialValue, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
 		}
 
 		public Request withInitialValue(double value) {
-			return new Request(title, label, displayMaterial, value, minValue, maxValue, integerMode, valueFormatter, onSubmit, onCloseWithoutSubmit);
+			return new Request(title, label, unit, displayMaterial, displayItem, value, minValue, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
 		}
 
 		public Request withRange(double min, double max) {
-			return new Request(title, label, displayMaterial, initialValue, min, max, integerMode, valueFormatter, onSubmit, onCloseWithoutSubmit);
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, min, max, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withMinValue(double value) {
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, value, maxValue, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withMaxValue(double value) {
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, minValue, value, integerMode, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
 		}
 
 		public Request withIntegerMode(boolean value) {
-			return new Request(title, label, displayMaterial, initialValue, minValue, maxValue, value, valueFormatter, onSubmit, onCloseWithoutSubmit);
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, minValue, maxValue, value, numberDisplayFormatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
+		}
+
+		public Request withNumberDisplayFormatter(Function<Double, String> formatter) {
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, minValue, maxValue, integerMode, formatter, valueFormatter, onSubmit, onCloseWithoutSubmit);
 		}
 
 		public Request withValueFormatter(Function<Double, String> formatter) {
-			return new Request(title, label, displayMaterial, initialValue, minValue, maxValue, integerMode, formatter, onSubmit, onCloseWithoutSubmit);
+			// Backward-compatible alias for callers already using withValueFormatter.
+			return new Request(title, label, unit, displayMaterial, displayItem, initialValue, minValue, maxValue, integerMode, formatter, formatter, onSubmit, onCloseWithoutSubmit);
 		}
 	}
 
@@ -358,5 +522,10 @@ public final class NumberSelectorGui implements Listener {
 		private Session withValue(double next) {
 			return new Session(view, request, next);
 		}
+	}
+
+	private enum StepArea {
+		NORMAL,
+		STACK
 	}
 }
