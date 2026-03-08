@@ -1,15 +1,15 @@
 # Copilot Instructions for luna-plugins
 
 ## Project shape
-- This is a Gradle multi-project workspace (`settings.gradle.kts`) and will contain multiple Paper plugin modules (`luna-*`).
+- This is a Gradle multi-project workspace (`settings.gradle.kts`) with shared API + platform modules (`luna-*`).
 - Current modules:
-  - `:luna-core-api` → shared cross-platform APIs/utilities.
+  - `:luna-core-api` → shared cross-platform APIs/utilities (library module, not a runtime plugin jar).
   - `:luna-core-paper` → Paper runtime/plugin implementation for Luna Core.
   - `:luna-core-velocity` → Velocity target for Luna Core.
-  - `:luna-shop` → shop feature plugin that depends on `:luna-core-paper`.
-  - `:luna-countdown` → countdown feature plugin.
-  - `:luna-hat` → hat/cosmetic feature plugin.
-  - `:luna-smp` → SMP-focused feature plugin.
+  - `:luna-shop` → shop feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
+  - `:luna-countdown` → countdown feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
+  - `:luna-hat` → hat/cosmetic feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
+  - `:luna-smp` → SMP-focused feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
 - Keep shared contracts and reusable helpers in `luna-core-api`; keep platform runtime code in `luna-core-paper` / `luna-core-velocity`.
 - Prefer adding new plugins as sibling subprojects (`luna-*`) and include them in `settings.gradle.kts`.
 
@@ -24,6 +24,7 @@
 ## Dependency wiring (must stay aligned)
 - Build-time linkage is in module Gradle files:
   - `luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
+  - `luna-countdown`, `luna-hat`, and `luna-smp` follow the same `:luna-core-api` + `:luna-core-paper` linkage.
 - Runtime/plugin loading linkage is in descriptor files:
   - `luna-shop` declares `dependencies.server.LunaCore` in `paper-plugin.yml`.
 - When adding new inter-plugin dependencies, update both Gradle and `paper-plugin.yml`.
@@ -76,7 +77,7 @@
     - Use neutral or bright colors for robust readability across day/night and mixed world lighting.
     - Avoid very dark colors that can disappear on dark scenes.
 - **Core palette usage (`LunaPalette`)**:
-  - Use palette tokens from `luna-core/api/ui/LunaPalette.java`; avoid hard-coded hex in feature modules.
+  - Use palette tokens from `luna-core-api/src/main/java/dev/belikhun/luna/core/api/ui/LunaPalette.java`; avoid hard-coded hex in feature modules.
   - Shade intent:
     - Bright: `*_100`, `*_300` (high-contrast text on dark surfaces).
     - Mid: `*_500` (default accent and actionable text).
@@ -115,6 +116,7 @@
 - Shadow outputs are centralized in root `output/`.
 - Shadow artifact naming convention: `<module>-<platform>-all.jar` (no version segment).
 - Current platforms: `paper`, `velocity`.
+- `:luna-core-api` is intentionally excluded from `shadowJar` in root build conventions.
 - `clean` must also remove root `output/` directory.
 - No automated tests are defined yet.
 
@@ -131,6 +133,7 @@
 - Keep Paper loader logic in `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
 - Current supported DB drivers in `luna-core-paper`: `sqlite`, `mysql`, `mariadb`.
 - Keep Velocity bootstrap entry in `luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`.
+- Keep Velocity version constant generated from template: `luna-core-velocity/src/main/templates/dev/belikhun/luna/core/velocity/BuildConstants.java.tpl`.
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
 
 ## Reuse and deduplication rules
