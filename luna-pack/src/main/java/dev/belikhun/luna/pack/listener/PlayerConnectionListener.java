@@ -38,7 +38,7 @@ public final class PlayerConnectionListener {
 		logger.audit("Đã khởi tạo session pack cho " + player.getUsername());
 		PlayerPackSession session = sessionStore.getOrCreate(player.getUniqueId());
 		if (session.debugEnabled()) {
-			player.sendRichMessage("<gray>[<aqua>LunaPackLoader</aqua>]</gray> <gray>[DEBUG] Khởi tạo session pack.</gray>");
+			player.sendRichMessage("<gray>[DEBUG] Khởi tạo session pack.</gray>");
 		}
 	}
 
@@ -57,7 +57,7 @@ public final class PlayerConnectionListener {
 		if (session.debugEnabled()) {
 			String currentName = player.getCurrentServer().map(conn -> conn.getServerInfo().getName()).orElse("-");
 			String prevText = previousName == null || previousName.isBlank() ? "-" : previousName;
-			player.sendRichMessage("<gray>[<aqua>LunaPackLoader</aqua>]</gray> <gray>[DEBUG] Chuyển server <white>" + prevText + "</white> -> <white>" + currentName + "</white>.</gray>");
+			player.sendRichMessage("<gray>[DEBUG] Chuyển server <white>" + prevText + "</white> -> <white>" + currentName + "</white>.</gray>");
 		}
 		dispatchService.applyForCurrentServer(player, session, snapshot, previousName);
 	}

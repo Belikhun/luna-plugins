@@ -70,7 +70,7 @@ public final class PackDispatchService {
 			totalBytes += pack.sizeBytes();
 		}
 
-		player.sendRichMessage("<gray>[<aqua>LunaPackLoader</aqua>]</gray> <yellow>⌛ Đang tải <white>" + toLoad.size() + "</white> resource pack cho server <white>" + currentServer + "</white> (<white>" + SizeFormat.humanBytes(totalBytes) + "</white>).</yellow>");
+		player.sendRichMessage("<yellow>⌛ Đang tải <white>" + toLoad.size() + "</white> resource pack cho server <white>" + currentServer + "</white> (<white>" + SizeFormat.humanBytes(totalBytes) + "</white>).</yellow>");
 
 		for (ResolvedPack pack : toLoad) {
 			ResourcePackInfo info = server.createResourcePackBuilder(pack.url().toString())
@@ -157,6 +157,6 @@ public final class PackDispatchService {
 		if (!session.debugEnabled()) {
 			return;
 		}
-		player.sendRichMessage("<gray>[<aqua>LunaPackLoader</aqua>]</gray> " + message);
+		player.sendRichMessage(message);
 	}
 }

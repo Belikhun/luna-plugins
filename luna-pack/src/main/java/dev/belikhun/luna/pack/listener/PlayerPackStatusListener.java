@@ -170,6 +170,6 @@ public final class PlayerPackStatusListener {
 		if (!session.debugEnabled()) {
 			return;
 		}
-		player.sendMessage(MM.deserialize("<gray>[<aqua>LunaPackLoader</aqua>]</gray> " + message));
+		player.sendMessage(MM.deserialize(message));
 	}
 }
