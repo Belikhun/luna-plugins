@@ -3,17 +3,19 @@
 ## Project shape
 - This is a Gradle multi-project workspace (`settings.gradle.kts`) and will contain multiple Paper plugin modules (`luna-*`).
 - Current modules:
-  - `:luna-core` → shared APIs/utilities for other Luna plugins.
-  - `:luna-shop` → shop feature plugin that depends on `:luna-core`.
+  - `:luna-core-api` → shared cross-platform APIs/utilities.
+  - `:luna-core-paper` → Paper runtime/plugin implementation for Luna Core.
+  - `:luna-core-velocity` → Velocity target for Luna Core.
+  - `:luna-shop` → shop feature plugin that depends on `:luna-core-paper`.
   - `:luna-countdown` → countdown feature plugin.
   - `:luna-hat` → hat/cosmetic feature plugin.
   - `:luna-smp` → SMP-focused feature plugin.
-- Keep shared contracts and reusable helpers in `luna-core`; keep feature-specific code in feature modules.
+- Keep shared contracts and reusable helpers in `luna-core-api`; keep platform runtime code in `luna-core-paper` / `luna-core-velocity`.
 - Prefer adding new plugins as sibling subprojects (`luna-*`) and include them in `settings.gradle.kts`.
 
 ## Plugin metadata conventions
-- Use `paper-plugin.yml` (not `plugin.yml`) in each module under `src/main/resources`.
-- Current examples: each module has `src/main/resources/paper-plugin.yml`.
+- Paper modules use `paper-plugin.yml` under `src/main/resources`.
+- Velocity modules use Velocity metadata generation via `@Plugin` (from `velocity-api` annotation processor).
 - Plugin names must be valid identifiers (no spaces), e.g. `LunaCore`, `LunaShop`.
 - If a module depends on another plugin at runtime, declare it in `paper-plugin.yml` under `dependencies.server`.
 - For runtime-downloaded libraries, prefer Paper `loader` + `PluginLoader` (`MavenLibraryResolver`) instead of shading heavy dependencies into the plugin jar.
@@ -21,7 +23,7 @@
 
 ## Dependency wiring (must stay aligned)
 - Build-time linkage is in module Gradle files:
-  - `luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core"))`.
+  - `luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
 - Runtime/plugin loading linkage is in descriptor files:
   - `luna-shop` declares `dependencies.server.LunaCore` in `paper-plugin.yml`.
 - When adding new inter-plugin dependencies, update both Gradle and `paper-plugin.yml`.
@@ -111,27 +113,29 @@
 - Build with `./gradlew build` (Paper API + Multiverse are `compileOnly`).
 - Always run `./gradlew shadowJar` at the end of your work to verify build errors.
 - Shadow outputs are centralized in root `output/`.
-- Shadow artifact naming convention: `<module>-paper-all.jar` (no version segment).
+- Shadow artifact naming convention: `<module>-<platform>-all.jar` (no version segment).
+- Current platforms: `paper`, `velocity`.
 - `clean` must also remove root `output/` directory.
 - No automated tests are defined yet.
 
 ## Common workflows
 - Build all plugins: `./gradlew build` (Windows: `./gradlew.bat build`).
-- Build one module: `./gradlew :luna-core:build` (same form for any `luna-*` module).
+- Build one module: `./gradlew :luna-core-paper:build` (same form for any module).
 - Clean + rebuild after descriptor/dependency changes: `./gradlew clean build`.
 - Build distributable jars: `./gradlew shadowJar` (Windows: `./gradlew.bat shadowJar`).
 
 ## Code patterns to keep
 - Main plugin entrypoints extend `JavaPlugin` and currently keep `onEnable/onDisable` minimal:
-  - `luna-core/src/main/java/dev/belikhun/luna/core/LunaCorePlugin.java`
+  - `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java`
   - `luna-shop/src/main/java/dev/belikhun/luna/shop/LunaShopPlugin.java`
-- Keep `luna-core` loader logic in `luna-core/src/main/java/dev/belikhun/luna/core/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
-- Current supported DB drivers in `luna-core`: `sqlite`, `mysql`, `mariadb`.
+- Keep Paper loader logic in `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
+- Current supported DB drivers in `luna-core-paper`: `sqlite`, `mysql`, `mariadb`.
+- Keep Velocity bootstrap entry in `luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`.
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
 
 ## Reuse and deduplication rules
 - Avoid duplicated code across modules. Before adding a new helper, check whether a similar method already exists.
-- If logic is used (or expected to be used) by 2+ plugins/modules, move it into `luna-core` and reuse it from feature modules.
-- Keep feature modules (e.g. `luna-shop`) focused on feature/business flows; shared concerns must live in `luna-core` (text formatting, lore wrapping, pagination, command completion, GUI helpers, common validators).
+- If logic is used (or expected to be used) by 2+ plugins/modules, move it into `luna-core-api` and reuse it from feature modules/platform modules.
+- Keep feature modules (e.g. `luna-shop`) focused on feature/business flows; shared concerns must live in `luna-core-api` (text formatting, lore wrapping, pagination, command completion, GUI helpers, common validators).
 - Prefer extending existing core utility classes before creating new feature-local helpers with overlapping behavior.
 - During refactors, replace duplicate call-sites with core utilities instead of maintaining parallel implementations.

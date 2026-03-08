@@ -1,6 +1,6 @@
 package dev.belikhun.luna.shop;
 
-import dev.belikhun.luna.core.LunaCore;
+import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.command.LunaShopReloadCommand;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
@@ -93,3 +93,4 @@ public final class LunaShopPlugin extends JavaPlugin {
 		}
 	}
 }
+

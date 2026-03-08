@@ -1,6 +1,6 @@
 package dev.belikhun.luna.smp.repair;
 
-import dev.belikhun.luna.core.LunaCore;
+import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.string.Formatters;
 import net.milkbowl.vault.economy.Economy;
@@ -107,3 +107,4 @@ public final class ToolRepairService {
 	public record RepairQuote(double remainingDurabilityPercent, double baseCost, double damageCost, double finalCost) {
 	}
 }
+

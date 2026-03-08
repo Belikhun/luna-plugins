@@ -213,3 +213,4 @@ public class HatHandler implements BasicCommand, Listener {
 	}
 
 }
+

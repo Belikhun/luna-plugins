@@ -29,6 +29,7 @@ public final class ShopAdminCommand implements BasicCommand {
 	private static final String ADMIN_HEADER = "<gradient:" + LunaPalette.GOLD_300 + ":" + LunaPalette.AMBER_500 + ">★ LunaShop Admin Commands</gradient>";
 	private static final String CATEGORY_EXAMPLE_VIP = "<gradient:" + LunaPalette.SUCCESS_500 + ":" + LunaPalette.PRIMARY_500 + ">Trang Bị VIP</gradient>";
 
+	@SuppressWarnings("unused")
 	private final JavaPlugin plugin;
 	private final ShopItemStore store;
 	private final ShopService service;
@@ -606,3 +607,4 @@ public final class ShopAdminCommand implements BasicCommand {
 	}
 
 }
+

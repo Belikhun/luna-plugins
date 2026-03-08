@@ -65,3 +65,4 @@ public final class ToolRepairCommand implements BasicCommand {
 		sender.sendMessage(formatter.format(sender, text, placeholders));
 	}
 }
+

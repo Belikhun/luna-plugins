@@ -15,3 +15,4 @@ public record ShopTransactionEntry(
 	long createdAt
 ) {
 }
+

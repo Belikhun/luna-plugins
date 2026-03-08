@@ -156,3 +156,4 @@ public final class ShopItem {
 		return value.trim().toLowerCase().replace(" ", "-");
 	}
 }
+

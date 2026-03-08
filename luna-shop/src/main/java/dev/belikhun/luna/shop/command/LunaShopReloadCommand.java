@@ -59,3 +59,4 @@ public final class LunaShopReloadCommand implements BasicCommand {
 		return PERMISSION;
 	}
 }
+

@@ -30,3 +30,4 @@ public final class ShopTransactionHistoryMigration implements DatabaseMigration 
 		database.update("CREATE INDEX IF NOT EXISTS idx_shop_tx_player_created ON shop_transactions (player_uuid, created_at)", List.of());
 	}
 }
+

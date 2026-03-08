@@ -7,6 +7,7 @@ vault = "1.7.1"
 mariadb = "3.4.1"
 mysql = "9.1.0"
 sqlite = "3.47.2.0"
+velocity = "3.5.0-SNAPSHOT"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -14,3 +15,4 @@ vault-api = { module = "com.github.MilkBowl:VaultAPI", version.ref = "vault" }
 mariadb-jdbc = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = "mariadb" }
 mysql-jdbc = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
+velocity-api = { module = "com.velocitypowered:velocity-api", version.ref = "velocity" }

@@ -56,3 +56,4 @@ public class Hat extends JavaPlugin {
 		Bukkit.getPluginManager().addPermission(permission);
 	}
 }
+

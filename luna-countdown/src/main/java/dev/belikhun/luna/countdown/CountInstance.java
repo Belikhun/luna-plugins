@@ -123,3 +123,4 @@ public class CountInstance {
 			instace.bar.removePlayer(player);
 	}
 }
+

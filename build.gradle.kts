@@ -9,11 +9,26 @@ tasks.named<Delete>("clean") {
 
 subprojects {
     apply(plugin = "java")
-    apply(plugin = "com.gradleup.shadow")
+    if (project.name != "luna-core-api") {
+        apply(plugin = "com.gradleup.shadow")
+    }
 
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
-    val platformTarget = "paper"
+    val isApiModule = project.name == "luna-core-api"
+    val isVelocityModule = project.name.endsWith("-velocity")
+    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule)
+    val platformTarget = when {
+        isVelocityModule -> "velocity"
+        isPaperModule -> "paper"
+        else -> "api"
+    }
+    val moduleBaseName = when {
+        isVelocityModule -> project.name.removeSuffix("-velocity")
+        project.name.endsWith("-paper") -> project.name.removeSuffix("-paper")
+        isApiModule -> project.name
+        else -> project.name
+    }
 
     val pluginVersion = version.toString()
 
@@ -48,14 +63,19 @@ subprojects {
         filesMatching("paper-plugin.yml") {
             expand("version" to pluginVersion)
         }
+        filesMatching("velocity-plugin.json") {
+            expand("version" to pluginVersion)
+        }
         filesMatching("plugin.yml") {
             expand("version" to pluginVersion)
         }
     }
 
-    tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
-        destinationDirectory.set(rootProject.layout.projectDirectory.dir("output"))
-        archiveBaseName.set("${project.name}-$platformTarget")
-        archiveVersion.set("")
+    if (!isApiModule) {
+        tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
+            destinationDirectory.set(rootProject.layout.projectDirectory.dir("output"))
+            archiveBaseName.set("${moduleBaseName}-$platformTarget")
+            archiveVersion.set("")
+        }
     }
 }

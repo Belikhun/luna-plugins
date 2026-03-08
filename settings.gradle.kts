@@ -12,7 +12,9 @@ plugins {
 }
 
 rootProject.name = "luna"
-include("luna-core")
+include("luna-core-api")
+include("luna-core-paper")
+include("luna-core-velocity")
 include("luna-shop")
 include("luna-countdown")
 include("luna-hat")

@@ -16,3 +16,4 @@ public class PlayerEvent implements Listener {
 		CountInstance.handlePlayerQuit(event.getPlayer());
 	}
 }
+
