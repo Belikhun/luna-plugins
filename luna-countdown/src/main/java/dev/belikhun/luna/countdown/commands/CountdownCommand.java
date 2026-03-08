@@ -13,7 +13,6 @@ import dev.belikhun.luna.countdown.CountInstance.CountdownCallback;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
-import org.apache.commons.lang3.StringUtils;
 import org.bukkit.boss.BossBar;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
@@ -39,13 +38,13 @@ public class CountdownCommand implements BasicCommand {
 						+ "</green> sẽ bắt đầu sau " + CountInstance.readableTime(seconds)
 						+ "<white> nữa!</white>");
 				}
-	
+
 				@Override
 				public void update(BossBar bar, double remain) {
 					bar.setTitle(Countdown.legacy("<gray>#" + id + " <green>" + Countdown.escape(title)
 						+ "</green> sau " + CountInstance.readableTime(remain) + "</gray>"));
 				}
-	
+
 				@Override
 				public void complete(BossBar bar) {
 					String message = "<gray>#" + id + " <green>" + Countdown.escape(title) + "</green> đã bắt đầu!</gray>";
@@ -103,13 +102,13 @@ public class CountdownCommand implements BasicCommand {
 					sender.sendMessage(Countdown.mm("<red>❌ Thời gian không hợp lệ: <white>" + Countdown.escape(args[1]) + "</white></red>"));
 					return;
 				}
-		
+
 				if (args.length >= 3)
-					title = StringUtils.join(Arrays.copyOfRange(args, 2, args.length), ' ');
-				
+					title = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+
 				countdown(title, length);
 				break;
-		
+
 			case "stop":
 				if (args.length < 2) {
 					sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
@@ -139,7 +138,7 @@ public class CountdownCommand implements BasicCommand {
 
 			case "stopall":
 				stopAll();
-				
+
 				break;
 
 			default:

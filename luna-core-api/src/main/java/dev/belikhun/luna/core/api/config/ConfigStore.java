@@ -21,19 +21,13 @@ public final class ConfigStore {
 
 	public static ConfigStore of(Plugin plugin, String relativePath) {
 		File file = new File(plugin.getDataFolder(), relativePath);
-		if (!file.exists()) {
-			try {
-				if (!plugin.getDataFolder().exists()) {
-					Files.createDirectories(plugin.getDataFolder().toPath());
-				}
-				if (plugin.getResource(relativePath) != null) {
-					plugin.saveResource(relativePath, false);
-				} else {
-					Files.createFile(file.toPath());
-				}
-			} catch (IOException exception) {
-				throw new ConfigStoreException("Cannot initialize config store: " + relativePath, exception);
+		try {
+			if (!plugin.getDataFolder().exists()) {
+				Files.createDirectories(plugin.getDataFolder().toPath());
 			}
+			LunaYamlConfig.ensureFile(file.toPath(), () -> plugin.getResource(relativePath));
+		} catch (IOException exception) {
+			throw new ConfigStoreException("Cannot initialize config store: " + relativePath, exception);
 		}
 
 		YamlConfiguration configuration = YamlConfiguration.loadConfiguration(file);

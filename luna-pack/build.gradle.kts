@@ -2,8 +2,8 @@ import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.Copy
 
 dependencies {
-	implementation(project(":luna-core-api"))
-	implementation("org.yaml:snakeyaml:2.2")
+	compileOnly(project(":luna-core-api"))
+	compileOnly(project(":luna-core-velocity"))
 	compileOnly(libs.velocity.api)
 	annotationProcessor(libs.velocity.api)
 }

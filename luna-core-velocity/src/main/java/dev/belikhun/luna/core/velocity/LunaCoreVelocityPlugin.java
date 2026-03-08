@@ -4,7 +4,9 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
-import org.slf4j.Logger;
+import dev.belikhun.luna.core.api.logging.LunaLogger;
+
+import java.util.logging.Logger;
 
 @Plugin(
 	id = "lunacore",
@@ -14,16 +16,16 @@ import org.slf4j.Logger;
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
-	private final Logger logger;
+	private final LunaLogger logger;
 
 	@Inject
-	public LunaCoreVelocityPlugin(Logger logger) {
-		this.logger = logger;
+	public LunaCoreVelocityPlugin() {
+		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCoreVelocity"), true).scope("CoreVelocity");
 	}
 
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
-		logger.info("LunaCore (Velocity) da khoi dong thanh cong.");
+		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
 }
 

@@ -25,6 +25,10 @@ public final class LunaLogger {
 		return new LunaLogger(plugin.getLogger(), "", colorsEnabled, new ConcurrentHashMap<>());
 	}
 
+	public static LunaLogger forLogger(Logger logger, boolean colorsEnabled) {
+		return new LunaLogger(logger, "", colorsEnabled, new ConcurrentHashMap<>());
+	}
+
 	public LunaLogger scope(String childScope) {
 		String normalized = childScope == null ? "" : childScope.trim();
 		if (normalized.isBlank()) {

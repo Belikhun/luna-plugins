@@ -12,7 +12,6 @@ import dev.belikhun.luna.countdown.CountInstance.CountdownCallback;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 
-import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BossBar;
@@ -65,7 +64,7 @@ public class ShutdownCommand implements BasicCommand {
 		}
 
 		if (args.length >= 2)
-			message = StringUtils.join(Arrays.copyOfRange(args, 1, args.length), ' ');
+			message = String.join(" ", Arrays.copyOfRange(args, 1, args.length));
 
 		start(message, length);
 	}
