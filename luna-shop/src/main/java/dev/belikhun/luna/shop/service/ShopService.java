@@ -13,11 +13,16 @@ import org.bukkit.inventory.ItemStack;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 public final class ShopService {
+	private static final DateTimeFormatter RESET_TIME_FORMATTER = DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.ENGLISH);
+
 	private final ShopEconomyService economy;
 	private final ShopItemStore store;
 	private final ShopTradeLimitService tradeLimitService;
@@ -64,6 +69,12 @@ public final class ShopService {
 		return Formatters.duration(Duration.ofMillis(tradeLimitService.millisUntilReset()));
 	}
 
+	public String tradeLimitResetTimeText() {
+		Instant resetAt = Instant.now().plusMillis(Math.max(0L, tradeLimitService.millisUntilReset()));
+		String clock = RESET_TIME_FORMATTER.format(resetAt.atZone(ZoneId.systemDefault()));
+		return "vào lúc " + clock;
+	}
+
 	public ShopResult buy(Player player, ShopItem shopItem, int amount) {
 		if (amount <= 0) {
 			return fail("BUY", player, shopItem, amount, "Số lượng mua không hợp lệ.", "<red>❌ Số lượng mua không hợp lệ.</red>", 0D);
@@ -73,7 +84,7 @@ public final class ShopService {
 		if (tradeAmount <= 0) {
 			String reason = "Đã đạt giới hạn mua trong ngày.";
 			return fail("BUY", player, shopItem, amount, reason,
-				"<red>❌ Bạn đã chạm giới hạn mua hôm nay. Reset sau <white>" + tradeLimitResetDuration() + "</white>.</red>", 0D);
+				"<red>❌ Bạn đã chạm giới hạn mua hôm nay. Reset <white>" + tradeLimitResetTimeText() + "</white>.</red>", 0D);
 		}
 
 		double total = shopItem.buyPrice() * tradeAmount;
@@ -118,7 +129,7 @@ public final class ShopService {
 		if (tradeAmount <= 0) {
 			String reason = "Đã đạt giới hạn bán trong ngày.";
 			return fail("SELL", player, shopItem, amount, reason,
-				"<red>❌ Bạn đã chạm giới hạn bán hôm nay. Reset sau <white>" + tradeLimitResetDuration() + "</white>.</red>", 0D);
+				"<red>❌ Bạn đã chạm giới hạn bán hôm nay. Reset <white>" + tradeLimitResetTimeText() + "</white>.</red>", 0D);
 		}
 
 		if (shopItem.sellPrice() <= 0D) {

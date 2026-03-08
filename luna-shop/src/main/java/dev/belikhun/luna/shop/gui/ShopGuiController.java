@@ -1438,7 +1438,7 @@ public final class ShopGuiController implements Listener {
 				line(LunaPalette.WARNING_500, "💵 Dự kiến nhận: <gold>" + service.formatMoney(0)),
 				"",
 				plainLine(LunaPalette.WARNING_500, "⚠ Đã đạt giới hạn bán hôm nay"),
-				plainLine(LunaPalette.WARNING_500, "⏳ Reset sau: <white>" + service.tradeLimitResetDuration())
+				plainLine(LunaPalette.WARNING_500, "⏳ Reset " + service.tradeLimitResetTimeText())
 			));
 		}
 
@@ -1486,9 +1486,9 @@ public final class ShopGuiController implements Listener {
 		int maxLimit = mode == TradeMode.BUY ? shopItem.buyTradeLimit() : shopItem.sellTradeLimit();
 		view.setItem(slot, item(Material.ORANGE_STAINED_GLASS_PANE, "<color:" + LunaPalette.WARNING_500 + ">⚠ Hết hạn mức " + modeText + "</color>", List.of(
 			line(LunaPalette.WARNING_500, "♦ Hạn mức ngày: <white>" + (maxLimit > 0 ? maxLimit : 0)),
-			line(LunaPalette.WARNING_500, "⏳ Reset sau: <white>" + service.tradeLimitResetDuration())
+			line(LunaPalette.WARNING_500, "⏳ Reset <white>" + service.tradeLimitResetTimeText())
 		)));
-		player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn đã đạt hạn mức " + modeText + " trong ngày. Reset sau <white>" + service.tradeLimitResetDuration() + "</white>.</color>"));
+		player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn đã đạt hạn mức " + modeText + " trong ngày. Reset <white>" + service.tradeLimitResetTimeText() + "</white>.</color>"));
 		scheduleAlertReset(player, view, slot, restoreItem);
 	}
 
@@ -1607,7 +1607,7 @@ public final class ShopGuiController implements Listener {
 		ArrayList<String> lines = new ArrayList<>();
 		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Mua còn:", LunaPalette.SUCCESS_500, limitValueText(remainingBuy, item.buyTradeLimit())));
 		lines.add(coloredPairLine(LunaPalette.INFO_500, "⌚ Bán còn:", LunaPalette.WARNING_500, limitValueText(remainingSell, item.sellTradeLimit())));
-		lines.add(coloredPairLine(LunaPalette.INFO_300, "⏳ Reset hạn mức sau:", LunaPalette.NEUTRAL_100, service.tradeLimitResetDuration()));
+		lines.add(coloredPairLine(LunaPalette.INFO_300, "⏳ Reset:", LunaPalette.NEUTRAL_100, service.tradeLimitResetTimeText()));
 
 		return lines;
 	}
