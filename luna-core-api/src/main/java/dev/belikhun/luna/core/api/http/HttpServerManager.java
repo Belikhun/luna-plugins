@@ -19,8 +19,10 @@ import java.util.List;
 import java.util.Map;
 
 public final class HttpServerManager {
+	@SuppressWarnings("unused")
 	private final Plugin plugin;
 	private final ConfigStore configStore;
+	@SuppressWarnings("unused")
 	private final MessageFormatter formatter;
 	private final LunaLogger logger;
 	private final Router router;

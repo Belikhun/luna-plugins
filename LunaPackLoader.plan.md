@@ -89,8 +89,8 @@ Plan assumes Option B to honor requested module name.
 File: `luna-pack/src/main/resources/config.yml`
 
 ```yaml
-base-url: "https://mc.belikhun.dev/mcds/pack/"
-pack-path: "plugins/LunaPackLoader/files"
+base-url: "https://mc.belikhun.dev/mcds/packs/"
+pack-path: "plugins/lunapackloader/packs"
 ```
 
 Validation rules:
@@ -100,7 +100,7 @@ Validation rules:
 - Log warnings for invalid paths; keep plugin running with zero available packs.
 
 ## 5.2 Pack definition files
-Directory: `plugins/LunaPackLoader/packs/`
+Directory: `plugins/lunapackloader/packs/`
 Extension: `*.yml`
 
 Example:

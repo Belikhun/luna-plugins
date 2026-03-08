@@ -5,6 +5,7 @@ import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
@@ -17,6 +18,7 @@ import dev.belikhun.luna.pack.listener.PlayerConnectionListener;
 import dev.belikhun.luna.pack.listener.PlayerPackStatusListener;
 import dev.belikhun.luna.pack.model.PackReloadReport;
 import dev.belikhun.luna.pack.service.PackCatalogService;
+import dev.belikhun.luna.pack.service.BuiltInPackHttpService;
 import dev.belikhun.luna.pack.service.PackDispatchService;
 import dev.belikhun.luna.pack.service.PlayerPackSessionStore;
 
@@ -39,6 +41,7 @@ public final class LunaPackLoaderPlugin {
 	private final Path dataDirectory;
 	private final LoaderConfigService configService;
 	private final PackCatalogService catalogService;
+	private final BuiltInPackHttpService builtInHttpService;
 	private final PlayerPackSessionStore sessionStore;
 	private final PackDispatchService dispatchService;
 
@@ -49,6 +52,7 @@ public final class LunaPackLoaderPlugin {
 		this.dataDirectory = dataDirectory;
 		this.configService = new LoaderConfigService(dataDirectory, logger);
 		this.catalogService = new PackCatalogService(dataDirectory, logger);
+		this.builtInHttpService = new BuiltInPackHttpService(server, logger);
 		this.sessionStore = new PlayerPackSessionStore();
 		this.dispatchService = new PackDispatchService(server, logger);
 	}
@@ -56,7 +60,7 @@ public final class LunaPackLoaderPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		configService.ensureDefaults();
-		LoaderConfig config = configService.load();
+		LoaderConfig config = builtInHttpService.resolve(configService.load());
 		PackReloadReport report = catalogService.reload(config);
 
 		registerCommand();
@@ -76,7 +80,12 @@ public final class LunaPackLoaderPlugin {
 			.plugin(this)
 			.build();
 
-		commandManager.register(meta, new PackAdminCommand(server, configService, catalogService, sessionStore, dispatchService));
+		commandManager.register(meta, new PackAdminCommand(server, configService, catalogService, builtInHttpService, sessionStore, dispatchService));
+	}
+
+	@Subscribe
+	public void onProxyShutdown(ProxyShutdownEvent event) {
+		builtInHttpService.stopIfRunning();
 	}
 
 	public Path dataDirectory() {

@@ -12,8 +12,8 @@ import java.nio.file.Paths;
 import java.util.Map;
 
 public final class LoaderConfigService {
-	private static final String DEFAULT_BASE_URL = "https://mc.belikhun.dev/mcds/pack/";
-	private static final String DEFAULT_PACK_PATH = "plugins/LunaPackLoader/files";
+	private static final String DEFAULT_BASE_URL = "https://mc.belikhun.dev/mcds/packs/";
+	private static final String DEFAULT_PACK_PATH = "plugins/lunapackloader/packs";
 
 	private final Path dataDirectory;
 	private final LunaLogger logger;
@@ -68,6 +68,10 @@ public final class LoaderConfigService {
 		String candidate = raw == null ? "" : raw.trim();
 		if (candidate.isBlank()) {
 			return DEFAULT_BASE_URL;
+		}
+
+		if (candidate.equalsIgnoreCase("built-in")) {
+			return "built-in";
 		}
 
 		try {

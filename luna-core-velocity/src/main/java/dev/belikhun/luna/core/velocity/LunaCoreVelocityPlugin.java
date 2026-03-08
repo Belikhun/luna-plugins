@@ -3,9 +3,13 @@ package dev.belikhun.luna.core.velocity;
 import com.google.inject.Inject;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
+import java.nio.file.Path;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -17,15 +21,36 @@ import java.util.logging.Logger;
 )
 public final class LunaCoreVelocityPlugin {
 	private final LunaLogger logger;
+	private final Path dataDirectory;
+	private final VelocityHttpServerManager httpServerManager;
 
 	@Inject
-	public LunaCoreVelocityPlugin() {
+	public LunaCoreVelocityPlugin(@DataDirectory Path dataDirectory) {
 		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCoreVelocity"), true).scope("CoreVelocity");
+		this.dataDirectory = dataDirectory;
+		this.httpServerManager = new VelocityHttpServerManager(this.logger);
 	}
 
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
+		ensureDefaults();
+		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
+	}
+
+	@Subscribe
+	public void onProxyShutdown(ProxyShutdownEvent event) {
+		httpServerManager.stop();
+	}
+
+	private void ensureDefaults() {
+		Path config = dataDirectory.resolve("config.yml");
+		try {
+			LunaYamlConfig.ensureFile(config, () -> getClass().getClassLoader().getResourceAsStream("config.yml"));
+			logger.audit("Đã sẵn sàng tệp cấu hình: " + config);
+		} catch (RuntimeException exception) {
+			logger.error("Không thể khởi tạo config.yml mặc định cho LunaCore Velocity.", exception);
+		}
 	}
 }
 

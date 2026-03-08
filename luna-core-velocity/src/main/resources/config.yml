@@ -1,0 +1,10 @@
+http:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8080
+  pathPrefix: "/api"
+
+logging:
+  ansi: true
+  defaultScope: "LunaCoreVelocity"
+  level: "INFO"

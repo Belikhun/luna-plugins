@@ -64,4 +64,12 @@ public final class PackCatalogService {
 	public PackCatalogSnapshot snapshot() {
 		return snapshot.get();
 	}
+
+	public PackRepository.TemplateCreateResult createTemplate(String packName) {
+		return repository.createTemplate(packName);
+	}
+
+	public PackRepository.ToggleResult setEnabled(String packName, boolean enabled) {
+		return repository.setEnabled(packName, enabled);
+	}
 }

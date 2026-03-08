@@ -59,6 +59,77 @@ public final class PackRepository {
 		return new LoadResult(discovered, definitions, invalidFiles);
 	}
 
+	public TemplateCreateResult createTemplate(String packNameRaw) {
+		ensureDirectory();
+		String normalized = normalizePackName(packNameRaw);
+		if (normalized == null) {
+			return TemplateCreateResult.invalidName();
+		}
+
+		LoadResult current = load();
+		if (current.definitions().containsKey(normalized)) {
+			return TemplateCreateResult.alreadyExists();
+		}
+
+		Path file = packsDirectory.resolve(normalized + ".yml");
+		if (Files.exists(file)) {
+			return TemplateCreateResult.alreadyExists();
+		}
+
+		String content = "name: \"" + normalized + "\"\n"
+			+ "filename: \"" + normalized + ".zip\"\n"
+			+ "priority: 0\n"
+			+ "required: false\n"
+			+ "enabled: true\n"
+			+ "servers:\n"
+			+ "  - \"*\"\n";
+
+		try {
+			Files.writeString(file, content);
+			logger.audit("Đã tạo template pack mới: " + file.getFileName());
+			return TemplateCreateResult.created(file);
+		} catch (IOException exception) {
+			logger.error("Không thể tạo template pack: " + file.getFileName(), exception);
+			return TemplateCreateResult.ioError();
+		}
+	}
+
+	public ToggleResult setEnabled(String packName, boolean enabled) {
+		String normalized = normalizePackName(packName);
+		if (normalized == null) {
+			return ToggleResult.invalidName();
+		}
+
+		LoadResult current = load();
+		PackDefinition definition = current.definitions().get(normalized);
+		if (definition == null) {
+			return ToggleResult.notFound();
+		}
+
+		if (definition.enabled() == enabled) {
+			return ToggleResult.noChange(definition.enabled());
+		}
+
+		String content = "name: \"" + definition.name() + "\"\n"
+			+ "filename: \"" + definition.filename() + "\"\n"
+			+ "priority: " + definition.priority() + "\n"
+			+ "required: " + definition.required() + "\n"
+			+ "enabled: " + enabled + "\n"
+			+ "servers:\n";
+		for (String server : definition.servers()) {
+			content += "  - \"" + server + "\"\n";
+		}
+
+		try {
+			Files.writeString(definition.sourceFile(), content);
+			logger.audit("Đã cập nhật enabled=" + enabled + " cho pack " + definition.name());
+			return ToggleResult.updated(definition.enabled(), enabled);
+		} catch (IOException exception) {
+			logger.error("Không thể cập nhật pack " + definition.sourceFile().getFileName(), exception);
+			return ToggleResult.ioError();
+		}
+	}
+
 	private void ensureDirectory() {
 		if (Files.exists(packsDirectory)) {
 			return;
@@ -70,6 +141,20 @@ public final class PackRepository {
 		} catch (IOException exception) {
 			logger.error("Không thể tạo thư mục packs: " + packsDirectory, exception);
 		}
+	}
+
+	private String normalizePackName(String value) {
+		if (value == null) {
+			return null;
+		}
+		String normalized = value.trim().toLowerCase(Locale.ROOT);
+		if (normalized.isBlank()) {
+			return null;
+		}
+		if (!normalized.matches("[a-z0-9_-]{1,64}")) {
+			return null;
+		}
+		return normalized;
 	}
 
 	private PackDefinition loadOne(Path file) {
@@ -187,5 +272,119 @@ public final class PackRepository {
 		Map<String, PackDefinition> definitions,
 		List<Path> invalidFiles
 	) {
+	}
+
+	public static final class TemplateCreateResult {
+		private final boolean created;
+		private final boolean alreadyExists;
+		private final boolean invalidName;
+		private final boolean ioError;
+		private final Path path;
+
+		private TemplateCreateResult(boolean created, boolean alreadyExists, boolean invalidName, boolean ioError, Path path) {
+			this.created = created;
+			this.alreadyExists = alreadyExists;
+			this.invalidName = invalidName;
+			this.ioError = ioError;
+			this.path = path;
+		}
+
+		public static TemplateCreateResult created(Path path) {
+			return new TemplateCreateResult(true, false, false, false, path);
+		}
+
+		public static TemplateCreateResult alreadyExists() {
+			return new TemplateCreateResult(false, true, false, false, null);
+		}
+
+		public static TemplateCreateResult invalidName() {
+			return new TemplateCreateResult(false, false, true, false, null);
+		}
+
+		public static TemplateCreateResult ioError() {
+			return new TemplateCreateResult(false, false, false, true, null);
+		}
+
+		public boolean isCreated() {
+			return created;
+		}
+
+		public boolean isAlreadyExists() {
+			return alreadyExists;
+		}
+
+		public boolean isInvalidName() {
+			return invalidName;
+		}
+
+		public boolean isIoError() {
+			return ioError;
+		}
+
+		public Path path() {
+			return path;
+		}
+	}
+
+	public static final class ToggleResult {
+		private final boolean updated;
+		private final boolean notFound;
+		private final boolean invalidName;
+		private final boolean ioError;
+		private final boolean oldEnabled;
+		private final boolean newEnabled;
+
+		private ToggleResult(boolean updated, boolean notFound, boolean invalidName, boolean ioError, boolean oldEnabled, boolean newEnabled) {
+			this.updated = updated;
+			this.notFound = notFound;
+			this.invalidName = invalidName;
+			this.ioError = ioError;
+			this.oldEnabled = oldEnabled;
+			this.newEnabled = newEnabled;
+		}
+
+		public static ToggleResult updated(boolean oldEnabled, boolean newEnabled) {
+			return new ToggleResult(true, false, false, false, oldEnabled, newEnabled);
+		}
+
+		public static ToggleResult notFound() {
+			return new ToggleResult(false, true, false, false, false, false);
+		}
+
+		public static ToggleResult invalidName() {
+			return new ToggleResult(false, false, true, false, false, false);
+		}
+
+		public static ToggleResult ioError() {
+			return new ToggleResult(false, false, false, true, false, false);
+		}
+
+		public static ToggleResult noChange(boolean value) {
+			return new ToggleResult(true, false, false, false, value, value);
+		}
+
+		public boolean isUpdated() {
+			return updated;
+		}
+
+		public boolean isNotFound() {
+			return notFound;
+		}
+
+		public boolean isInvalidName() {
+			return invalidName;
+		}
+
+		public boolean isIoError() {
+			return ioError;
+		}
+
+		public boolean oldEnabled() {
+			return oldEnabled;
+		}
+
+		public boolean newEnabled() {
+			return newEnabled;
+		}
 	}
 }

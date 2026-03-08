@@ -27,6 +27,12 @@ public final class HttpResponse {
 		return new HttpResponse(status, body.getBytes(StandardCharsets.UTF_8), headers);
 	}
 
+	public static HttpResponse bytes(int status, byte[] body, String contentType) {
+		Map<String, String> headers = new LinkedHashMap<>();
+		headers.put("Content-Type", contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType);
+		return new HttpResponse(status, body == null ? new byte[0] : body, headers);
+	}
+
 	public HttpResponse withHeader(String key, String value) {
 		Map<String, String> newHeaders = new LinkedHashMap<>(headers);
 		newHeaders.put(key, value);

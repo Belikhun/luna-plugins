@@ -7,10 +7,12 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.pack.config.LoaderConfigService;
+import dev.belikhun.luna.pack.config.PackRepository;
 import dev.belikhun.luna.pack.model.PackCatalogSnapshot;
 import dev.belikhun.luna.pack.model.PackReloadReport;
 import dev.belikhun.luna.pack.model.PlayerPackSession;
 import dev.belikhun.luna.pack.model.ResolvedPack;
+import dev.belikhun.luna.pack.service.BuiltInPackHttpService;
 import dev.belikhun.luna.pack.service.PackCatalogService;
 import dev.belikhun.luna.pack.service.PackDispatchService;
 import dev.belikhun.luna.pack.service.PlayerPackSessionStore;
@@ -29,6 +31,7 @@ public final class PackAdminCommand implements SimpleCommand {
 	private final ProxyServer server;
 	private final LoaderConfigService configService;
 	private final PackCatalogService catalogService;
+	private final BuiltInPackHttpService builtInHttpService;
 	private final PlayerPackSessionStore sessionStore;
 	private final PackDispatchService dispatchService;
 
@@ -36,12 +39,14 @@ public final class PackAdminCommand implements SimpleCommand {
 		ProxyServer server,
 		LoaderConfigService configService,
 		PackCatalogService catalogService,
+		BuiltInPackHttpService builtInHttpService,
 		PlayerPackSessionStore sessionStore,
 		PackDispatchService dispatchService
 	) {
 		this.server = server;
 		this.configService = configService;
 		this.catalogService = catalogService;
+		this.builtInHttpService = builtInHttpService;
 		this.sessionStore = sessionStore;
 		this.dispatchService = dispatchService;
 	}
@@ -59,7 +64,7 @@ public final class PackAdminCommand implements SimpleCommand {
 
 	private void handle(CommandSource source, String[] args) {
 		if (args.length == 0) {
-			send(source, "<yellow>ℹ Dùng /lunapack <reload|resend|forceload|forceunload|debug>.</yellow>");
+			send(source, "<yellow>ℹ Dùng /lunapack <reload|resend|forceload|forceunload|template|enable|disable|debug>.</yellow>");
 			return;
 		}
 
@@ -75,8 +80,11 @@ public final class PackAdminCommand implements SimpleCommand {
 			case "resend" -> handleResend(source, args);
 			case "forceload" -> handleForceLoad(source, args);
 			case "forceunload" -> handleForceUnload(source, args);
+			case "template" -> handleTemplate(source, args);
+			case "enable" -> handleSetEnabled(source, args, true);
+			case "disable" -> handleSetEnabled(source, args, false);
 			case "debug" -> handleDebug(source, args);
-			default -> send(source, CommandStrings.usage("/lunapack", CommandStrings.required("reload|resend|forceload|forceunload|debug", "action")));
+			default -> send(source, CommandStrings.usage("/lunapack", CommandStrings.required("reload|resend|forceload|forceunload|template|enable|disable|debug", "action")));
 		}
 	}
 
@@ -85,7 +93,7 @@ public final class PackAdminCommand implements SimpleCommand {
 			return List.of();
 		}
 
-		List<String> root = List.of("reload", "resend", "forceload", "forceunload", "debug");
+		List<String> root = List.of("reload", "resend", "forceload", "forceunload", "template", "enable", "disable", "debug");
 		if (args.length <= 1) {
 			String input = args.length == 0 ? "" : args[0];
 			return CommandCompletions.filterPrefix(root, input);
@@ -111,6 +119,13 @@ public final class PackAdminCommand implements SimpleCommand {
 				.map(pack -> pack.name())
 				.toList();
 			return CommandCompletions.filterPrefix(packs, args[2]);
+		}
+
+		if (args.length == 2 && (args[0].equalsIgnoreCase("template") || args[0].equalsIgnoreCase("enable") || args[0].equalsIgnoreCase("disable"))) {
+			List<String> packs = catalogService.snapshot().definitionsByName().values().stream()
+				.map(pack -> pack.name())
+				.toList();
+			return CommandCompletions.filterPrefix(packs, args[1]);
 		}
 
 		if (args.length == 3 && args[0].equalsIgnoreCase("forceunload")) {
@@ -152,12 +167,98 @@ public final class PackAdminCommand implements SimpleCommand {
 			return;
 		}
 
-		var config = configService.load();
+		var config = builtInHttpService.resolve(configService.load());
 		PackReloadReport report = catalogService.reload(config);
 		send(source, "<green>✔ Đã tải lại cấu hình và dữ liệu pack.</green>");
 		send(source, "<gray>• File phát hiện: <white>" + report.discoveredFiles() + "</white></gray>");
 		send(source, "<gray>• Pack hợp lệ: <white>" + report.validDefinitions() + "</white> | lỗi: <white>" + report.invalidDefinitions() + "</white></gray>");
 		send(source, "<gray>• Pack khả dụng: <white>" + report.resolvedAvailable() + "</white> | thiếu file: <white>" + report.resolvedMissingFiles() + "</white> | URL lỗi: <white>" + report.resolvedInvalidUrls() + "</white></gray>");
+	}
+
+	private void handleTemplate(CommandSource source, String[] args) {
+		if (!hasPermission(source, "lunapack.admin.template")) {
+			sendNoPermission(source);
+			return;
+		}
+
+		if (args.length < 2) {
+			send(source, CommandStrings.usage("/lunapack", CommandStrings.literal("template"), CommandStrings.required("packName", "text")));
+			return;
+		}
+
+		String packName = sanitizeArg(args[1]);
+		if (packName == null) {
+			send(source, "<red>❌ Tên pack không hợp lệ.</red>");
+			return;
+		}
+
+		PackRepository.TemplateCreateResult result = catalogService.createTemplate(packName);
+		if (result.isInvalidName()) {
+			send(source, "<red>❌ Tên pack không hợp lệ. Chỉ dùng <white>a-z, 0-9, _, -</white>.</red>");
+			return;
+		}
+
+		if (result.isAlreadyExists()) {
+			send(source, "<red>❌ Pack <white>" + packName + "</white> đã tồn tại.</red>");
+			return;
+		}
+
+		if (result.isIoError() || !result.isCreated()) {
+			send(source, "<red>❌ Không thể tạo template pack mới.</red>");
+			return;
+		}
+
+		var config = builtInHttpService.resolve(configService.load());
+		catalogService.reload(config);
+		send(source, "<green>✔ Đã tạo template pack <white>" + packName.toLowerCase(Locale.ROOT) + "</white> tại <white>" + result.path().getFileName() + "</white>.</green>");
+	}
+
+	private void handleSetEnabled(CommandSource source, String[] args, boolean enabled) {
+		String permission = enabled ? "lunapack.admin.enable" : "lunapack.admin.disable";
+		if (!hasPermission(source, permission)) {
+			sendNoPermission(source);
+			return;
+		}
+
+		String commandName = enabled ? "enable" : "disable";
+		if (args.length < 2) {
+			send(source, CommandStrings.usage("/lunapack", CommandStrings.literal(commandName), CommandStrings.required("pack", "text")));
+			return;
+		}
+
+		String packName = sanitizeArg(args[1]);
+		if (packName == null) {
+			send(source, "<red>❌ Tên pack không hợp lệ.</red>");
+			return;
+		}
+
+		PackRepository.ToggleResult result = catalogService.setEnabled(packName, enabled);
+		if (result.isInvalidName()) {
+			send(source, "<red>❌ Tên pack không hợp lệ. Chỉ dùng <white>a-z, 0-9, _, -</white>.</red>");
+			return;
+		}
+
+		if (result.isNotFound()) {
+			send(source, "<red>❌ Không tìm thấy pack <white>" + packName + "</white>.</red>");
+			return;
+		}
+
+		if (result.isIoError()) {
+			send(source, "<red>❌ Không thể cập nhật trạng thái pack <white>" + packName + "</white>.</red>");
+			return;
+		}
+
+		var config = builtInHttpService.resolve(configService.load());
+		catalogService.reload(config);
+
+		if (result.oldEnabled() == result.newEnabled()) {
+			String stateText = result.newEnabled() ? "bật" : "tắt";
+			send(source, "<yellow>ℹ Pack <white>" + packName + "</white> đã ở trạng thái <white>" + stateText + "</white>.</yellow>");
+			return;
+		}
+
+		String actionText = enabled ? "bật" : "tắt";
+		send(source, "<green>✔ Đã " + actionText + " pack <white>" + packName + "</white>.</green>");
 	}
 
 	private void handleForceLoad(CommandSource source, String[] args) {
