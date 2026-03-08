@@ -170,7 +170,7 @@ public final class AnvilInputManager implements Listener {
 
 	private String plain(ItemMeta meta) {
 		if (meta.hasDisplayName()) {
-			String legacy = meta.getDisplayName();
+			String legacy = meta.displayName().toString();
 			if (legacy != null) {
 				return legacy;
 			}

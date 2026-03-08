@@ -100,6 +100,7 @@ public final class NumberSelectorGui implements Listener {
 		interceptManualInput(event.getPlayer(), plainText.serialize(event.message()).trim(), event);
 	}
 
+	@SuppressWarnings("deprecation")
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onLegacyChat(AsyncPlayerChatEvent event) {
 		interceptManualInput(event.getPlayer(), event.getMessage().trim(), event);
