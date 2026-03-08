@@ -232,7 +232,7 @@ public final class ShopGuiController implements Listener {
 	public void openMainMenu(Player player, int page) {
 		List<ShopCategory> categories = store.allCategories();
 
-		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna Shop", "Cửa Hàng"));
+		GuiView view = new GuiView(54, compactTitle("Cửa Hàng"));
 		guiManager.track(view);
 
 		int maxPage = maxPage(categories.size());
@@ -433,14 +433,14 @@ public final class ShopGuiController implements Listener {
 		List<ShopItem> items = store.byCategory(category);
 
 		BrowseContext context = BrowseContext.category(category, page);
-		openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Danh Mục", prettyCategory(category)), context);
+		openItemList(player, items, compactTitle("Danh mục: " + prettyCategory(category)), context);
 	}
 
 	public void openSearchMenu(Player player, String query, int page) {
 		List<ShopItem> items = store.search(query);
 
 		BrowseContext context = BrowseContext.search(query, page);
-		openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Tìm Kiếm", query), context);
+		openItemList(player, items, compactTitle("Tìm kiếm: " + query), context);
 	}
 
 	private void openItemList(Player player, List<ShopItem> items, Component title, BrowseContext context) {
@@ -849,7 +849,7 @@ public final class ShopGuiController implements Listener {
 
 				List<ShopItem> items = store.searchInCategory(request.category(), query);
 				BrowseContext context = BrowseContext.categorySearch(request.category(), query, 0);
-				openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Tìm Kiếm", prettyCategory(request.category()), query), context);
+				openItemList(player, items, compactTitle("Tìm kiếm: " + prettyCategory(request.category())), context);
 			});
 			return;
 		}
@@ -1315,7 +1315,7 @@ public final class ShopGuiController implements Listener {
 		if (context.search()) {
 			if (context.category() != null && context.query() != null) {
 				List<ShopItem> items = store.searchInCategory(context.category(), context.query());
-				openItemList(player, items, LunaUi.guiTitleBreadcrumb("Luna Shop", "Tìm Kiếm", prettyCategory(context.category()), context.query()), context);
+				openItemList(player, items, compactTitle("Tìm kiếm: " + prettyCategory(context.category())), context);
 				return;
 			}
 
@@ -1700,11 +1700,11 @@ public final class ShopGuiController implements Listener {
 	}
 
 	private Component tradeTitleWithAmount(int amount) {
-		return LunaUi.guiTitleBreadcrumb("Luna Shop", "Giao Dịch").append(mm(
-			" <color:" + LunaPalette.NEUTRAL_500 + ">•</color> <color:" + LunaPalette.NEUTRAL_700 + ">"
-				+ amount
-				+ "</color>"
-		));
+		return compactTitle("Giao Dịch: " + amount);
+	}
+
+	private Component compactTitle(String text) {
+		return mm("<color:" + LunaPalette.GUI_TITLE_SECONDARY + ">" + text + "</color>");
 	}
 
 	private int maxPage(int items) {
