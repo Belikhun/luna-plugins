@@ -3,10 +3,9 @@ import org.gradle.language.jvm.tasks.ProcessResources
 
 dependencies {
     compileOnly(libs.paper.api)
-    implementation(libs.mariadb.jdbc)
-    implementation(libs.mysql.jdbc)
-    implementation(libs.postgresql.jdbc)
-    implementation(libs.sqlite.jdbc)
+    compileOnly(libs.mariadb.jdbc)
+    compileOnly(libs.mysql.jdbc)
+    compileOnly(libs.sqlite.jdbc)
 }
 
 val glyphMapOutputFile = layout.buildDirectory.file("generated/resources/glyph/font/glyph-widths.json")

@@ -5,16 +5,19 @@
 - Current modules:
   - `:luna-core` → shared APIs/utilities for other Luna plugins.
   - `:luna-shop` → shop feature plugin that depends on `:luna-core`.
-- Keep shared contracts and reusable helpers in `luna-core`; keep feature-specific code in `luna-shop`.
+  - `:luna-countdown` → countdown feature plugin.
+  - `:luna-hat` → hat/cosmetic feature plugin.
+  - `:luna-smp` → SMP-focused feature plugin.
+- Keep shared contracts and reusable helpers in `luna-core`; keep feature-specific code in feature modules.
 - Prefer adding new plugins as sibling subprojects (`luna-*`) and include them in `settings.gradle.kts`.
 
 ## Plugin metadata conventions
 - Use `paper-plugin.yml` (not `plugin.yml`) in each module under `src/main/resources`.
-- Current examples:
-  - `luna-core/src/main/resources/paper-plugin.yml`
-  - `luna-shop/src/main/resources/paper-plugin.yml`
+- Current examples: each module has `src/main/resources/paper-plugin.yml`.
 - Plugin names must be valid identifiers (no spaces), e.g. `LunaCore`, `LunaShop`.
 - If a module depends on another plugin at runtime, declare it in `paper-plugin.yml` under `dependencies.server`.
+- For runtime-downloaded libraries, prefer Paper `loader` + `PluginLoader` (`MavenLibraryResolver`) instead of shading heavy dependencies into the plugin jar.
+- Keep `paper-plugin.yml` `loader:` aligned with actual loader class path when used.
 
 ## Dependency wiring (must stay aligned)
 - Build-time linkage is in module Gradle files:
@@ -22,6 +25,9 @@
 - Runtime/plugin loading linkage is in descriptor files:
   - `luna-shop` declares `dependencies.server.LunaCore` in `paper-plugin.yml`.
 - When adding new inter-plugin dependencies, update both Gradle and `paper-plugin.yml`.
+- For external libraries resolved by Paper loader:
+  - keep module dependencies as `compileOnly` for compile-time symbols.
+  - register runtime Maven coordinates in loader class (not shaded into output jar).
 
 ## Formatting
 - Java/Gradle/Groovy: **tab indent** (tab width=4).
@@ -104,17 +110,23 @@
 ## Build/Run
 - Build with `./gradlew build` (Paper API + Multiverse are `compileOnly`).
 - Always run `./gradlew shadowJar` at the end of your work to verify build errors.
+- Shadow outputs are centralized in root `output/`.
+- Shadow artifact naming convention: `<module>-paper-all.jar` (no version segment).
+- `clean` must also remove root `output/` directory.
 - No automated tests are defined yet.
 
 ## Common workflows
 - Build all plugins: `./gradlew build` (Windows: `./gradlew.bat build`).
-- Build one module: `./gradlew :luna-core:build` or `./gradlew :luna-shop:build`.
+- Build one module: `./gradlew :luna-core:build` (same form for any `luna-*` module).
 - Clean + rebuild after descriptor/dependency changes: `./gradlew clean build`.
+- Build distributable jars: `./gradlew shadowJar` (Windows: `./gradlew.bat shadowJar`).
 
 ## Code patterns to keep
 - Main plugin entrypoints extend `JavaPlugin` and currently keep `onEnable/onDisable` minimal:
   - `luna-core/src/main/java/dev/belikhun/luna/core/LunaCorePlugin.java`
   - `luna-shop/src/main/java/dev/belikhun/luna/shop/LunaShopPlugin.java`
+- Keep `luna-core` loader logic in `luna-core/src/main/java/dev/belikhun/luna/core/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
+- Current supported DB drivers in `luna-core`: `sqlite`, `mysql`, `mariadb`.
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
 
 ## Reuse and deduplication rules

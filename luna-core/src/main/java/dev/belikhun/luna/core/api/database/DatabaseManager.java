@@ -34,7 +34,7 @@ public final class DatabaseManager {
 			true,
 			type,
 			section.getString("host", "127.0.0.1"),
-			section.getInt("port", type == DatabaseType.POSTGRESQL ? 5432 : 3306),
+			section.getInt("port", 3306),
 			section.getString("name", "luna.db"),
 			section.getString("username", "root"),
 			section.getString("password", ""),

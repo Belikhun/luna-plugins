@@ -3,12 +3,17 @@ plugins {
     id("com.gradleup.shadow") version "9.0.2" apply false
 }
 
+tasks.named<Delete>("clean") {
+    delete(layout.projectDirectory.dir("output"))
+}
+
 subprojects {
     apply(plugin = "java")
     apply(plugin = "com.gradleup.shadow")
 
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
+    val platformTarget = "paper"
 
     val pluginVersion = version.toString()
 
@@ -50,5 +55,7 @@ subprojects {
 
     tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
         destinationDirectory.set(rootProject.layout.projectDirectory.dir("output"))
+        archiveBaseName.set("${project.name}-$platformTarget")
+        archiveVersion.set("")
     }
 }
