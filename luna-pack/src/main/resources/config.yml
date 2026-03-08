@@ -1,4 +1,4 @@
 # Dùng "built-in" để bật HTTP server nội bộ cho test local.
 # Ví dụ: base-url: "built-in"
-base-url: "https://mc.belikhun.dev/mcds/pack/"
+base-url: "https://mc.belikhun.dev/mcds/packs/"
 pack-path: "plugins/lunapackloader/packs"

@@ -22,7 +22,8 @@ public final class LoaderConfigService {
 	public LoaderConfigService(Path dataDirectory, LunaLogger logger) {
 		this.dataDirectory = dataDirectory;
 		this.logger = logger.scope("Config");
-		this.current = new LoaderConfig(DEFAULT_BASE_URL, resolvePackPath(DEFAULT_PACK_PATH));
+		Path defaultPath = resolvePackPath(DEFAULT_PACK_PATH);
+		this.current = new LoaderConfig(DEFAULT_BASE_URL, defaultPath);
 	}
 
 	public void ensureDefaults() {
@@ -33,7 +34,8 @@ public final class LoaderConfigService {
 		Path configPath = dataDirectory.resolve("config.yml");
 		if (!Files.exists(configPath)) {
 			logger.warn("Không tìm thấy config.yml, sử dụng cấu hình mặc định.");
-			current = new LoaderConfig(DEFAULT_BASE_URL, resolvePackPath(DEFAULT_PACK_PATH));
+			Path defaultPath = resolvePackPath(DEFAULT_PACK_PATH);
+			current = new LoaderConfig(DEFAULT_BASE_URL, defaultPath);
 			return current;
 		}
 
@@ -45,7 +47,8 @@ public final class LoaderConfigService {
 			return current;
 		} catch (RuntimeException exception) {
 			logger.error("Không thể đọc config.yml, sử dụng cấu hình mặc định.", exception);
-			current = new LoaderConfig(DEFAULT_BASE_URL, resolvePackPath(DEFAULT_PACK_PATH));
+			Path defaultPath = resolvePackPath(DEFAULT_PACK_PATH);
+			current = new LoaderConfig(DEFAULT_BASE_URL, defaultPath);
 			return current;
 		}
 	}

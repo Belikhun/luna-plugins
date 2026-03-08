@@ -15,12 +15,19 @@ import java.util.Map;
 import java.util.Set;
 
 public final class PackRepository {
-	private final Path packsDirectory;
+	private Path packsDirectory;
 	private final LunaLogger logger;
 
 	public PackRepository(Path dataDirectory, LunaLogger logger) {
 		this.packsDirectory = dataDirectory.resolve("packs");
 		this.logger = logger.scope("PackRepository");
+	}
+
+	public void setPacksDirectory(Path packsDirectory) {
+		if (packsDirectory == null) {
+			return;
+		}
+		this.packsDirectory = packsDirectory.normalize();
 	}
 
 	public LoadResult load() {

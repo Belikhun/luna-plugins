@@ -76,7 +76,7 @@ public final class LunaPackLoaderPlugin {
 	private void registerCommand() {
 		CommandManager commandManager = server.getCommandManager();
 		CommandMeta meta = commandManager.metaBuilder("lunapack")
-			.aliases("lpack", "packloader")
+			.aliases("packs")
 			.plugin(this)
 			.build();
 

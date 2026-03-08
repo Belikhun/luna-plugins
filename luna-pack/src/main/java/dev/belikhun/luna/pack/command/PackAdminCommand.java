@@ -210,7 +210,7 @@ public final class PackAdminCommand implements SimpleCommand {
 
 		var config = builtInHttpService.resolve(configService.load());
 		catalogService.reload(config);
-		send(source, "<green>✔ Đã tạo template pack <white>" + packName.toLowerCase(Locale.ROOT) + "</white> tại <white>" + result.path().getFileName() + "</white>.</green>");
+		send(source, "<green>✔ Đã tạo template pack <white>" + packName.toLowerCase(Locale.ROOT) + "</white> tại <white>" + result.path().toAbsolutePath() + "</white>.</green>");
 	}
 
 	private void handleSetEnabled(CommandSource source, String[] args, boolean enabled) {

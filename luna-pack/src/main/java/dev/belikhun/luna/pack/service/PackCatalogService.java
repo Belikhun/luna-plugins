@@ -27,6 +27,7 @@ public final class PackCatalogService {
 	}
 
 	public PackReloadReport reload(LoaderConfig config) {
+		repository.setPacksDirectory(config.packPath());
 		PackRepository.LoadResult loadResult = repository.load();
 		Map<String, PackDefinition> definitions = loadResult.definitions();
 		List<ResolvedPack> resolved = hashService.resolveAll(config, definitions.values());
