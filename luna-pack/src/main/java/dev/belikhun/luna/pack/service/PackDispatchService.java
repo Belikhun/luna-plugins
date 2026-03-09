@@ -17,11 +17,21 @@ public final class PackDispatchService {
 	private final ProxyServer server;
 	private final LunaLogger logger;
 	private final PackSelectionService selectionService;
+	private PackLoadStateBroadcastService broadcastService;
 
 	public PackDispatchService(ProxyServer server, LunaLogger logger) {
+		this(server, logger, null);
+	}
+
+	public PackDispatchService(ProxyServer server, LunaLogger logger, PackLoadStateBroadcastService broadcastService) {
 		this.server = server;
 		this.logger = logger.scope("Dispatch");
 		this.selectionService = new PackSelectionService();
+		this.broadcastService = broadcastService;
+	}
+
+	public void bindBroadcastService(PackLoadStateBroadcastService service) {
+		this.broadcastService = service;
 	}
 
 	public void applyForCurrentServer(Player player, PlayerPackSession session, PackCatalogSnapshot snapshot, String previousServer) {
@@ -63,6 +73,10 @@ public final class PackDispatchService {
 	private void loadPacks(Player player, PlayerPackSession session, List<ResolvedPack> toLoad, String currentServer) {
 		if (toLoad.isEmpty()) {
 			return;
+		}
+
+		if (broadcastService != null) {
+			broadcastService.broadcastStarted(player);
 		}
 
 		long totalBytes = 0L;

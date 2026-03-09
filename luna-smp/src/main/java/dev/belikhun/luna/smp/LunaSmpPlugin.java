@@ -3,7 +3,12 @@ package dev.belikhun.luna.smp;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
+import dev.belikhun.luna.smp.packprotect.PackLoadProtectionListener;
+import dev.belikhun.luna.smp.packprotect.PackLoadProtectionManager;
+import dev.belikhun.luna.smp.packprotect.PackLoadStateMessageListener;
+import dev.belikhun.luna.smp.packprotect.messaging.PackLoadStateChannel;
 import dev.belikhun.luna.smp.farmprotect.FarmProtectListener;
 import dev.belikhun.luna.smp.repair.ToolRepairCommand;
 import dev.belikhun.luna.smp.repair.ToolRepairConfirmGui;
@@ -11,6 +16,7 @@ import dev.belikhun.luna.smp.repair.ToolRepairService;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -23,6 +29,8 @@ public class LunaSmpPlugin extends JavaPlugin {
 	private ToolRepairConfirmGui toolRepairConfirmGui;
 	private ConfigStore configStore;
 	private MessageFormatter messageFormatter;
+	private PackLoadProtectionManager packLoadProtectionManager;
+	private PluginMessageBus<Player, Player> pluginMessaging;
 
 	@Override
 	public void onEnable() {
@@ -45,6 +53,10 @@ public class LunaSmpPlugin extends JavaPlugin {
 
 		toolRepairService = new ToolRepairService(configStore, economy);
 		toolRepairConfirmGui = new ToolRepairConfirmGui(toolRepairService, messageFormatter, logger);
+		packLoadProtectionManager = new PackLoadProtectionManager(logger);
+		pluginMessaging = LunaCore.services().pluginMessaging();
+		PackLoadStateMessageListener packLoadStateMessageListener = new PackLoadStateMessageListener(logger, packLoadProtectionManager);
+		pluginMessaging.registerIncoming(PackLoadStateChannel.CHANNEL, context -> packLoadStateMessageListener.handle(context.payload()));
 		registerPermissions();
 		registerCommands();
 
@@ -53,12 +65,20 @@ public class LunaSmpPlugin extends JavaPlugin {
 
 		getServer().getPluginManager().registerEvents(new FarmProtectListener(), this);
 		logger.success("Đã bật luật Farm Protect.");
+		getServer().getPluginManager().registerEvents(new PackLoadProtectionListener(packLoadProtectionManager), this);
+		logger.success("Đã bật bảo vệ tạm thời khi tải resource pack.");
 
 		logger.success("LunaSmp đã khởi động thành công.");
 	}
 
 	@Override
 	public void onDisable() {
+		if (pluginMessaging != null) {
+			pluginMessaging.unregisterIncoming(PackLoadStateChannel.CHANNEL);
+		}
+		if (packLoadProtectionManager != null) {
+			packLoadProtectionManager.close();
+		}
 		if (logger != null) {
 			logger.audit("LunaSmp đã tắt.");
 		}

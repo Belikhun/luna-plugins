@@ -11,6 +11,7 @@ import dev.belikhun.luna.pack.model.PackCatalogSnapshot;
 import dev.belikhun.luna.pack.model.PlayerPackSession;
 import dev.belikhun.luna.pack.service.PackCatalogService;
 import dev.belikhun.luna.pack.service.PackDispatchService;
+import dev.belikhun.luna.pack.service.PackLoadStateBroadcastService;
 import dev.belikhun.luna.pack.service.PlayerPackSessionStore;
 
 public final class PlayerConnectionListener {
@@ -18,17 +19,20 @@ public final class PlayerConnectionListener {
 	private final PlayerPackSessionStore sessionStore;
 	private final PackCatalogService catalogService;
 	private final PackDispatchService dispatchService;
+	private final PackLoadStateBroadcastService broadcastService;
 
 	public PlayerConnectionListener(
 		LunaLogger logger,
 		PlayerPackSessionStore sessionStore,
 		PackCatalogService catalogService,
-		PackDispatchService dispatchService
+		PackDispatchService dispatchService,
+		PackLoadStateBroadcastService broadcastService
 	) {
 		this.logger = logger.scope("Connection");
 		this.sessionStore = sessionStore;
 		this.catalogService = catalogService;
 		this.dispatchService = dispatchService;
+		this.broadcastService = broadcastService;
 	}
 
 	@Subscribe
@@ -44,7 +48,14 @@ public final class PlayerConnectionListener {
 
 	@Subscribe
 	public void onDisconnect(DisconnectEvent event) {
-		sessionStore.remove(event.getPlayer().getUniqueId());
+		Player player = event.getPlayer();
+		PlayerPackSession session = sessionStore.get(player.getUniqueId());
+		if (session != null && !session.pendingByPackId().isEmpty()) {
+			broadcastService.broadcastCompleted(player);
+			logger.audit("Đã phát COMPLETED do người chơi thoát khi đang tải pack: " + player.getUsername());
+		}
+
+		sessionStore.remove(player.getUniqueId());
 	}
 
 	@Subscribe

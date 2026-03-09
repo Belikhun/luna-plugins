@@ -10,6 +10,7 @@ import dev.belikhun.luna.pack.model.PackCatalogSnapshot;
 import dev.belikhun.luna.pack.model.PlayerPackSession;
 import dev.belikhun.luna.pack.model.ResolvedPack;
 import dev.belikhun.luna.pack.service.PackCatalogService;
+import dev.belikhun.luna.pack.service.PackLoadStateBroadcastService;
 import dev.belikhun.luna.pack.service.PlayerPackSessionStore;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
@@ -24,17 +25,20 @@ public final class PlayerPackStatusListener {
 	private final LunaLogger logger;
 	private final PlayerPackSessionStore sessionStore;
 	private final PackCatalogService catalogService;
+	private final PackLoadStateBroadcastService broadcastService;
 
 	public PlayerPackStatusListener(
 		ProxyServer server,
 		LunaLogger logger,
 		PlayerPackSessionStore sessionStore,
-		PackCatalogService catalogService
+		PackCatalogService catalogService,
+		PackLoadStateBroadcastService broadcastService
 	) {
 		this.server = server;
 		this.logger = logger.scope("PackStatus");
 		this.sessionStore = sessionStore;
 		this.catalogService = catalogService;
+		this.broadcastService = broadcastService;
 	}
 
 	@Subscribe
@@ -56,6 +60,7 @@ public final class PlayerPackStatusListener {
 		PlayerResourcePackStatusEvent.Status status = event.getStatus();
 		if (status == PlayerResourcePackStatusEvent.Status.SUCCESSFUL) {
 			handleSuccess(session, normalizedName, event.getPackId());
+			handleTransitionCompletion(player, session);
 			debug(session, player, "<gray>[DEBUG] Pack <white>" + resolved.definition().name() + "</white> tải thành công.</gray>");
 			return;
 		}
@@ -68,7 +73,16 @@ public final class PlayerPackStatusListener {
 
 		if (isFailure(status)) {
 			handleFailure(player, session, resolved, status, event.getPackId());
+			handleTransitionCompletion(player, session);
 		}
+	}
+
+	private void handleTransitionCompletion(Player player, PlayerPackSession session) {
+		if (!session.pendingByPackId().isEmpty()) {
+			return;
+		}
+
+		broadcastService.broadcastCompleted(player);
 	}
 
 	private void handleSuccess(PlayerPackSession session, String normalizedName, UUID packId) {

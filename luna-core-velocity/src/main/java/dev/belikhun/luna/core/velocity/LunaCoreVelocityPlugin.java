@@ -6,8 +6,10 @@ import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 
 import java.nio.file.Path;
 import java.util.logging.Logger;
@@ -23,9 +25,12 @@ public final class LunaCoreVelocityPlugin {
 	private final LunaLogger logger;
 	private final Path dataDirectory;
 	private final VelocityHttpServerManager httpServerManager;
+	private final ProxyServer proxyServer;
+	private VelocityPluginMessagingBus pluginMessagingBus;
 
 	@Inject
-	public LunaCoreVelocityPlugin(@DataDirectory Path dataDirectory) {
+	public LunaCoreVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
+		this.proxyServer = proxyServer;
 		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCoreVelocity"), true).scope("CoreVelocity");
 		this.dataDirectory = dataDirectory;
 		this.httpServerManager = new VelocityHttpServerManager(this.logger);
@@ -34,12 +39,16 @@ public final class LunaCoreVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger);
 		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		if (pluginMessagingBus != null) {
+			pluginMessagingBus.close();
+		}
 		httpServerManager.stop();
 	}
 

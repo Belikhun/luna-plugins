@@ -6,9 +6,11 @@ import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.help.HelpRegistry;
 import dev.belikhun.luna.core.api.http.HttpServerManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 public record LunaCoreServices(
@@ -21,7 +23,8 @@ public record LunaCoreServices(
 	MessageFormatter messageFormatter,
 	HelpRegistry helpRegistry,
 	HttpServerManager httpServerManager,
-	UserProfileRepository userProfileRepository
+	UserProfileRepository userProfileRepository,
+	PluginMessageBus<Player, Player> pluginMessaging
 ) {
 }
 

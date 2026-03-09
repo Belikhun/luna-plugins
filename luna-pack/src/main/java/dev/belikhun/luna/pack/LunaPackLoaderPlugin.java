@@ -11,6 +11,8 @@ import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.pack.command.PackAdminCommand;
 import dev.belikhun.luna.pack.config.LoaderConfig;
 import dev.belikhun.luna.pack.config.LoaderConfigService;
@@ -19,6 +21,7 @@ import dev.belikhun.luna.pack.listener.PlayerPackStatusListener;
 import dev.belikhun.luna.pack.model.PackReloadReport;
 import dev.belikhun.luna.pack.service.PackCatalogService;
 import dev.belikhun.luna.pack.service.BuiltInPackHttpService;
+import dev.belikhun.luna.pack.service.PackLoadStateBroadcastService;
 import dev.belikhun.luna.pack.service.PackDispatchService;
 import dev.belikhun.luna.pack.service.PlayerPackSessionStore;
 
@@ -44,6 +47,8 @@ public final class LunaPackLoaderPlugin {
 	private final BuiltInPackHttpService builtInHttpService;
 	private final PlayerPackSessionStore sessionStore;
 	private final PackDispatchService dispatchService;
+	private PluginMessageBus<Object, Object> pluginMessagingBus;
+	private PackLoadStateBroadcastService packLoadBroadcastService;
 
 	@Inject
 	public LunaPackLoaderPlugin(ProxyServer server, @DataDirectory Path dataDirectory) {
@@ -62,10 +67,13 @@ public final class LunaPackLoaderPlugin {
 		configService.ensureDefaults();
 		LoaderConfig config = builtInHttpService.resolve(configService.load());
 		PackReloadReport report = catalogService.reload(config);
+		pluginMessagingBus = new VelocityPluginMessagingBus(server, this, logger);
+		packLoadBroadcastService = new PackLoadStateBroadcastService(server, logger, pluginMessagingBus);
+		dispatchService.bindBroadcastService(packLoadBroadcastService);
 
 		registerCommand();
-		server.getEventManager().register(this, new PlayerConnectionListener(logger, sessionStore, catalogService, dispatchService));
-		server.getEventManager().register(this, new PlayerPackStatusListener(server, logger, sessionStore, catalogService));
+		server.getEventManager().register(this, new PlayerConnectionListener(logger, sessionStore, catalogService, dispatchService, packLoadBroadcastService));
+		server.getEventManager().register(this, new PlayerPackStatusListener(server, logger, sessionStore, catalogService, packLoadBroadcastService));
 
 		logger.success("LunaPackLoader đã khởi động thành công.");
 		logger.audit("base-url=" + config.baseUrl());
@@ -85,6 +93,9 @@ public final class LunaPackLoaderPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		if (pluginMessagingBus != null) {
+			pluginMessagingBus.close();
+		}
 		builtInHttpService.stopIfRunning();
 	}
 
