@@ -53,7 +53,7 @@ public class LunaSmpPlugin extends JavaPlugin {
 
 		toolRepairService = new ToolRepairService(configStore, economy);
 		toolRepairConfirmGui = new ToolRepairConfirmGui(toolRepairService, messageFormatter, logger);
-		packLoadProtectionManager = new PackLoadProtectionManager(logger);
+		packLoadProtectionManager = new PackLoadProtectionManager(this, logger);
 		pluginMessaging = LunaCore.services().pluginMessaging();
 		PackLoadStateMessageListener packLoadStateMessageListener = new PackLoadStateMessageListener(logger, packLoadProtectionManager);
 		pluginMessaging.registerIncoming(PackLoadStateChannel.CHANNEL, context -> packLoadStateMessageListener.handle(context.payload()));

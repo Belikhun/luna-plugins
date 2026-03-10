@@ -7,6 +7,8 @@ import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Map;
 import java.util.UUID;
@@ -14,17 +16,23 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class PackLoadProtectionManager {
 	private static final MiniMessage MM = MiniMessage.miniMessage();
+	private static final long RELEASE_BAR_HIDE_TICKS = 20L * 5L;
 	private static final String ACTIVE_CHAT = "<yellow>⚠ Bạn đang được bảo vệ tạm thời khi tải resource pack. PvP, quái và sát thương môi trường đã bị chặn.</yellow>";
 	private static final String INACTIVE_CHAT = "<green>✔ Đã tắt bảo vệ tạm thời. Bạn có thể nhận sát thương bình thường.</green>";
 	private static final String BOSSBAR_TEXT = "§6🛡 Bảo vệ tạm thời: §fĐang tải resource pack";
+	private static final String RELEASE_BOSSBAR_TEXT = "§e⚠ Bảo vệ đã tắt";
 
+	private final Plugin plugin;
 	private final LunaLogger logger;
 	private final Map<UUID, BossBar> bossBars;
+	private final Map<UUID, BukkitTask> bossBarHideTasks;
 	private final Map<UUID, Boolean> protectedStates;
 
-	public PackLoadProtectionManager(LunaLogger logger) {
+	public PackLoadProtectionManager(Plugin plugin, LunaLogger logger) {
+		this.plugin = plugin;
 		this.logger = logger.scope("PackProtect");
 		this.bossBars = new ConcurrentHashMap<>();
+		this.bossBarHideTasks = new ConcurrentHashMap<>();
 		this.protectedStates = new ConcurrentHashMap<>();
 	}
 
@@ -46,15 +54,12 @@ public final class PackLoadProtectionManager {
 		boolean existed = protectedStates.remove(playerId) != null;
 		Player player = Bukkit.getPlayer(playerId);
 		if (player != null) {
-			hideBossBar(playerId, player);
+			showReleaseBar(player);
 			if (existed && player.isOnline()) {
 				player.sendMessage(MM.deserialize(INACTIVE_CHAT));
 			}
 		} else {
-			BossBar bar = bossBars.remove(playerId);
-			if (bar != null) {
-				bar.removeAll();
-			}
+			hideBossBarNow(playerId);
 		}
 		if (existed) {
 			logger.audit("Đã tắt bảo vệ pack cho " + playerName + " (" + playerId + ").");
@@ -64,7 +69,7 @@ public final class PackLoadProtectionManager {
 	public void clearOnQuit(Player player) {
 		UUID playerId = player.getUniqueId();
 		protectedStates.remove(playerId);
-		hideBossBar(playerId, player);
+		hideBossBarNow(playerId);
 	}
 
 	public void restoreBossBarIfProtected(Player player) {
@@ -80,6 +85,11 @@ public final class PackLoadProtectionManager {
 	}
 
 	public void close() {
+		for (BukkitTask task : bossBarHideTasks.values()) {
+			task.cancel();
+		}
+		bossBarHideTasks.clear();
+
 		for (BossBar bossBar : bossBars.values()) {
 			bossBar.removeAll();
 		}
@@ -88,21 +98,63 @@ public final class PackLoadProtectionManager {
 	}
 
 	private void showBossBar(Player player) {
+		cancelBossBarHide(player.getUniqueId());
+
 		BossBar bar = bossBars.computeIfAbsent(player.getUniqueId(), key -> Bukkit.createBossBar(BOSSBAR_TEXT, BarColor.YELLOW, BarStyle.SOLID));
 		bar.setTitle(BOSSBAR_TEXT);
 		bar.setColor(BarColor.YELLOW);
 		bar.setStyle(BarStyle.SOLID);
 		bar.setProgress(1.0D);
-		bar.addPlayer(player);
+		if (!bar.getPlayers().contains(player)) {
+			bar.addPlayer(player);
+		}
 		bar.setVisible(true);
 	}
 
-	private void hideBossBar(UUID playerId, Player player) {
+	private void showReleaseBar(Player player) {
+		UUID playerId = player.getUniqueId();
+		BossBar bar = bossBars.computeIfAbsent(playerId, key -> Bukkit.createBossBar(RELEASE_BOSSBAR_TEXT, BarColor.YELLOW, BarStyle.SOLID));
+		bar.setTitle(RELEASE_BOSSBAR_TEXT);
+		bar.setColor(BarColor.YELLOW);
+		bar.setStyle(BarStyle.SOLID);
+		bar.setVisible(true);
+		bar.setProgress(1.0D);
+		if (!bar.getPlayers().contains(player)) {
+			bar.addPlayer(player);
+		}
+
+		cancelBossBarHide(playerId);
+		BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
+			private long remaining = RELEASE_BAR_HIDE_TICKS;
+
+			@Override
+			public void run() {
+				remaining -= 1L;
+				double progress = Math.max(0.0D, (double) remaining / (double) RELEASE_BAR_HIDE_TICKS);
+				bar.setProgress(progress);
+
+				if (remaining <= 0L) {
+					hideBossBarNow(playerId);
+				}
+			}
+		}, 1L, 1L);
+		bossBarHideTasks.put(playerId, task);
+	}
+
+	private void hideBossBarNow(UUID playerId) {
+		cancelBossBarHide(playerId);
 		BossBar bar = bossBars.remove(playerId);
 		if (bar == null) {
 			return;
 		}
-		bar.removePlayer(player);
 		bar.removeAll();
+		bar.setVisible(false);
+	}
+
+	private void cancelBossBarHide(UUID playerId) {
+		BukkitTask task = bossBarHideTasks.remove(playerId);
+		if (task != null) {
+			task.cancel();
+		}
 	}
 }
