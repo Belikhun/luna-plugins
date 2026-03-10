@@ -84,7 +84,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 
 		if (target instanceof Player player) {
 			boolean sent = player.sendPluginMessage(identifier, payload);
-			logger.debug("[TX] proxy->player channel=" + identifier.getId()
+			logger.audit("[TX] proxy->player channel=" + identifier.getId()
 				+ " target=" + player.getUsername()
 				+ " bytes=" + payload.length
 				+ " sent=" + sent);
@@ -93,7 +93,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 
 		if (target instanceof RegisteredServer registeredServer) {
 			boolean sent = registeredServer.sendPluginMessage(identifier, payload);
-			logger.debug("[TX] proxy->backend channel=" + identifier.getId()
+			logger.audit("[TX] proxy->backend channel=" + identifier.getId()
 				+ " target=" + registeredServer.getServerInfo().getName()
 				+ " bytes=" + payload.length
 				+ " sent=" + sent);
@@ -102,7 +102,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 
 		if (target instanceof ServerConnection serverConnection) {
 			boolean sent = serverConnection.sendPluginMessage(identifier, payload);
-			logger.debug("[TX] proxy->backend-connection channel=" + identifier.getId()
+			logger.audit("[TX] proxy->backend-connection channel=" + identifier.getId()
 				+ " target=" + serverConnection.getServerInfo().getName()
 				+ " bytes=" + payload.length
 				+ " sent=" + sent);
@@ -134,7 +134,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			return;
 		}
 
-		logger.debug("[RX] channel=" + identifier.getId()
+		logger.audit("[RX] channel=" + identifier.getId()
 			+ " source=" + event.getSource().getClass().getSimpleName()
 			+ " bytes=" + event.getData().length);
 
@@ -152,7 +152,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			event.setResult(PluginMessageEvent.ForwardResult.forward());
 		}
 
-		logger.debug("[RX] Đã xử lý channel=" + identifier.getId() + " result=" + dispatchResult.name());
+		logger.audit("[RX] Đã xử lý channel=" + identifier.getId() + " result=" + dispatchResult.name());
 	}
 
 	private MinecraftChannelIdentifier toIdentifier(PluginMessageChannel channel) {

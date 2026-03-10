@@ -76,7 +76,7 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 			throw new PluginMessagingException("Outgoing plugin channel chưa được đăng ký: " + bukkitChannel);
 		}
 
-		logger.debug("[TX] backend->proxy channel=" + toApiChannel(bukkitChannel)
+		logger.audit("[TX] backend->proxy channel=" + toApiChannel(bukkitChannel)
 			+ " target=" + target.getName()
 			+ " bytes=" + payload.length);
 
@@ -101,7 +101,7 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 	@Override
 	public void onPluginMessageReceived(String channel, Player player, byte[] message) {
 		String apiChannel = toApiChannel(channel);
-		logger.debug("[RX] proxy->backend channel=" + apiChannel
+		logger.audit("[RX] proxy->backend channel=" + apiChannel
 			+ " source=" + player.getName()
 			+ " bytes=" + message.length);
 
@@ -112,7 +112,7 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 		}
 
 		handler.handle(new PluginMessageContext<>(PluginMessageChannel.of(apiChannel), player, message));
-		logger.debug("[RX] Đã xử lý channel=" + apiChannel + " source=" + player.getName());
+		logger.audit("[RX] Đã xử lý channel=" + apiChannel + " source=" + player.getName());
 	}
 
 	private String toBukkitChannel(PluginMessageChannel channel) {
