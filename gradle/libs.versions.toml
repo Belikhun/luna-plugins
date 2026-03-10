@@ -8,6 +8,7 @@ mariadb = "3.4.1"
 mysql = "9.1.0"
 sqlite = "3.47.2.0"
 velocity = "3.5.0-SNAPSHOT"
+jda = "5.6.1"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -16,3 +17,4 @@ mariadb-jdbc = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = 
 mysql-jdbc = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
 velocity-api = { module = "com.velocitypowered:velocity-api", version.ref = "velocity" }
+jda = { module = "net.dv8tion:JDA", version.ref = "jda" }

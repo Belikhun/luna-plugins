@@ -1,0 +1,31 @@
+name: LunaMessenger
+version: ${version}
+main: dev.belikhun.luna.messenger.paper.LunaMessengerPaperPlugin
+api-version: '1.21'
+description: Luna messenger parasite plugin for Paper backend.
+authors:
+  - Belikhun
+commands:
+  nw:
+    description: Chuyển ngữ cảnh chat sang kênh mạng.
+    usage: /nw
+  sv:
+    description: Chuyển ngữ cảnh chat sang kênh máy chủ hiện tại.
+    usage: /sv
+  msg:
+    description: Chuyển ngữ cảnh chat sang nhắn tin trực tiếp.
+    usage: /msg <người_chơi>
+    aliases: [tell, w]
+  r:
+    description: Trả lời tin nhắn gần nhất.
+    usage: /r <nội_dung>
+    aliases: [reply]
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    PlaceholderAPI:
+      load: BEFORE
+      required: false

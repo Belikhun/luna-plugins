@@ -1,0 +1,222 @@
+chat:
+  default-context: network
+  network-channel-aliases: [nw]
+  server-channel-aliases: [sv]
+
+# ================================================
+# Placeholder Reference (LunaMessenger Velocity)
+# ================================================
+# Global notes:
+# - Hỗ trợ cả hai dạng placeholder: {key} và %key%
+# - Placeholder chưa được cung cấp giá trị sẽ giữ nguyên trong output
+# - Placeholder có thể dùng theo từng ngữ cảnh bên dưới
+#
+# 1) Channel/Chat format placeholders
+#    - {sender_name}: Tên người gửi
+#    - {server_name}: Tên backend server hiện tại (Velocity)
+#    - {server_display}: Tên hiển thị server (map từ server-displays)
+#    - {channel_name}: Tên kênh (ví dụ: network/server/direct)
+#    - {message}: Nội dung tin nhắn
+#    - {player_avatar_url}: URL avatar đã render từ webhook.avatar-url-format
+
+# 1.1) Server switch broadcast placeholders
+#    - {sender_name}: Tên người chơi vừa chuyển server
+#    - {from_server}: Tên server gốc
+#    - {to_server}: Tên server đích
+#    - {from_display}: Tên hiển thị server gốc
+#    - {to_display}: Tên hiển thị server đích
+#    - {server_display}: Alias của server đích
+#
+# 2) Direct message format placeholders
+#    - {sender_name}: Tên người gửi
+#    - {target_name}: Tên người nhận
+#    - {server_name}: Tên server hiện tại của người gửi
+#    - {channel_name}: direct
+#    - {message}: Nội dung tin nhắn
+#    - {player_avatar_url}: URL avatar của người tương ứng
+#
+# 3) Discord inbound -> network placeholders
+#    - {discord_author}: Tên tác giả từ Discord
+#    - {channel_name}: Tên kênh network (discord.network-channel-name)
+#    - {message}: Nội dung tin nhắn Discord
+#    - {discord_source}: Nguồn inbound (bot/webhook bridge)
+#    - {discord_message_id}: ID message từ Discord
+#    - {discord_author_id}: ID tác giả từ Discord
+#
+# 4) Discord webhook placeholders (outbound)
+#    - {sender_name}
+#    - {target_name} (DM context)
+#    - {server_name}
+#    - {channel_name}
+#    - {message}
+#    - {discord_author} (chỉ inbound render)
+#    - {discord_content} (nội dung outbound-network đã render)
+#    - {player_avatar_url}
+#
+# 5) Third-party placeholders
+#    - Ví dụ: %skinsrestorer_texture_id_or_steve%
+#    - LunaMessenger KHÔNG tự đăng ký placeholder này.
+#      Nếu plugin khác không resolve, chuỗi placeholder sẽ giữ nguyên.
+
+# Discord bridge modes:
+# - bot mode (discord.bot.enabled=true): dùng bot token + channel-id để nhận/gửi.
+# - webhook mode: chỉ gửi outbound qua discord.webhook.url.
+
+mentions:
+  enabled: true
+  # true: chỉ match @<tên_chính_xác>; false: để mở rộng cho chế độ khác trong tương lai
+  exact-username-only: true
+  # Sound phát cho người được nhắc; hỗ trợ tên có namespace hoặc không (mặc định minecraft:)
+  sound: ENTITY_PLAYER_LEVELUP
+  # Format thay thế cho token @name trong nội dung chat (hỗ trợ {name})
+  highlight-format: "&e@{name}&r"
+  # Tin nhắn ping riêng cho người được nhắc (hỗ trợ {sender_name}, {target_name})
+  alert-format: "<yellow>⚠ <white>{sender_name}</white> đã nhắc đến bạn.</yellow>"
+  # Cấu hình toast/title khi có mention (được proxy gửi qua metadata)
+  toast:
+    enabled: true
+    title: "<yellow>Bạn được nhắc đến</yellow>"
+    subtitle: "<white>{sender_name}</white> vừa nhắc bạn trong chat"
+    fade-in-ms: 200
+    stay-ms: 2000
+    fade-out-ms: 300
+
+# Alias hiển thị cho server backend. Có thể dùng MiniMessage.
+server-displays:
+  lobby: "<gradient:#FFDE9A:#FFBC53:#FFDF47>SẢNH</gradient>"
+  survival: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
+  event: "<gradient:#bafdc1:#9BC1F9>EVENT</gradient>"
+
+formats:
+  defaults:
+    # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
+    channel:
+      network: "<gray>[<gold>N</gold>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
+      server: "<gray>[<aqua>S/{server_name}</aqua>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
+    presence:
+      server-switch:
+        enabled: true
+        format: "<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>]</gray> <yellow>{sender_name}</yellow>"
+    # Placeholder dùng được: {sender_name}, {target_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
+    direct:
+      to-sender: "<gray>[<light_purple>DM</light_purple> -> <white>{target_name}</white>]</gray> <white>{message}</white>"
+      to-receiver: "<gray>[<light_purple>DM</light_purple> <- <white>{sender_name}</white>]</gray> <white>{message}</white>"
+    # inbound-network: {discord_author}, {channel_name}, {message}
+    # outbound-network: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
+    discord:
+      inbound-network: "<gray>[<blue>DC</blue>]</gray> <light_purple>{discord_author}</light_purple><gray>:</gray> <white>{message}</white>"
+      outbound-network: "[N] {sender_name}: {message}"
+
+  # Ghi đè format theo từng backend server (tên server trong Velocity).
+  servers:
+    survival:
+      channel:
+        network: "<gray>[<gold>N</gold>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
+        server: "<gray>[<aqua>S/{server_name}</aqua>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
+      presence:
+        server-switch:
+          enabled: true
+          format: "<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>]</gray> <yellow>{sender_name}</yellow>"
+      direct:
+        to-sender: "<gray>[<light_purple>DM</light_purple> -> <white>{target_name}</white>]</gray> <white>{message}</white>"
+        to-receiver: "<gray>[<light_purple>DM</light_purple> <- <white>{sender_name}</white>]</gray> <white>{message}</white>"
+      discord:
+        inbound-network: "<gray>[<blue>DC</blue>]</gray> <light_purple>{discord_author}</light_purple><gray>:</gray> <white>{message}</white>"
+        outbound-network: "[N-survival] {sender_name}: {message}"
+
+discord:
+  enabled: false
+  network-channel-name: network
+
+  retry:
+    # Tổng số lần thử cho mỗi outbound message (bao gồm lần đầu).
+    max-attempts: 3
+    # Thời gian chờ giữa các lần thử (ms).
+    delay-ms: 500
+
+  bot:
+    # Bật bridge Discord qua bot token (JDA).
+    # Khi bật, plugin sẽ vừa lắng nghe vừa gửi ở cùng channel-id.
+    enabled: false
+    token: ""
+    channel-id: ""
+    # Bỏ qua tin của bot để tránh echo-loop.
+    ignore-bot-messages: true
+    # Nhãn nguồn dùng cho attribution/anti-loop trong inbound path.
+    source-id: "discord-bot-jda"
+
+  webhook:
+    # Discord webhook URL dùng để gửi chat/join/leave với username/avatar tùy biến.
+    url: ""
+    # Placeholder dùng được: {sender_name}, {target_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}, {discord_content}
+    username-format: "{sender_name}"
+    # Placeholder dùng được tương tự username-format.
+    # Có thể dùng third-party token như %skinsrestorer_texture_id_or_steve%.
+    avatar-url-format: "https://visage.surgeplay.com/bust/128/%skinsrestorer_texture_id_or_steve%.png"
+
+  outbound:
+    # Chỉ tin nhắn kênh network được gửi ra Discord.
+    network:
+      message:
+        enabled: true
+        mode: text # text | embed
+        # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}, {discord_content}
+        content: "[{channel_name}] {sender_name}: {message}"
+        embed:
+          # Placeholder dùng được giống content
+          title: ""
+          description: "[{channel_name}] {sender_name}: {message}"
+          color: 5814783
+          thumbnail-url: "{player_avatar_url}"
+          image-url: ""
+
+    # Join/leave network gửi ra Discord với format riêng.
+    join-leave:
+      join:
+        enabled: true
+        mode: text # text | embed
+        # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
+        content: "[JOIN] {sender_name} đã vào mạng ({server_name})"
+        embed:
+          # Placeholder dùng được giống content
+          title: "Người chơi tham gia"
+          description: "{sender_name} đã vào mạng tại {server_name}"
+          color: 5763719
+          thumbnail-url: "{player_avatar_url}"
+          image-url: ""
+      leave:
+        enabled: true
+        mode: text # text | embed
+        # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
+        content: "[LEAVE] {sender_name} đã rời mạng"
+        embed:
+          # Placeholder dùng được giống content
+          title: "Người chơi rời mạng"
+          description: "{sender_name} đã rời mạng"
+          color: 15548997
+          thumbnail-url: "{player_avatar_url}"
+          image-url: ""
+      switch:
+        enabled: true
+        mode: text # text | embed
+        # Placeholder dùng được: {sender_name}, {from_server}, {to_server}, {from_display}, {to_display}, {server_name}, {server_display}, {channel_name}, {message}, {player_avatar_url}
+        content: "[SWAP] {sender_name} chuyển {from_server} -> {to_server}"
+        embed:
+          # Placeholder dùng được giống content
+          title: "Người chơi đổi máy chủ"
+          description: "{sender_name} chuyển {from_display} -> {to_display}"
+          color: 3447003
+          thumbnail-url: "{player_avatar_url}"
+          image-url: ""
+
+# Chống spam phía proxy (authoritative).
+rate-limit:
+  enabled: true
+  # Cooldown tối thiểu giữa 2 tin bất kỳ của cùng một người chơi.
+  cooldown-ms: 500
+  # Cửa sổ thời gian để tính burst (ms).
+  window-ms: 5000
+  # Số tin tối đa trong một cửa sổ window-ms.
+  max-messages: 6
+  # Người có permission này sẽ bỏ qua giới hạn.
+  bypass-permission: "lunamessenger.bypass.ratelimit"

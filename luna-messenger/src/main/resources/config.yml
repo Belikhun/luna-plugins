@@ -1,0 +1,8 @@
+request:
+  timeout:
+    # Bật/tắt timeout cho các yêu cầu gửi lên proxy.
+    enabled: true
+    # Thời gian tối đa chờ phản hồi từ proxy (milliseconds).
+    millis: 6000
+    # Chu kỳ quét pending requests (ticks).
+    check-interval-ticks: 20
