@@ -11,6 +11,8 @@ public final class VelocityMessengerConfig {
 	private final FormatProfile defaults;
 	private final Map<String, FormatProfile> perServer;
 	private final Map<String, String> serverDisplays;
+	private final String defaultServerColor;
+	private final Map<String, String> serverColors;
 	private final MentionConfig mentions;
 	private final DiscordConfig discord;
 	private final RateLimitConfig rateLimit;
@@ -19,6 +21,8 @@ public final class VelocityMessengerConfig {
 		FormatProfile defaults,
 		Map<String, FormatProfile> perServer,
 		Map<String, String> serverDisplays,
+		String defaultServerColor,
+		Map<String, String> serverColors,
 		MentionConfig mentions,
 		DiscordConfig discord,
 		RateLimitConfig rateLimit
@@ -26,6 +30,8 @@ public final class VelocityMessengerConfig {
 		this.defaults = defaults;
 		this.perServer = perServer;
 		this.serverDisplays = serverDisplays;
+		this.defaultServerColor = defaultServerColor;
+		this.serverColors = serverColors;
 		this.mentions = mentions;
 		this.discord = discord;
 		this.rateLimit = rateLimit;
@@ -50,10 +56,29 @@ public final class VelocityMessengerConfig {
 			serverDisplays.put(entry.getKey().toLowerCase(Locale.ROOT), String.valueOf(entry.getValue()));
 		}
 
+		Map<String, Object> colorMap = map(root.get("server-colors"));
+		String defaultServerColor = str(colorMap.get("default"), "#F1FF68");
+		Map<String, String> serverColors = new HashMap<>();
+		for (Map.Entry<String, Object> entry : colorMap.entrySet()) {
+			if ("default".equalsIgnoreCase(entry.getKey())) {
+				continue;
+			}
+			serverColors.put(entry.getKey().toLowerCase(Locale.ROOT), String.valueOf(entry.getValue()));
+		}
+
 		MentionConfig mentions = parseMentionConfig(map(root.get("mentions")));
 		DiscordConfig discord = parseDiscordConfig(map(root.get("discord")));
 		RateLimitConfig rateLimit = parseRateLimitConfig(map(root.get("rate-limit")));
-		return new VelocityMessengerConfig(defaults, Map.copyOf(perServer), Map.copyOf(serverDisplays), mentions, discord, rateLimit);
+		return new VelocityMessengerConfig(
+			defaults,
+			Map.copyOf(perServer),
+			Map.copyOf(serverDisplays),
+			defaultServerColor,
+			Map.copyOf(serverColors),
+			mentions,
+			discord,
+			rateLimit
+		);
 	}
 
 	public FormatProfile profileForServer(String serverName) {
@@ -80,6 +105,13 @@ public final class VelocityMessengerConfig {
 			return "";
 		}
 		return serverDisplays.getOrDefault(serverName.toLowerCase(Locale.ROOT), serverName);
+	}
+
+	public String serverColor(String serverName) {
+		if (serverName == null || serverName.isBlank()) {
+			return defaultServerColor;
+		}
+		return serverColors.getOrDefault(serverName.toLowerCase(Locale.ROOT), defaultServerColor);
 	}
 
 	private static MentionConfig parseMentionConfig(Map<String, Object> mentions) {
@@ -148,10 +180,37 @@ public final class VelocityMessengerConfig {
 			str(map.get("content"), fallback.content()),
 			str(embed.get("title"), fallback.embedTitle()),
 			str(embed.get("description"), fallback.embedDescription()),
-			integer(embed.get("color"), fallback.embedColor()),
+			parseColor(embed.get("color"), fallback.embedColor()),
 			str(embed.get("thumbnail-url"), fallback.embedThumbnailUrl()),
 			str(embed.get("image-url"), fallback.embedImageUrl())
 		);
+	}
+
+	private static Integer parseColor(Object value, Integer fallback) {
+		if (value instanceof Number number) {
+			return number.intValue();
+		}
+
+		if (value instanceof String text) {
+			String normalized = text.trim();
+			if (normalized.isEmpty()) {
+				return fallback;
+			}
+
+			try {
+				if (normalized.startsWith("#")) {
+					return Integer.parseInt(normalized.substring(1), 16);
+				}
+				if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
+					return Integer.parseInt(normalized.substring(2), 16);
+				}
+				return Integer.parseInt(normalized);
+			} catch (NumberFormatException ignored) {
+				return fallback;
+			}
+		}
+
+		return fallback;
 	}
 
 	private static FormatProfile parseProfile(Map<String, Object> map, FormatProfile fallback) {

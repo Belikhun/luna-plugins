@@ -15,6 +15,7 @@ chat:
 #    - {sender_name}: Tên người gửi
 #    - {server_name}: Tên backend server hiện tại (Velocity)
 #    - {server_display}: Tên hiển thị server (map từ server-displays)
+#    - {server_color}: Màu nhấn của server (map từ server-colors)
 #    - {channel_name}: Tên kênh (ví dụ: network/server/direct)
 #    - {message}: Nội dung tin nhắn
 #    - {player_avatar_url}: URL avatar đã render từ webhook.avatar-url-format
@@ -47,6 +48,7 @@ chat:
 #    - {sender_name}
 #    - {target_name} (DM context)
 #    - {server_name}
+#    - {server_color}
 #    - {channel_name}
 #    - {message}
 #    - {discord_author} (chỉ inbound render)
@@ -85,14 +87,30 @@ mentions:
 server-displays:
   lobby: "<gradient:#FFDE9A:#FFBC53:#FFDF47>SẢNH</gradient>"
   survival: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
-  event: "<gradient:#bafdc1:#9BC1F9>EVENT</gradient>"
+  event: "<gradient:#bafdc1:#9BC1F9>EVENT1</gradient>"
+  event2: "<gradient:#9863E7:#FCD05C>EV</gradient><gradient:#FCD05C:#5FE2C5>ENT2</gradient>"
+  iceboat: "<gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient>"
+  infdun: "<gradient:#31ADAD:#8CE67C>INFINITY DUNGEONS</gradient>"
+  manhunt: "<gradient:#EC8C8C:#FFC58B>M</gradient><gradient:#FFC58B:#FFFF9E>A</gradient><gradient:#FFFF9E:#9AFF9A>NH</gradient><gradient:#9AFF9A:#97CFF5>U</gradient><gradient:#97CFF5:#A39AFF>N</gradient><gradient:#A39AFF:#EEA0FF>T</gradient>"
+
+# Màu nhấn cho từng backend server.
+# Dùng với placeholder {server_color} trong format khi cần.
+server-colors:
+  default: "#F1FF68"
+  lobby: "#F1FF68"
+  survival: "#AC92FE"
+  event: "#B3E5FF"
+  event2: "#9863E7"
+  iceboat: "#E5C09A"
+  infdun: "#31ADAD"
+  manhunt: "#A39AFF"
 
 formats:
   defaults:
     # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
     channel:
-      network: "<gray>[<gold>N</gold>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
-      server: "<gray>[<aqua>S/{server_name}</aqua>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
+      network: "<color:{server_color}>•</color> <gray>[<gold>N</gold>]</gray> <yellow>{sender_name}</yellow> <gray><bold>»</bold></gray> <white>{message}</white>"
+      server: "<color:{server_color}>•</color> <gray>[<aqua>S</aqua>]</gray> <yellow>{sender_name}</yellow> <gray><bold>»</bold></gray> <white>{message}</white>"
     presence:
       server-switch:
         enabled: true
@@ -104,25 +122,8 @@ formats:
     # inbound-network: {discord_author}, {channel_name}, {message}
     # outbound-network: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
     discord:
-      inbound-network: "<gray>[<blue>DC</blue>]</gray> <light_purple>{discord_author}</light_purple><gray>:</gray> <white>{message}</white>"
-      outbound-network: "[N] {sender_name}: {message}"
-
-  # Ghi đè format theo từng backend server (tên server trong Velocity).
-  servers:
-    survival:
-      channel:
-        network: "<gray>[<gold>N</gold>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
-        server: "<gray>[<aqua>S/{server_name}</aqua>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>"
-      presence:
-        server-switch:
-          enabled: true
-          format: "<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>]</gray> <yellow>{sender_name}</yellow>"
-      direct:
-        to-sender: "<gray>[<light_purple>DM</light_purple> -> <white>{target_name}</white>]</gray> <white>{message}</white>"
-        to-receiver: "<gray>[<light_purple>DM</light_purple> <- <white>{sender_name}</white>]</gray> <white>{message}</white>"
-      discord:
-        inbound-network: "<gray>[<blue>DC</blue>]</gray> <light_purple>{discord_author}</light_purple><gray>:</gray> <white>{message}</white>"
-        outbound-network: "[N-survival] {sender_name}: {message}"
+      inbound-network: "<gray>[<color:#5865F2>#{channel_name}</color>]</gray> <light_purple>{discord_author}</light_purple> <gray><bold>»</bold></gray> <white>{message}</white>"
+      outbound-network: "{message}"
 
 discord:
   enabled: false
@@ -149,7 +150,8 @@ discord:
     # Discord webhook URL dùng để gửi chat/join/leave với username/avatar tùy biến.
     url: ""
     # Placeholder dùng được: {sender_name}, {target_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}, {discord_content}
-    username-format: "{sender_name}"
+    # Prefix sẽ được tự động strip toàn bộ định dạng (MiniMessage/legacy) trước khi gửi Discord.
+    username-format: "%luckperms_prefix% {sender_name}"
     # Placeholder dùng được tương tự username-format.
     # Có thể dùng third-party token như %skinsrestorer_texture_id_or_steve%.
     avatar-url-format: "https://visage.surgeplay.com/bust/128/%skinsrestorer_texture_id_or_steve%.png"
@@ -161,12 +163,12 @@ discord:
         enabled: true
         mode: text # text | embed
         # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}, {discord_content}
-        content: "[{channel_name}] {sender_name}: {message}"
+        content: "{discord_content}"
         embed:
           # Placeholder dùng được giống content
           title: ""
-          description: "[{channel_name}] {sender_name}: {message}"
-          color: 5814783
+          description: "{discord_content}"
+          color: "#58B2FF"
           thumbnail-url: "{player_avatar_url}"
           image-url: ""
 
@@ -174,38 +176,38 @@ discord:
     join-leave:
       join:
         enabled: true
-        mode: text # text | embed
+        mode: embed # text | embed
         # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
-        content: "[JOIN] {sender_name} đã vào mạng ({server_name})"
+        content: "<gray>[<green>+<gray>]</gray> {sender_name}"
         embed:
           # Placeholder dùng được giống content
-          title: "Người chơi tham gia"
-          description: "{sender_name} đã vào mạng tại {server_name}"
-          color: 5763719
+          title: "Đã kết nối vào máy chủ"
+          description: "<gray>[<green>+<gray>]</gray> {sender_name}"
+          color: "#3D8C40"
           thumbnail-url: "{player_avatar_url}"
           image-url: ""
       leave:
         enabled: true
-        mode: text # text | embed
+        mode: embed # text | embed
         # Placeholder dùng được: {sender_name}, {server_name}, {channel_name}, {message}, {player_avatar_url}
-        content: "[LEAVE] {sender_name} đã rời mạng"
+        content: "<gray>[<red>-<gray>]</gray> {sender_name}"
         embed:
           # Placeholder dùng được giống content
-          title: "Người chơi rời mạng"
-          description: "{sender_name} đã rời mạng"
-          color: 15548997
+          title: "Đã ngắt kết nối khỏi máy chủ"
+          description: "<gray>[<red>-<gray>]</gray> {sender_name}"
+          color: "#FF0000"
           thumbnail-url: "{player_avatar_url}"
           image-url: ""
       switch:
         enabled: true
-        mode: text # text | embed
+        mode: embed # text | embed
         # Placeholder dùng được: {sender_name}, {from_server}, {to_server}, {from_display}, {to_display}, {server_name}, {server_display}, {channel_name}, {message}, {player_avatar_url}
-        content: "[SWAP] {sender_name} chuyển {from_server} -> {to_server}"
+        content: "<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>] {sender_name}"
         embed:
           # Placeholder dùng được giống content
-          title: "Người chơi đổi máy chủ"
-          description: "{sender_name} chuyển {from_display} -> {to_display}"
-          color: 3447003
+          title: "Đã chuyển máy chủ"
+          description: "<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>] {sender_name}"
+          color: "#444444"
           thumbnail-url: "{player_avatar_url}"
           image-url: ""
 
