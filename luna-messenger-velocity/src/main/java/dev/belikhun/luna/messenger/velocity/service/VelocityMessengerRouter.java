@@ -946,6 +946,10 @@ public final class VelocityMessengerRouter {
 	}
 
 	private boolean canReceiveBroadcastPresence(Player source, Player viewer) {
+		if (source != null && viewer != null && source.getUniqueId().equals(viewer.getUniqueId())) {
+			return true;
+		}
+
 		if (!isSilentBroadcastSender(source)) {
 			return true;
 		}
