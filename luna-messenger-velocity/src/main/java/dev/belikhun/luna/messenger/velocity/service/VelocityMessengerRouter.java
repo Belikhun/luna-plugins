@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 
 public final class VelocityMessengerRouter {
 	private static final int DISCORD_LOOP_WINDOW_MS = 15000;
+	private static final long POKE_STREAK_WINDOW_MS = 15000L;
+	private static final long POKE_STREAK_MIN_INCREMENT_MS = 1250L;
 	private static final MiniMessage MM = MiniMessage.miniMessage();
 	private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.builder()
 		.character('&')
@@ -62,6 +64,7 @@ public final class VelocityMessengerRouter {
 	private final Map<UUID, MuteRecord> mutedPlayers;
 	private final Map<UUID, SpySubscription> spySubscriptions;
 	private final Map<UUID, RateLimitState> rateLimitStates;
+	private final Map<PokeStreakKey, PokeStreakState> pokeStreaks;
 	private final Set<UUID> seenPlayers;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
 
@@ -87,6 +90,7 @@ public final class VelocityMessengerRouter {
 		this.mutedPlayers = new ConcurrentHashMap<>();
 		this.spySubscriptions = new ConcurrentHashMap<>();
 		this.rateLimitStates = new ConcurrentHashMap<>();
+		this.pokeStreaks = new ConcurrentHashMap<>();
 		this.seenPlayers = ConcurrentHashMap.newKeySet();
 		this.recentDiscordOutboundFingerprints = new ConcurrentHashMap<>();
 	}
@@ -110,6 +114,7 @@ public final class VelocityMessengerRouter {
 		mutedPlayers.clear();
 		spySubscriptions.clear();
 		rateLimitStates.clear();
+		pokeStreaks.clear();
 		seenPlayers.clear();
 		recentDiscordOutboundFingerprints.clear();
 	}
@@ -261,9 +266,106 @@ public final class VelocityMessengerRouter {
 			return;
 		}
 
-		sendInfo(sender, "<green>✔ Bạn đã chọc <white>" + escape(target.getUsername()) + "</white> <gray>( •̀ᴗ•́ )و</gray></green>", correlationId);
-		sendInfo(target, "<gold>👉 <white>" + escape(sender.getUsername()) + "</white> vừa chọc bạn!</gold>", null);
-		logger.audit("POKE " + sender.getUsername() + " -> " + target.getUsername());
+		int streak = nextPokeStreak(sender.getUniqueId(), target.getUniqueId());
+		sendInfo(sender, pokeSenderMessage(target.getUsername(), streak), correlationId);
+		playPokeReceiverSound(target, streak);
+		sendInfo(target, pokeTargetMessage(sender.getUsername(), streak), null);
+		logger.audit("POKE " + sender.getUsername() + " -> " + target.getUsername() + " streak=" + streak);
+	}
+
+	private int nextPokeStreak(UUID senderId, UUID targetId) {
+		long now = System.currentTimeMillis();
+		pokeStreaks.entrySet().removeIf(entry -> now - entry.getValue().lastPokeAtEpochMs() > (POKE_STREAK_WINDOW_MS * 2));
+
+		PokeStreakKey key = new PokeStreakKey(senderId, targetId);
+		PokeStreakState existing = pokeStreaks.get(key);
+		if (existing == null || now - existing.lastPokeAtEpochMs() > POKE_STREAK_WINDOW_MS) {
+			pokeStreaks.put(key, new PokeStreakState(1, now));
+			return 1;
+		}
+
+		long elapsed = now - existing.lastPokeAtEpochMs();
+		if (elapsed < POKE_STREAK_MIN_INCREMENT_MS) {
+			return existing.streak();
+		}
+
+		int next = existing.streak() + 1;
+		pokeStreaks.put(key, new PokeStreakState(next, now));
+		return next;
+	}
+
+	private void playPokeReceiverSound(Player receiver, int streak) {
+		String soundKey;
+		float pitch;
+		switch (streakTier(streak)) {
+			case 1 -> {
+				soundKey = "minecraft:entity.experience_orb.pickup";
+				pitch = 1.2f;
+			}
+			case 2 -> {
+				soundKey = "minecraft:block.note_block.pling";
+				pitch = 1.25f;
+			}
+			case 3 -> {
+				soundKey = "minecraft:entity.player.levelup";
+				pitch = 1.0f;
+			}
+			default -> {
+				soundKey = "minecraft:entity.firework_rocket.twinkle";
+				pitch = 0.95f;
+			}
+		}
+
+		try {
+			receiver.playSound(Sound.sound(Key.key(soundKey), Sound.Source.PLAYER, 1f, pitch));
+		} catch (Exception exception) {
+			logger.debug("Không thể phát sound poke cho " + receiver.getUsername() + ": " + soundKey);
+		}
+	}
+
+	private int streakTier(int streak) {
+		if (streak <= 1) {
+			return 1;
+		}
+		if (streak <= 4) {
+			return 2;
+		}
+		if (streak <= 8) {
+			return 3;
+		}
+		return 4;
+	}
+
+	private String pokeSenderMessage(String targetName, int streak) {
+		String escaped = escape(targetName);
+		int tier = streakTier(streak);
+		if (tier == 1) {
+			return "<green>✔ Bạn đã chọc <white>" + escaped + "</white> <gray>( •̀ᴗ•́ )و</gray></green>";
+		}
+		if (tier == 2) {
+			return "<aqua>⚡ Combo chọc x" + streak + " vào <white>" + escaped + "</white>!</aqua>";
+		}
+		if (tier == 3) {
+			return "<gold>🔥 Chuỗi chọc x" + streak + "! <white>" + escaped + "</white> chắc chắn đã để ý bạn.</gold>";
+		}
+
+		return "<red>💥 MEGA CHỌC x" + streak + " vào <white>" + escaped + "</white>! <yellow>Bạn đang không thể bị cản lại!</yellow></red>";
+	}
+
+	private String pokeTargetMessage(String senderName, int streak) {
+		String escaped = escape(senderName);
+		int tier = streakTier(streak);
+		if (tier == 1) {
+			return "<gold>👉 <white>" + escaped + "</white> vừa chọc bạn!</gold>";
+		}
+		if (tier == 2) {
+			return "<yellow>👉 <white>" + escaped + "</white> đang chọc bạn liên hoàn x" + streak + "!</yellow>";
+		}
+		if (tier == 3) {
+			return "<gold>⚠ <white>" + escaped + "</white> đã đạt chuỗi chọc x" + streak + " lên bạn!</gold>";
+		}
+
+		return "<red>🚨 <white>" + escaped + "</white> đang MEGA CHỌC bạn x" + streak + "!</red>";
 	}
 
 	private void handleSendDirect(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
@@ -1438,6 +1540,12 @@ public final class VelocityMessengerRouter {
 			this.lastMessageAt = 0L;
 			this.window = new ArrayDeque<>();
 		}
+	}
+
+	private record PokeStreakKey(UUID senderId, UUID targetId) {
+	}
+
+	private record PokeStreakState(int streak, long lastPokeAtEpochMs) {
 	}
 
 	public record PersistedContext(String type, UUID directTargetId, String directTargetName) {
