@@ -5,6 +5,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.messenger.paper.command.MessengerContextCommand;
 import dev.belikhun.luna.messenger.paper.listener.PaperChatCaptureListener;
+import dev.belikhun.luna.messenger.paper.listener.PaperJoinLeaveSuppressListener;
 import dev.belikhun.luna.messenger.paper.service.PaperBackendPlaceholderResolver;
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
 import org.bukkit.entity.Player;
@@ -34,19 +35,19 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 			this,
 			logger,
 			pluginMessaging,
-			new PaperBackendPlaceholderResolver(this),
+			new PaperBackendPlaceholderResolver(this, getConfig().getStringList("placeholder-api.export-keys")),
 			timeoutMillis,
 			timeoutCheckIntervalTicks,
 			timeoutEnabled
 		);
 		gateway.registerChannels();
 
-		MessengerContextCommand contextCommand = new MessengerContextCommand(gateway);
-		bindCommand("nw", contextCommand);
-		bindCommand("sv", contextCommand);
-		bindCommand("msg", contextCommand);
-		bindCommand("r", contextCommand);
+		bindCommand("nw", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.NETWORK));
+		bindCommand("sv", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.SERVER));
+		bindCommand("msg", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.DIRECT));
+		bindCommand("r", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.REPLY));
 		getServer().getPluginManager().registerEvents(new PaperChatCaptureListener(gateway), this);
+		getServer().getPluginManager().registerEvents(new PaperJoinLeaveSuppressListener(), this);
 
 		logger.success("LunaMessenger (Paper) đã khởi động thành công.");
 	}
@@ -62,12 +63,6 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 	}
 
 	private void bindCommand(String name, MessengerContextCommand command) {
-		if (getCommand(name) == null) {
-			logger.warn("Không tìm thấy command trong paper-plugin.yml: " + name);
-			return;
-		}
-
-		getCommand(name).setExecutor(command);
-		getCommand(name).setTabCompleter(command);
+		registerCommand(name, command);
 	}
 }

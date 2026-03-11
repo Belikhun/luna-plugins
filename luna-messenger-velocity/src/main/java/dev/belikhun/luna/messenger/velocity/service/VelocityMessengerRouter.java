@@ -413,6 +413,27 @@ public final class VelocityMessengerRouter {
 		boolean firstJoin = seenPlayers.add(player.getUniqueId());
 		String serverName = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("proxy");
 		String serverColor = config.serverColor(serverName);
+		String joinRendered = renderPresenceRouteForNetwork(
+			config.discord().joinMessage(),
+			Map.of(
+				"sender_name", player.getUsername(),
+				"server_name", serverName,
+				"channel_name", config.discord().networkChannelName(),
+				"server_color", serverColor,
+				"player_avatar_url", resolveAvatarUrl(player, Map.of()),
+				"presence_type", firstJoin ? "FIRST_JOIN" : "JOIN",
+				"message", firstJoin
+					? player.getUsername() + " đã vào mạng lần đầu"
+					: player.getUsername() + " đã vào mạng"
+			),
+			Map.of(),
+			player,
+			"<gray>[<green>+<gray>]</gray> <white>" + escape(player.getUsername()) + "</white>"
+		);
+		for (Player online : proxyServer.getAllPlayers()) {
+			sendResult(online, MessengerResultType.NETWORK_CHAT, joinRendered, null);
+		}
+
 		publishDiscord(config.discord().joinMessage(), Map.of(
 			"sender_name", player.getUsername(),
 			"server_name", serverName,
@@ -437,6 +458,24 @@ public final class VelocityMessengerRouter {
 		});
 
 		String serverColor = config.serverColor("");
+		String leaveRendered = renderPresenceRouteForNetwork(
+			config.discord().leaveMessage(),
+			Map.of(
+				"sender_name", player.getUsername(),
+				"server_name", "",
+				"channel_name", config.discord().networkChannelName(),
+				"server_color", serverColor,
+				"player_avatar_url", resolveAvatarUrl(player, Map.of()),
+				"message", player.getUsername() + " đã rời mạng"
+			),
+			Map.of(),
+			player,
+			"<gray>[<red>-<gray>]</gray> <white>" + escape(player.getUsername()) + "</white>"
+		);
+		for (Player online : proxyServer.getAllPlayers()) {
+			sendResult(online, MessengerResultType.NETWORK_CHAT, leaveRendered, null);
+		}
+
 		publishDiscord(config.discord().leaveMessage(), Map.of(
 			"sender_name", player.getUsername(),
 			"server_name", "",
@@ -572,6 +611,49 @@ public final class VelocityMessengerRouter {
 		return new ModerationResult(true, "<green>✔ Đã cảnh báo <white>" + escape(target.getUsername()) + "</white>.</green>");
 	}
 
+	public ModerationResult broadcast(String actor, String message) {
+		if (message == null || message.isBlank()) {
+			return new ModerationResult(false, "<red>❌ Nội dung thông báo không được để trống.</red>");
+		}
+
+		String serverColor = config.serverColor("");
+		String rendered = renderWithStack(
+			"<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>{message}</white>",
+			Map.of(
+				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
+				"server_name", "proxy",
+				"channel_name", "broadcast",
+				"server_color", serverColor,
+				"message", message
+			),
+			Map.of(),
+			null
+		);
+
+		int sent = 0;
+		for (Player online : proxyServer.getAllPlayers()) {
+			sendResult(online, MessengerResultType.NETWORK_CHAT, rendered, null);
+			sent++;
+		}
+
+		logger.audit("BROADCAST actor=" + actor + " recipients=" + sent + " message=" + message);
+		return new ModerationResult(true, "<green>✔ Đã phát thông báo đến <white>" + sent + "</white> người chơi.</green>");
+	}
+
+	private String renderPresenceRouteForNetwork(
+		VelocityMessengerConfig.MessageRouteConfig route,
+		Map<String, String> internalValues,
+		Map<String, String> backendValues,
+		Player player,
+		String fallbackTemplate
+	) {
+		String template = route.content();
+		if (template == null || template.isBlank()) {
+			template = fallbackTemplate;
+		}
+		return renderWithStack(template, internalValues, backendValues, player);
+	}
+
 	private void sendInfo(Player player, String message) {
 		sendResult(player, MessengerResultType.INFO, message, null);
 	}
@@ -623,10 +705,22 @@ public final class VelocityMessengerRouter {
 		return renderer.renderTemplate(template, values);
 	}
 
+	private String renderRaw(String template, Map<String, String> values) {
+		String output = template == null ? "" : template;
+		Map<String, String> safeValues = values == null ? Map.of() : values;
+		for (Map.Entry<String, String> entry : safeValues.entrySet()) {
+			String key = entry.getKey();
+			String replacement = entry.getValue() == null ? "" : entry.getValue();
+			output = output.replace("{" + key + "}", replacement);
+			output = output.replace("%" + key + "%", replacement);
+		}
+		return output;
+	}
+
 	private String renderWithStack(String template, Map<String, String> internalValues, Map<String, String> backendValues, Player player) {
 		String internalRendered = render(template, internalValues == null ? Map.of() : internalValues);
-		String miniResolved = miniPlaceholderResolver.resolve(player, internalRendered);
-		return render(miniResolved, backendValues == null ? Map.of() : backendValues);
+		String backendRendered = renderRaw(internalRendered, backendValues == null ? Map.of() : backendValues);
+		return miniPlaceholderResolver.resolve(player, backendRendered);
 	}
 
 	private void publishDiscord(

@@ -6,3 +6,15 @@ request:
     millis: 6000
     # Chu kỳ quét pending requests (ticks).
     check-interval-ticks: 20
+
+placeholder-api:
+  # Các key PlaceholderAPI sẽ được export về proxy để dùng trong chat format.
+  # Dùng dạng không có dấu %, ví dụ: luckperms_prefix => %luckperms_prefix%.
+  export-keys:
+    - luckperms_prefix
+    - luckperms_suffix
+    - luckperms_primary_group_name
+    - vault_prefix
+    - vault_suffix
+    - vault_primary_group
+    - player_displayname

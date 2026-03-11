@@ -2,56 +2,62 @@ package dev.belikhun.luna.messenger.paper.command;
 
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
 import dev.belikhun.luna.core.api.string.CommandStrings;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandExecutor;
+import io.papermc.paper.command.brigadier.BasicCommand;
+import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.command.CommandSender;
-import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
+import java.util.Collection;
 import java.util.List;
 
-public final class MessengerContextCommand implements CommandExecutor, TabCompleter {
-	private final PaperMessengerGateway gateway;
+public final class MessengerContextCommand implements BasicCommand {
+	public enum ContextType {
+		NETWORK,
+		SERVER,
+		DIRECT,
+		REPLY
+	}
 
-	public MessengerContextCommand(PaperMessengerGateway gateway) {
+	private final PaperMessengerGateway gateway;
+	private final ContextType contextType;
+
+	public MessengerContextCommand(PaperMessengerGateway gateway, ContextType contextType) {
 		this.gateway = gateway;
+		this.contextType = contextType;
 	}
 
 	@Override
-	public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+	public void execute(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
 		if (!(sender instanceof Player player)) {
-			sender.sendMessage("Lệnh này chỉ dùng cho người chơi.");
-			return true;
+			sender.sendRichMessage("<red>❌ Lệnh này chỉ dùng cho người chơi.</red>");
+			return;
 		}
 
-		switch (command.getName().toLowerCase()) {
-			case "nw" -> gateway.switchNetwork(player);
-			case "sv" -> gateway.switchServer(player);
-			case "msg" -> {
+		switch (contextType) {
+			case NETWORK -> gateway.switchNetwork(player);
+			case SERVER -> gateway.switchServer(player);
+			case DIRECT -> {
 				if (args.length < 1) {
 					player.sendRichMessage(CommandStrings.usage("/msg", CommandStrings.required("người_chơi", "text")));
-					return true;
+					return;
 				}
 				gateway.switchDirect(player, args[0]);
 			}
-			case "r" -> {
+			case REPLY -> {
 				if (args.length < 1) {
 					player.sendRichMessage(CommandStrings.usage("/r", CommandStrings.required("nội_dung", "text")));
-					return true;
+					return;
 				}
 				gateway.sendReply(player, String.join(" ", args));
 			}
-			default -> {
-				return false;
-			}
 		}
-
-		return true;
 	}
 
 	@Override
-	public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-		if (command.getName().equalsIgnoreCase("msg") && args.length == 1) {
+	public Collection<String> suggest(CommandSourceStack source, String[] args) {
+		CommandSender sender = source.getSender();
+		if (contextType == ContextType.DIRECT && args.length == 1) {
 			return sender.getServer().getOnlinePlayers().stream()
 				.map(Player::getName)
 				.filter(name -> name.regionMatches(true, 0, args[0], 0, args[0].length()))

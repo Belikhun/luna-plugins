@@ -29,9 +29,9 @@ help:
 
 strings:
   money:
-    currencySymbol: "₫"
+    currencySymbol: '<#FCF0A0>⛃</#FCF0A0>'
     grouping: true
-    format: "{amount}{symbol}"
+    format: '<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}'
 
 logging:
   ansi: true
