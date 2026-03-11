@@ -4,6 +4,7 @@ public enum MessengerCommandType {
 	SWITCH_NETWORK,
 	SWITCH_SERVER,
 	SWITCH_DIRECT,
+	SEND_DIRECT,
 	SEND_CHAT,
 	SEND_REPLY;
 

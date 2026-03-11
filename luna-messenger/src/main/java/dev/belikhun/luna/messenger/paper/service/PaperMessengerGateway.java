@@ -4,6 +4,8 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messenger.MessengerChannels;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandRequest;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandType;
+import dev.belikhun.luna.core.api.messenger.MessengerPresenceMessage;
+import dev.belikhun.luna.core.api.messenger.MessengerPresenceType;
 import dev.belikhun.luna.core.api.messenger.MessengerResultMessage;
 import dev.belikhun.luna.core.api.messenger.MessengerResultType;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionRequest;
@@ -20,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 public final class PaperMessengerGateway {
 	private final JavaPlugin plugin;
@@ -27,6 +31,7 @@ public final class PaperMessengerGateway {
 	private final PluginMessageBus<Player, Player> bus;
 	private final BackendPlaceholderResolver placeholderResolver;
 	private final Map<UUID, PendingRequest> pendingRequests;
+	private final ConcurrentMap<UUID, String> networkPlayerNames;
 	private int timeoutTaskId;
 	private final long requestTimeoutMillis;
 	private final long timeoutCheckIntervalTicks;
@@ -46,10 +51,43 @@ public final class PaperMessengerGateway {
 		this.bus = bus;
 		this.placeholderResolver = placeholderResolver;
 		this.pendingRequests = new ConcurrentHashMap<>();
+		this.networkPlayerNames = new ConcurrentHashMap<>();
 		this.timeoutTaskId = -1;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.timeoutCheckIntervalTicks = Math.max(1L, timeoutCheckIntervalTicks);
 		this.timeoutEnabled = timeoutEnabled;
+	}
+
+	public java.util.Collection<String> suggestDirectTargets(String partial, String senderName) {
+		String token = partial == null ? "" : partial;
+		String currentSender = senderName == null ? "" : senderName;
+
+		for (Player online : plugin.getServer().getOnlinePlayers()) {
+			networkPlayerNames.put(online.getUniqueId(), online.getName());
+		}
+
+		return networkPlayerNames.values().stream()
+			.filter(name -> name != null && !name.isBlank())
+			.filter(name -> !name.equalsIgnoreCase(currentSender))
+			.filter(name -> token.isEmpty() || name.regionMatches(true, 0, token, 0, token.length()))
+			.distinct()
+			.sorted(String.CASE_INSENSITIVE_ORDER)
+			.limit(20)
+			.collect(Collectors.toList());
+	}
+
+	private void handlePresence(MessengerPresenceMessage presence) {
+		if (presence == null) {
+			return;
+		}
+
+		MessengerPresenceType type = presence.presenceType();
+		if (type == MessengerPresenceType.LEAVE) {
+			networkPlayerNames.remove(presence.playerId());
+			return;
+		}
+
+		networkPlayerNames.put(presence.playerId(), presence.playerName());
 	}
 
 	public void registerChannels() {
@@ -86,6 +124,15 @@ public final class PaperMessengerGateway {
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
+		bus.registerIncoming(MessengerChannels.PRESENCE, context -> {
+			MessengerPresenceMessage presence = MessengerPresenceMessage.readFrom(context.reader());
+			handlePresence(presence);
+			return PluginMessageDispatchResult.HANDLED;
+		});
+
+		for (Player online : plugin.getServer().getOnlinePlayers()) {
+			networkPlayerNames.put(online.getUniqueId(), online.getName());
+		}
 
 		if (timeoutEnabled) {
 			timeoutTaskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(plugin, this::checkPendingTimeouts, timeoutCheckIntervalTicks, timeoutCheckIntervalTicks);
@@ -104,6 +151,10 @@ public final class PaperMessengerGateway {
 		send(player, MessengerCommandType.SWITCH_DIRECT, targetName);
 	}
 
+	public void sendDirect(Player player, String targetName, String message) {
+		send(player, MessengerCommandType.SEND_DIRECT, message, targetName);
+	}
+
 	public void sendReply(Player player, String message) {
 		send(player, MessengerCommandType.SEND_REPLY, message);
 	}
@@ -115,7 +166,9 @@ public final class PaperMessengerGateway {
 	public void close() {
 		bus.unregisterOutgoing(MessengerChannels.COMMAND);
 		bus.unregisterIncoming(MessengerChannels.RESULT);
+		bus.unregisterIncoming(MessengerChannels.PRESENCE);
 		pendingRequests.clear();
+		networkPlayerNames.clear();
 		if (timeoutTaskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(timeoutTaskId);
 			timeoutTaskId = -1;
@@ -123,6 +176,10 @@ public final class PaperMessengerGateway {
 	}
 
 	private void send(Player player, MessengerCommandType commandType, String argument) {
+		send(player, commandType, argument, null);
+	}
+
+	private void send(Player player, MessengerCommandType commandType, String argument, String targetName) {
 		String server = plugin.getServer().getName();
 		UUID requestId = UUID.randomUUID();
 		Map<String, String> internalValues = new LinkedHashMap<>();
@@ -130,8 +187,9 @@ public final class PaperMessengerGateway {
 		internalValues.put("player_name", player.getName());
 		internalValues.put("server_name", server);
 		internalValues.put("sender_server", server);
-		if (commandType == MessengerCommandType.SWITCH_DIRECT) {
-			internalValues.put("target_name", argument == null ? "" : argument);
+		if (commandType == MessengerCommandType.SWITCH_DIRECT || commandType == MessengerCommandType.SEND_DIRECT) {
+			String directTarget = targetName != null ? targetName : argument;
+			internalValues.put("target_name", directTarget == null ? "" : directTarget);
 		}
 
 		var resolution = placeholderResolver.resolve(new PlaceholderResolutionRequest(

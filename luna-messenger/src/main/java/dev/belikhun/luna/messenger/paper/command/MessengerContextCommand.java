@@ -42,7 +42,12 @@ public final class MessengerContextCommand implements BasicCommand {
 					player.sendRichMessage(CommandStrings.usage("/msg", CommandStrings.required("người_chơi", "text")));
 					return;
 				}
-				gateway.switchDirect(player, args[0]);
+				if (args.length == 1) {
+					gateway.switchDirect(player, args[0]);
+					return;
+				}
+
+				gateway.sendDirect(player, args[0], String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length)));
 			}
 			case REPLY -> {
 				if (args.length < 1) {
@@ -58,12 +63,8 @@ public final class MessengerContextCommand implements BasicCommand {
 	public Collection<String> suggest(CommandSourceStack source, String[] args) {
 		CommandSender sender = source.getSender();
 		if (contextType == ContextType.DIRECT && args.length == 1) {
-			return sender.getServer().getOnlinePlayers().stream()
-				.map(Player::getName)
-				.filter(name -> name.regionMatches(true, 0, args[0], 0, args[0].length()))
-				.sorted(String.CASE_INSENSITIVE_ORDER)
-				.limit(20)
-				.toList();
+			String senderName = sender instanceof Player player ? player.getName() : "";
+			return gateway.suggestDirectTargets(args[0], senderName);
 		}
 
 		return List.of();

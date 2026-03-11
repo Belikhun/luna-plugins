@@ -7,6 +7,7 @@ dependencies {
 	compileOnly(project(":luna-core-velocity"))
 	compileOnly(libs.velocity.api)
 	compileOnly(libs.miniplaceholders.api)
+	compileOnly(libs.luckperms.api)
 	annotationProcessor(libs.velocity.api)
 	implementation(libs.jda) {
 		// Voice codecs are not used by this plugin (text channel only).

@@ -8,12 +8,15 @@ import dev.belikhun.luna.core.api.messenger.MessagingContext;
 import dev.belikhun.luna.core.api.messenger.MessagingContextType;
 import dev.belikhun.luna.core.api.messenger.MessengerChannels;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandRequest;
+import dev.belikhun.luna.core.api.messenger.MessengerPresenceMessage;
+import dev.belikhun.luna.core.api.messenger.MessengerPresenceType;
 import dev.belikhun.luna.core.api.messenger.ProxyMessageTemplateRenderer;
 import dev.belikhun.luna.core.api.messenger.MessengerResultMessage;
 import dev.belikhun.luna.core.api.messenger.MessengerResultType;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
+import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.sound.Sound;
@@ -52,6 +55,7 @@ public final class VelocityMessengerRouter {
 	private volatile VelocityMessengerConfig config;
 	private final ProxyMessageTemplateRenderer renderer;
 	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
+	private final LuckPermsService luckPermsService;
 	private volatile DiscordBridgeGateway discordBridge;
 	private final Map<UUID, MessagingContext> contextByPlayer;
 	private final Map<UUID, UUID> lastReplyByPlayer;
@@ -66,6 +70,7 @@ public final class VelocityMessengerRouter {
 		PluginMessageBus<Object, Object> bus,
 		VelocityMessengerConfig config,
 		ProxyMessageTemplateRenderer renderer,
+		LuckPermsService luckPermsService,
 		DiscordBridgeGateway discordBridge
 	) {
 		this.proxyServer = proxyServer;
@@ -74,6 +79,7 @@ public final class VelocityMessengerRouter {
 		this.config = config;
 		this.renderer = renderer;
 		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
+		this.luckPermsService = luckPermsService;
 		this.discordBridge = discordBridge;
 		this.contextByPlayer = new ConcurrentHashMap<>();
 		this.lastReplyByPlayer = new ConcurrentHashMap<>();
@@ -90,11 +96,13 @@ public final class VelocityMessengerRouter {
 			return PluginMessageDispatchResult.HANDLED;
 		});
 		bus.registerOutgoing(MessengerChannels.RESULT);
+		bus.registerOutgoing(MessengerChannels.PRESENCE);
 	}
 
 	public void close() {
 		bus.unregisterIncoming(MessengerChannels.COMMAND);
 		bus.unregisterOutgoing(MessengerChannels.RESULT);
+		bus.unregisterOutgoing(MessengerChannels.PRESENCE);
 		contextByPlayer.clear();
 		lastReplyByPlayer.clear();
 		mutedPlayers.clear();
@@ -181,6 +189,23 @@ public final class VelocityMessengerRouter {
 		logger.audit("Đã cập nhật runtime config cho Messenger router.");
 	}
 
+	public void publishPresenceSnapshot() {
+		for (Player player : proxyServer.getAllPlayers()) {
+			String serverName = player.getCurrentServer()
+				.map(connection -> connection.getServerInfo().getName())
+				.orElse("");
+			sendPresenceUpdate(new MessengerPresenceMessage(
+				MessengerPresenceMessage.CURRENT_PROTOCOL,
+				MessengerPresenceType.JOIN,
+				player.getUniqueId(),
+				player.getUsername(),
+				"",
+				serverName,
+				false
+			));
+		}
+	}
+
 	private void handle(MessengerCommandRequest request) {
 		Player sender = proxyServer.getPlayer(request.senderId()).orElse(null);
 		if (sender == null) {
@@ -200,9 +225,34 @@ public final class VelocityMessengerRouter {
 				sendInfo(sender, "<green>✔ Đã chuyển sang kênh <white>máy chủ</white>.</green>", correlationId);
 			}
 			case SWITCH_DIRECT -> handleSwitchDirect(sender, request.argument(), correlationId);
+			case SEND_DIRECT -> handleSendDirect(sender, request.argument(), request.resolvedValues(), correlationId);
 			case SEND_CHAT -> routeChat(sender, request.argument(), request.resolvedValues(), correlationId);
 			case SEND_REPLY -> handleReply(sender, request.argument(), request.resolvedValues(), correlationId);
 		}
+	}
+
+	private void handleSendDirect(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
+		if (checkRateLimit(sender, correlationId)) {
+			return;
+		}
+
+		if (checkMuted(sender, correlationId)) {
+			return;
+		}
+
+		String targetName = resolvedValues.getOrDefault("target_name", "").trim();
+		if (targetName.isEmpty()) {
+			sendError(sender, "<red>❌ Không tìm thấy người chơi để nhắn trực tiếp.</red>", correlationId);
+			return;
+		}
+
+		Player target = proxyServer.getPlayer(targetName).orElse(null);
+		if (target == null) {
+			sendError(sender, "<red>❌ Không tìm thấy người chơi <white>" + escape(targetName) + "</white>.</red>", correlationId);
+			return;
+		}
+
+		sendDirect(sender, target, message, resolvedValues, correlationId);
 	}
 
 	private void handleSwitchDirect(Player sender, String targetName, UUID correlationId) {
@@ -420,8 +470,23 @@ public final class VelocityMessengerRouter {
 		String serverName = (connectedServerName == null || connectedServerName.isBlank())
 			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("proxy")
 			: connectedServerName;
+		sendPresenceUpdate(new MessengerPresenceMessage(
+			MessengerPresenceMessage.CURRENT_PROTOCOL,
+			firstJoin ? MessengerPresenceType.FIRST_JOIN : MessengerPresenceType.JOIN,
+			player.getUniqueId(),
+			player.getUsername(),
+			"",
+			serverName,
+			firstJoin
+		));
+
 		String serverColor = config.serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
+		String playerPrefix = resolvePresencePlayerPrefix(player);
+		String serverDisplay = config.serverDisplay(serverName);
+		String presenceMessage = firstJoin
+			? player.getUsername() + " đã vào mạng lần đầu"
+			: player.getUsername() + " đã vào mạng";
 		String joinTemplate = firstJoin ? profile.firstJoinNetworkFormat() : profile.joinNetworkFormat();
 		String joinRendered = renderWithStack(
 			joinTemplate,
@@ -429,20 +494,20 @@ public final class VelocityMessengerRouter {
 				Map.entry("sender_name", player.getUsername()),
 				Map.entry("player_name", player.getUsername()),
 				Map.entry("displayname", player.getUsername()),
-				Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
 				Map.entry("server_name", serverName),
-				Map.entry("server_display", config.serverDisplay(serverName)),
 				Map.entry("channel_name", config.discord().networkChannelName()),
 				Map.entry("server_color", serverColor),
 				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
-				Map.entry("presence_type", firstJoin ? "FIRST_JOIN" : "JOIN"),
-				Map.entry("message", firstJoin
-					? player.getUsername() + " đã vào mạng lần đầu"
-					: player.getUsername() + " đã vào mạng")
+				Map.entry("presence_type", firstJoin ? "FIRST_JOIN" : "JOIN")
 			),
 			Map.of(),
 			player
 		);
+		joinRendered = injectUnescapedPlaceholders(joinRendered, Map.of(
+			"player_prefix", playerPrefix,
+			"server_display", serverDisplay,
+			"message", presenceMessage
+		));
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, joinRendered, null);
 		}
@@ -473,26 +538,41 @@ public final class VelocityMessengerRouter {
 		String serverName = (previousServerName == null || previousServerName.isBlank())
 			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("")
 			: previousServerName;
+		sendPresenceUpdate(new MessengerPresenceMessage(
+			MessengerPresenceMessage.CURRENT_PROTOCOL,
+			MessengerPresenceType.LEAVE,
+			player.getUniqueId(),
+			player.getUsername(),
+			serverName,
+			"",
+			false
+		));
+
 		String serverColor = config.serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
+		String playerPrefix = resolvePresencePlayerPrefix(player);
+		String serverDisplay = config.serverDisplay(serverName);
+		String presenceMessage = player.getUsername() + " đã rời mạng";
 		String leaveRendered = renderWithStack(
 			profile.leaveNetworkFormat(),
 			Map.ofEntries(
 				Map.entry("sender_name", player.getUsername()),
 				Map.entry("player_name", player.getUsername()),
 				Map.entry("displayname", player.getUsername()),
-				Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
 				Map.entry("server_name", serverName),
-				Map.entry("server_display", config.serverDisplay(serverName)),
 				Map.entry("channel_name", config.discord().networkChannelName()),
 				Map.entry("server_color", serverColor),
 				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
-				Map.entry("presence_type", "LEAVE"),
-				Map.entry("message", player.getUsername() + " đã rời mạng")
+				Map.entry("presence_type", "LEAVE")
 			),
 			Map.of(),
 			player
 		);
+		leaveRendered = injectUnescapedPlaceholders(leaveRendered, Map.of(
+			"player_prefix", playerPrefix,
+			"server_display", serverDisplay,
+			"message", presenceMessage
+		));
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, leaveRendered, null);
 		}
@@ -509,9 +589,20 @@ public final class VelocityMessengerRouter {
 
 	public void handleServerSwitch(Player player, String previousServerName) {
 		String toServerName = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
+		sendPresenceUpdate(new MessengerPresenceMessage(
+			MessengerPresenceMessage.CURRENT_PROTOCOL,
+			MessengerPresenceType.SWAP,
+			player.getUniqueId(),
+			player.getUsername(),
+			previousServerName,
+			toServerName,
+			false
+		));
+
 		String toDisplay = config.serverDisplay(toServerName);
 		String fromDisplay = config.serverDisplay(previousServerName);
 		String toServerColor = config.serverColor(toServerName);
+		String playerPrefix = resolvePresencePlayerPrefix(player);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(toServerName);
 		if (!profile.serverSwitchEnabled()) {
 			return;
@@ -520,11 +611,10 @@ public final class VelocityMessengerRouter {
 		String rendered = renderWithStack(profile.serverSwitchFormat(), Map.ofEntries(
 			Map.entry("sender_name", player.getUsername()),
 			Map.entry("displayname", player.getUsername()),
-			Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
 			Map.entry("from_server", previousServerName),
 			Map.entry("to_server", toServerName),
-			Map.entry("from", fromDisplay),
-			Map.entry("to", toDisplay),
+			Map.entry("from", stripLegacy(fromDisplay)),
+			Map.entry("to", stripLegacy(toDisplay)),
 			Map.entry("from_clean", stripLegacy(fromDisplay)),
 			Map.entry("to_clean", stripLegacy(toDisplay)),
 			Map.entry("presence_type", "SWAP"),
@@ -532,6 +622,7 @@ public final class VelocityMessengerRouter {
 			Map.entry("server_color", toServerColor)
 		), Map.of(), player);
 		rendered = injectUnescapedPlaceholders(rendered, Map.of(
+			"player_prefix", playerPrefix,
 			"from_display", fromDisplay,
 			"to_display", toDisplay,
 			"server_display", toDisplay
@@ -651,12 +742,12 @@ public final class VelocityMessengerRouter {
 				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
 				"server_name", "proxy",
 				"channel_name", "broadcast",
-				"server_color", serverColor,
-				"message", message
+				"server_color", serverColor
 			),
 			Map.of(),
 			null
 		);
+		rendered = injectUnescapedPlaceholders(rendered, Map.of("message", message));
 
 		int sent = 0;
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -709,6 +800,27 @@ public final class VelocityMessengerRouter {
 		bus.send(connection, MessengerChannels.RESULT, writer.toByteArray());
 		if (correlationId != null) {
 			logger.audit("TX result=" + resultType.name() + " reqId=" + correlationId + " to=" + player.getUsername());
+		}
+	}
+
+	private void sendPresenceUpdate(MessengerPresenceMessage presenceMessage) {
+		PluginMessageWriter writer = PluginMessageWriter.create();
+		presenceMessage.writeTo(writer);
+		byte[] payload = writer.toByteArray();
+
+		Set<String> sentServers = new HashSet<>();
+		for (Player online : proxyServer.getAllPlayers()) {
+			ServerConnection connection = online.getCurrentServer().orElse(null);
+			if (connection == null) {
+				continue;
+			}
+
+			String serverName = connection.getServerInfo().getName();
+			if (!sentServers.add(serverName)) {
+				continue;
+			}
+
+			bus.send(connection, MessengerChannels.PRESENCE, payload);
 		}
 	}
 
@@ -808,11 +920,16 @@ public final class VelocityMessengerRouter {
 	}
 
 	private String resolvePresencePlayerPrefix(Player player) {
-		String raw = miniPlaceholderResolver.resolve(player, "<luckperms_prefix>");
-		if (raw == null || raw.isBlank() || raw.equals("<luckperms_prefix>")) {
+		if (player == null) {
 			return "";
 		}
-		return raw;
+
+		try {
+			return luckPermsService.getPlayerPrefix(player.getUniqueId());
+		} catch (Throwable throwable) {
+			logger.debug("Không thể lấy prefix từ LuckPerms cho " + player.getUsername() + ": " + throwable.getMessage());
+			return "";
+		}
 	}
 
 	private String resolveAvatarUrl(Player player, Map<String, String> resolvedValues) {

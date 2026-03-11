@@ -7,8 +7,10 @@ import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
+import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 
 import java.nio.file.Path;
@@ -28,6 +30,7 @@ public final class LunaCoreVelocityPlugin {
 	private final Path dataDirectory;
 	private final VelocityHttpServerManager httpServerManager;
 	private final ProxyServer proxyServer;
+	private final DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
 
 	@Inject
@@ -36,6 +39,7 @@ public final class LunaCoreVelocityPlugin {
 		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCoreVelocity"), true).scope("CoreVelocity");
 		this.dataDirectory = dataDirectory;
 		this.httpServerManager = new VelocityHttpServerManager(this.logger);
+		this.dependencyManager = new DependencyManager();
 	}
 
 	@Subscribe
@@ -47,12 +51,21 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> pluginMessagingConfig = readMap(loggingConfig, "pluginMessaging");
 		boolean pluginMessagingLogsEnabled = readBoolean(pluginMessagingConfig, "enabled", false);
 		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
+		dependencyManager.registerSingleton(ProxyServer.class, proxyServer);
+		dependencyManager.registerSingleton(LunaLogger.class, logger);
+		dependencyManager.registerSingleton(VelocityHttpServerManager.class, httpServerManager);
+		dependencyManager.registerSingleton(VelocityPluginMessagingBus.class, pluginMessagingBus);
+		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
+		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
+		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus));
 		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		dependencyManager.clear();
+		LunaCoreVelocity.clear();
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.close();
 		}
