@@ -229,9 +229,41 @@ public final class VelocityMessengerRouter {
 			}
 			case SWITCH_DIRECT -> handleSwitchDirect(sender, request.argument(), correlationId);
 			case SEND_DIRECT -> handleSendDirect(sender, request.argument(), request.resolvedValues(), correlationId);
+			case SEND_POKE -> handlePoke(sender, request.resolvedValues(), correlationId);
 			case SEND_CHAT -> routeChat(sender, request.argument(), request.resolvedValues(), correlationId);
 			case SEND_REPLY -> handleReply(sender, request.argument(), request.resolvedValues(), correlationId);
 		}
+	}
+
+	private void handlePoke(Player sender, Map<String, String> resolvedValues, UUID correlationId) {
+		if (checkRateLimit(sender, correlationId)) {
+			return;
+		}
+
+		if (checkMuted(sender, correlationId)) {
+			return;
+		}
+
+		String targetName = resolvedValues.getOrDefault("target_name", "").trim();
+		if (targetName.isEmpty()) {
+			sendError(sender, "<red>❌ Không tìm thấy người chơi để chọc.</red>", correlationId);
+			return;
+		}
+
+		Player target = proxyServer.getPlayer(targetName).orElse(null);
+		if (target == null) {
+			sendError(sender, "<red>❌ Không tìm thấy người chơi <white>" + escape(targetName) + "</white>.</red>", correlationId);
+			return;
+		}
+
+		if (target.getUniqueId().equals(sender.getUniqueId())) {
+			sendError(sender, "<yellow>ℹ Bạn không thể tự chọc chính mình.</yellow>", correlationId);
+			return;
+		}
+
+		sendInfo(sender, "<green>✔ Bạn đã chọc <white>" + escape(target.getUsername()) + "</white> <gray>( •̀ᴗ•́ )و</gray></green>", correlationId);
+		sendInfo(target, "<gold>👉 <white>" + escape(sender.getUsername()) + "</white> vừa chọc bạn!</gold>", null);
+		logger.audit("POKE " + sender.getUsername() + " -> " + target.getUsername());
 	}
 
 	private void handleSendDirect(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {

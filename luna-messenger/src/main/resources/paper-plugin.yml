@@ -20,6 +20,9 @@ commands:
     description: Trả lời tin nhắn gần nhất.
     usage: /r <nội_dung>
     aliases: [reply]
+  poke:
+    description: Chọc ghẹo một người chơi khác.
+    usage: /poke <người_chơi>
 dependencies:
   server:
     LunaCore:

@@ -22,8 +22,10 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -39,6 +41,7 @@ public final class PaperMessengerGateway {
 	private final BackendPlaceholderResolver placeholderResolver;
 	private final Map<UUID, PendingRequest> pendingRequests;
 	private final ConcurrentMap<UUID, String> networkPlayerNames;
+	private final ConcurrentMap<UUID, Set<String>> mentionCompletionsByPlayer;
 	private int timeoutTaskId;
 	private final long requestTimeoutMillis;
 	private final long timeoutCheckIntervalTicks;
@@ -61,6 +64,7 @@ public final class PaperMessengerGateway {
 		this.placeholderResolver = placeholderResolver;
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.networkPlayerNames = new ConcurrentHashMap<>();
+		this.mentionCompletionsByPlayer = new ConcurrentHashMap<>();
 		this.timeoutTaskId = -1;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.timeoutCheckIntervalTicks = Math.max(1L, timeoutCheckIntervalTicks);
@@ -93,10 +97,12 @@ public final class PaperMessengerGateway {
 		MessengerPresenceType type = presence.presenceType();
 		if (type == MessengerPresenceType.LEAVE) {
 			networkPlayerNames.remove(presence.playerId());
+			scheduleMentionCompletionRefresh();
 			return;
 		}
 
 		networkPlayerNames.put(presence.playerId(), presence.playerName());
+		scheduleMentionCompletionRefresh();
 	}
 
 	public void registerChannels() {
@@ -149,6 +155,7 @@ public final class PaperMessengerGateway {
 		for (Player online : plugin.getServer().getOnlinePlayers()) {
 			networkPlayerNames.put(online.getUniqueId(), online.getName());
 		}
+		refreshMentionCompletionsForAll();
 
 		if (timeoutEnabled) {
 			timeoutTaskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(plugin, this::checkPendingTimeouts, timeoutCheckIntervalTicks, timeoutCheckIntervalTicks);
@@ -171,6 +178,10 @@ public final class PaperMessengerGateway {
 		send(player, MessengerCommandType.SEND_DIRECT, message, targetName);
 	}
 
+	public void sendPoke(Player player, String targetName) {
+		send(player, MessengerCommandType.SEND_POKE, "", targetName);
+	}
+
 	public void sendReply(Player player, String message) {
 		send(player, MessengerCommandType.SEND_REPLY, message);
 	}
@@ -183,11 +194,52 @@ public final class PaperMessengerGateway {
 		bus.unregisterOutgoing(MessengerChannels.COMMAND);
 		bus.unregisterIncoming(MessengerChannels.RESULT);
 		bus.unregisterIncoming(MessengerChannels.PRESENCE);
+		clearMentionCompletions();
 		pendingRequests.clear();
 		networkPlayerNames.clear();
+		mentionCompletionsByPlayer.clear();
 		if (timeoutTaskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(timeoutTaskId);
 			timeoutTaskId = -1;
+		}
+	}
+
+	private void scheduleMentionCompletionRefresh() {
+		plugin.getServer().getScheduler().runTask(plugin, this::refreshMentionCompletionsForAll);
+	}
+
+	private void refreshMentionCompletionsForAll() {
+		for (Player online : plugin.getServer().getOnlinePlayers()) {
+			refreshMentionCompletions(online);
+		}
+	}
+
+	private void refreshMentionCompletions(Player player) {
+		Set<String> completions = new LinkedHashSet<>();
+		for (String name : networkPlayerNames.values()) {
+			if (name == null || name.isBlank() || name.equalsIgnoreCase(player.getName())) {
+				continue;
+			}
+			completions.add("@" + name);
+		}
+
+		Set<String> applied = Set.copyOf(completions);
+		Set<String> previous = mentionCompletionsByPlayer.put(player.getUniqueId(), applied);
+		if (previous != null && !previous.isEmpty()) {
+			player.removeCustomChatCompletions(previous);
+		}
+		if (!applied.isEmpty()) {
+			player.addCustomChatCompletions(applied);
+		}
+	}
+
+	private void clearMentionCompletions() {
+		for (Player online : plugin.getServer().getOnlinePlayers()) {
+			Set<String> previous = mentionCompletionsByPlayer.get(online.getUniqueId());
+			if (previous == null || previous.isEmpty()) {
+				continue;
+			}
+			online.removeCustomChatCompletions(previous);
 		}
 	}
 
@@ -203,7 +255,9 @@ public final class PaperMessengerGateway {
 		internalValues.put("player_name", player.getName());
 		internalValues.put("server_name", server);
 		internalValues.put("sender_server", server);
-		if (commandType == MessengerCommandType.SWITCH_DIRECT || commandType == MessengerCommandType.SEND_DIRECT) {
+		if (commandType == MessengerCommandType.SWITCH_DIRECT
+			|| commandType == MessengerCommandType.SEND_DIRECT
+			|| commandType == MessengerCommandType.SEND_POKE) {
 			String directTarget = targetName != null ? targetName : argument;
 			internalValues.put("target_name", directTarget == null ? "" : directTarget);
 		}
