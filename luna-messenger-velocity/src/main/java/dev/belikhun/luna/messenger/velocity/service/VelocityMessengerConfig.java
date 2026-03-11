@@ -19,6 +19,7 @@ public final class VelocityMessengerConfig {
 	private final String defaultServerColor;
 	private final Map<String, String> serverColors;
 	private final MentionConfig mentions;
+	private final SilentBroadcastConfig silentBroadcast;
 	private final DiscordConfig discord;
 	private final RateLimitConfig rateLimit;
 
@@ -30,6 +31,7 @@ public final class VelocityMessengerConfig {
 		String defaultServerColor,
 		Map<String, String> serverColors,
 		MentionConfig mentions,
+		SilentBroadcastConfig silentBroadcast,
 		DiscordConfig discord,
 		RateLimitConfig rateLimit
 	) {
@@ -40,6 +42,7 @@ public final class VelocityMessengerConfig {
 		this.defaultServerColor = defaultServerColor;
 		this.serverColors = serverColors;
 		this.mentions = mentions;
+		this.silentBroadcast = silentBroadcast;
 		this.discord = discord;
 		this.rateLimit = rateLimit;
 	}
@@ -74,6 +77,7 @@ public final class VelocityMessengerConfig {
 		}
 
 		MentionConfig mentions = parseMentionConfig(map(root.get("mentions")));
+		SilentBroadcastConfig silentBroadcast = parseSilentBroadcastConfig(map(root.get("silent-broadcast")));
 		DiscordConfig discord = parseDiscordConfig(map(root.get("discord")));
 		RateLimitConfig rateLimit = parseRateLimitConfig(map(root.get("rate-limit")));
 		return new VelocityMessengerConfig(
@@ -84,6 +88,7 @@ public final class VelocityMessengerConfig {
 			defaultServerColor,
 			Map.copyOf(serverColors),
 			mentions,
+			silentBroadcast,
 			discord,
 			rateLimit
 		);
@@ -102,6 +107,10 @@ public final class VelocityMessengerConfig {
 
 	public MentionConfig mentions() {
 		return mentions;
+	}
+
+	public SilentBroadcastConfig silentBroadcast() {
+		return silentBroadcast;
 	}
 
 	public String userDisplayFormat() {
@@ -171,6 +180,14 @@ public final class VelocityMessengerConfig {
 			parseMessageRoute(map(joinLeave.get("join")), defaultJoinRoute()),
 			parseMessageRoute(map(joinLeave.get("leave")), defaultLeaveRoute()),
 			parseMessageRoute(map(joinLeave.get("switch")), defaultSwitchRoute())
+		);
+	}
+
+	private static SilentBroadcastConfig parseSilentBroadcastConfig(Map<String, Object> silentBroadcast) {
+		return new SilentBroadcastConfig(
+			bool(silentBroadcast.get("enabled"), true),
+			str(silentBroadcast.get("permission"), "lunamessenger.silentbroadcast"),
+			str(silentBroadcast.get("prefix"), "<dark_gray>[xuỵt]</dark_gray> ")
 		);
 	}
 
@@ -489,6 +506,13 @@ public final class VelocityMessengerConfig {
 		Integer toastFadeInMs,
 		Integer toastStayMs,
 		Integer toastFadeOutMs
+	) {
+	}
+
+	public record SilentBroadcastConfig(
+		boolean enabled,
+		String permission,
+		String prefix
 	) {
 	}
 

@@ -739,7 +739,15 @@ public final class VelocityMessengerRouter {
 			"receiver_display", ""
 		));
 		for (Player online : proxyServer.getAllPlayers()) {
-			sendResult(online, MessengerResultType.NETWORK_CHAT, joinRendered, null);
+			if (!canReceiveBroadcastPresence(player, online)) {
+				continue;
+			}
+
+			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, joinRendered), null);
+		}
+
+		if (isSilentBroadcastSender(player)) {
+			return;
 		}
 
 		publishDiscord(config.discord().joinMessage(), Map.of(
@@ -813,7 +821,16 @@ public final class VelocityMessengerRouter {
 			"receiver_display", ""
 		));
 		for (Player online : proxyServer.getAllPlayers()) {
-			sendResult(online, MessengerResultType.NETWORK_CHAT, leaveRendered, null);
+			if (!canReceiveBroadcastPresence(player, online)) {
+				continue;
+			}
+
+			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, leaveRendered), null);
+		}
+
+		if (isSilentBroadcastSender(player)) {
+			lastKnownServerByPlayer.remove(leavingId);
+			return;
 		}
 
 		publishDiscord(config.discord().leaveMessage(), Map.of(
@@ -878,7 +895,16 @@ public final class VelocityMessengerRouter {
 		));
 
 		for (Player online : proxyServer.getAllPlayers()) {
-			sendResult(online, MessengerResultType.NETWORK_CHAT, rendered, null);
+			if (!canReceiveBroadcastPresence(player, online)) {
+				continue;
+			}
+
+			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, rendered), null);
+		}
+
+		if (isSilentBroadcastSender(player)) {
+			logger.debug("Switch server (silenced): " + player.getUsername() + " " + previousServerName + " -> " + toServerName);
+			return;
 		}
 
 		publishDiscord(config.discord().switchMessage(), Map.ofEntries(
@@ -917,6 +943,53 @@ public final class VelocityMessengerRouter {
 		}
 
 		return "proxy";
+	}
+
+	private boolean canReceiveBroadcastPresence(Player source, Player viewer) {
+		if (!isSilentBroadcastSender(source)) {
+			return true;
+		}
+
+		return hasSilentBroadcastPermission(viewer);
+	}
+
+	private String formatPresenceForViewer(Player source, String rendered) {
+		if (!isSilentBroadcastSender(source)) {
+			return rendered;
+		}
+
+		String prefix = config.silentBroadcast().prefix();
+		if (prefix == null || prefix.isBlank()) {
+			return rendered;
+		}
+
+		return prefix + rendered;
+	}
+
+	private boolean isSilentBroadcastSender(Player player) {
+		if (player == null) {
+			return false;
+		}
+
+		return hasSilentBroadcastPermission(player);
+	}
+
+	private boolean hasSilentBroadcastPermission(Player player) {
+		if (player == null) {
+			return false;
+		}
+
+		VelocityMessengerConfig.SilentBroadcastConfig silent = config.silentBroadcast();
+		if (silent == null || !silent.enabled()) {
+			return false;
+		}
+
+		String permission = silent.permission();
+		if (permission == null || permission.isBlank()) {
+			return false;
+		}
+
+		return player.hasPermission(permission);
 	}
 
 	public ModerationResult muteByName(String actor, String targetName, String reason, Long durationMillis) {

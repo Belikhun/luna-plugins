@@ -89,6 +89,13 @@ mentions:
     stay-ms: 2000
     fade-out-ms: 300
 
+# Ẩn join/leave/switch của một số người chơi khỏi chat network mặc định.
+# Người gửi và người xem đều cần permission này để nhìn thấy các bản tin đã ẩn.
+silent-broadcast:
+  enabled: true
+  permission: "lunamessenger.silentbroadcast"
+  prefix: "<dark_gray>[xuỵt]</dark_gray> "
+
 # Alias hiển thị cho server backend. Có thể dùng MiniMessage.
 server-displays:
   lobby: "<gradient:#FFDE9A:#FFBC53:#FFDF47>SẢNH</gradient>"
