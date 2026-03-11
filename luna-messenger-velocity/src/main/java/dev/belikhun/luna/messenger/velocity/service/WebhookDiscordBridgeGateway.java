@@ -174,6 +174,7 @@ public final class WebhookDiscordBridgeGateway implements DiscordBridgeGateway {
 		return embedObject;
 	}
 
+	@SuppressWarnings("null")
 	private void putIfText(DataObject object, String key, String value) {
 		if (value == null || value.isBlank()) {
 			return;

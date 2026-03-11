@@ -19,6 +19,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.ArrayList;
@@ -105,6 +107,21 @@ public final class HelpCommandListener implements Listener {
 			player.sendMessage(miniMessage.deserialize("<green>✔ Đang hiển thị kết quả cho:</green> <white>" + query));
 			openSearchResults(player, query, 0);
 		});
+	}
+
+	@EventHandler
+	public void onQuit(PlayerQuitEvent event) {
+		clearTransientState(event.getPlayer().getUniqueId());
+	}
+
+	@EventHandler
+	public void onKick(PlayerKickEvent event) {
+		clearTransientState(event.getPlayer().getUniqueId());
+	}
+
+	private void clearTransientState(UUID playerId) {
+		waitingSearchInput.remove(playerId);
+		searchQueries.remove(playerId);
 	}
 
 	private void openFrontPage(Player player, int page) {

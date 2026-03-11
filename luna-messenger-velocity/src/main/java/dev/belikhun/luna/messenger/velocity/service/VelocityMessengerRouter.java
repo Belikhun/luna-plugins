@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 
 public final class VelocityMessengerRouter {
 	private static final int DISCORD_LOOP_WINDOW_MS = 15000;
+	private static final int MAX_DISCORD_FINGERPRINTS = 4096;
+	private static final int MAX_SEEN_PLAYERS = 100000;
 	private static final long POKE_STREAK_WINDOW_MS = 15000L;
 	private static final MiniMessage MM = MiniMessage.miniMessage();
 	private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.builder()
@@ -68,6 +70,7 @@ public final class VelocityMessengerRouter {
 	private final Map<UUID, Long> playerSessionStartedAt;
 	private final Map<UUID, String> pendingSelfPresenceByPlayer;
 	private final Set<UUID> seenPlayers;
+	private final ArrayDeque<UUID> seenPlayersOrder;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
 
 	public VelocityMessengerRouter(
@@ -97,6 +100,7 @@ public final class VelocityMessengerRouter {
 		this.playerSessionStartedAt = new ConcurrentHashMap<>();
 		this.pendingSelfPresenceByPlayer = new ConcurrentHashMap<>();
 		this.seenPlayers = ConcurrentHashMap.newKeySet();
+		this.seenPlayersOrder = new ArrayDeque<>();
 		this.recentDiscordOutboundFingerprints = new ConcurrentHashMap<>();
 	}
 
@@ -124,6 +128,7 @@ public final class VelocityMessengerRouter {
 		playerSessionStartedAt.clear();
 		pendingSelfPresenceByPlayer.clear();
 		seenPlayers.clear();
+		seenPlayersOrder.clear();
 		recentDiscordOutboundFingerprints.clear();
 	}
 
@@ -210,6 +215,30 @@ public final class VelocityMessengerRouter {
 
 		seenPlayers.clear();
 		seenPlayers.addAll(state.seenPlayers());
+		seenPlayersOrder.clear();
+		seenPlayersOrder.addAll(seenPlayers);
+		trimSeenPlayers();
+	}
+
+	private boolean markSeenAndCheckFirstJoin(UUID playerId) {
+		if (!seenPlayers.add(playerId)) {
+			return false;
+		}
+
+		seenPlayersOrder.addLast(playerId);
+		trimSeenPlayers();
+		return true;
+	}
+
+	private void trimSeenPlayers() {
+		while (seenPlayers.size() > MAX_SEEN_PLAYERS) {
+			UUID oldest = seenPlayersOrder.pollFirst();
+			if (oldest == null) {
+				break;
+			}
+
+			seenPlayers.remove(oldest);
+		}
 	}
 
 	public void reloadRuntime(VelocityMessengerConfig newConfig, DiscordBridgeGateway newDiscordBridge) {
@@ -705,7 +734,7 @@ public final class VelocityMessengerRouter {
 	}
 
 	public void handlePlayerJoin(Player player, String connectedServerName) {
-		boolean firstJoin = seenPlayers.add(player.getUniqueId());
+		boolean firstJoin = markSeenAndCheckFirstJoin(player.getUniqueId());
 		String serverName = (connectedServerName == null || connectedServerName.isBlank())
 			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("proxy")
 			: connectedServerName;
@@ -788,6 +817,7 @@ public final class VelocityMessengerRouter {
 		UUID leavingId = player.getUniqueId();
 		lastReplyByPlayer.remove(leavingId);
 		rateLimitStates.remove(leavingId);
+		pendingSelfPresenceByPlayer.remove(leavingId);
 		long now = System.currentTimeMillis();
 		Long sessionStartedAt = playerSessionStartedAt.remove(leavingId);
 		String playtime = formatDuration(sessionStartedAt == null ? 0L : Math.max(0L, now - sessionStartedAt));
@@ -1401,6 +1431,26 @@ public final class VelocityMessengerRouter {
 		int loopWindowMs = DISCORD_LOOP_WINDOW_MS;
 		recentDiscordOutboundFingerprints.entrySet().removeIf(entry -> now - entry.getValue() > loopWindowMs);
 		recentDiscordOutboundFingerprints.put(fingerprint(author, content), now);
+
+		while (recentDiscordOutboundFingerprints.size() > MAX_DISCORD_FINGERPRINTS) {
+			String oldestKey = null;
+			long oldestAt = Long.MAX_VALUE;
+			for (Map.Entry<String, Long> entry : recentDiscordOutboundFingerprints.entrySet()) {
+				Long value = entry.getValue();
+				if (value == null || value >= oldestAt) {
+					continue;
+				}
+
+				oldestAt = value;
+				oldestKey = entry.getKey();
+			}
+
+			if (oldestKey == null) {
+				break;
+			}
+
+			recentDiscordOutboundFingerprints.remove(oldestKey);
+		}
 	}
 
 	private boolean shouldDropInboundDiscordLoop(String author, String content, String source) {

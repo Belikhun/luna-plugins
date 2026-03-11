@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public final class PaperMessengerGateway {
@@ -42,6 +43,7 @@ public final class PaperMessengerGateway {
 	private final Map<UUID, PendingRequest> pendingRequests;
 	private final ConcurrentMap<UUID, String> networkPlayerNames;
 	private final ConcurrentMap<UUID, Set<String>> mentionCompletionsByPlayer;
+	private final AtomicBoolean mentionRefreshScheduled;
 	private int timeoutTaskId;
 	private final long requestTimeoutMillis;
 	private final long timeoutCheckIntervalTicks;
@@ -65,6 +67,7 @@ public final class PaperMessengerGateway {
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.networkPlayerNames = new ConcurrentHashMap<>();
 		this.mentionCompletionsByPlayer = new ConcurrentHashMap<>();
+		this.mentionRefreshScheduled = new AtomicBoolean(false);
 		this.timeoutTaskId = -1;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.timeoutCheckIntervalTicks = Math.max(1L, timeoutCheckIntervalTicks);
@@ -201,6 +204,7 @@ public final class PaperMessengerGateway {
 		pendingRequests.clear();
 		networkPlayerNames.clear();
 		mentionCompletionsByPlayer.clear();
+		mentionRefreshScheduled.set(false);
 		if (timeoutTaskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(timeoutTaskId);
 			timeoutTaskId = -1;
@@ -208,7 +212,17 @@ public final class PaperMessengerGateway {
 	}
 
 	private void scheduleMentionCompletionRefresh() {
-		plugin.getServer().getScheduler().runTask(plugin, this::refreshMentionCompletionsForAll);
+		if (!mentionRefreshScheduled.compareAndSet(false, true)) {
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTask(plugin, () -> {
+			try {
+				refreshMentionCompletionsForAll();
+			} finally {
+				mentionRefreshScheduled.set(false);
+			}
+		});
 	}
 
 	private void refreshMentionCompletionsForAll() {

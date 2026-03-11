@@ -35,6 +35,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.StringJoiner;
 
 public final class JdaDiscordBridgeGateway extends ListenerAdapter implements DiscordBridgeGateway {
+	private static final long SELF_FINGERPRINT_WINDOW_MS = 15000L;
+	private static final int MAX_SELF_FINGERPRINTS = 4096;
+
 	@FunctionalInterface
 	public interface InboundHandler {
 		void handle(DiscordInboundMessage inboundMessage);
@@ -100,6 +103,10 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 
 		Set<TextChannel> channels = new LinkedHashSet<>();
 		for (String channelId : channelIds) {
+			if (channelId == null || channelId.isBlank()) {
+				continue;
+			}
+
 			TextChannel channel = jda.getTextChannelById(channelId);
 			if (channel == null) {
 				logger.warn("Không tìm thấy Discord channel với id=" + channelId);
@@ -345,11 +352,14 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 
 		if (!sourceMessage.getEmbeds().isEmpty()) {
 			MessageEmbed sourceEmbed = sourceMessage.getEmbeds().get(0);
-			String authorName = sourceEmbed.getAuthor() == null ? null : sourceEmbed.getAuthor().getName();
-			String authorUrl = sourceEmbed.getAuthor() == null ? null : sourceEmbed.getAuthor().getUrl();
-			String authorIconUrl = sourceEmbed.getAuthor() == null ? null : sourceEmbed.getAuthor().getIconUrl();
-			String thumbnailUrl = sourceEmbed.getThumbnail() == null ? null : sourceEmbed.getThumbnail().getUrl();
-			String imageUrl = sourceEmbed.getImage() == null ? null : sourceEmbed.getImage().getUrl();
+			MessageEmbed.AuthorInfo author = sourceEmbed.getAuthor();
+			MessageEmbed.Thumbnail thumbnail = sourceEmbed.getThumbnail();
+			MessageEmbed.ImageInfo image = sourceEmbed.getImage();
+			String authorName = author == null ? null : author.getName();
+			String authorUrl = author == null ? null : author.getUrl();
+			String authorIconUrl = author == null ? null : author.getIconUrl();
+			String thumbnailUrl = thumbnail == null ? null : thumbnail.getUrl();
+			String imageUrl = image == null ? null : image.getUrl();
 			embed = new DiscordOutboundMessage.Embed(
 				authorName,
 				authorUrl,
@@ -366,11 +376,15 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			return null;
 		}
 
+		String relayUsername = sourceMessage.getAuthor().getName();
+		var member = sourceMessage.getMember();
+		if (member != null) {
+			relayUsername = member.getEffectiveName();
+		}
+
 		return new DiscordOutboundMessage(
 			DiscordOutboundMessage.DispatchType.PLAYER_CHAT,
-			sourceMessage.getMember() == null
-				? sourceMessage.getAuthor().getName()
-				: sourceMessage.getMember().getEffectiveName(),
+			relayUsername,
 			sourceMessage.getAuthor().getEffectiveAvatarUrl(),
 			content,
 			embed
@@ -442,7 +456,8 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 					continue;
 				}
 
-				DataObject data = DataObject.fromJson(response.body());
+				String responseBody = response.body();
+				DataObject data = DataObject.fromJson(responseBody == null ? "{}" : responseBody);
 				String channelId = data.getString("channel_id", "").trim();
 				if (channelId.isEmpty()) {
 					logger.warn("Webhook relay: thiếu channel_id từ webhook response.");
@@ -517,6 +532,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		return embedObject;
 	}
 
+	@SuppressWarnings("null")
 	private void putIfText(DataObject object, String key, String value) {
 		if (value == null || value.isBlank()) {
 			return;
@@ -533,8 +549,28 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		}
 
 		long now = System.currentTimeMillis();
-		recentSelfFingerprints.entrySet().removeIf(entry -> now - entry.getValue() > 15000L);
+		recentSelfFingerprints.entrySet().removeIf(entry -> now - entry.getValue() > SELF_FINGERPRINT_WINDOW_MS);
 		recentSelfFingerprints.put(content.trim().toLowerCase(), now);
+
+		while (recentSelfFingerprints.size() > MAX_SELF_FINGERPRINTS) {
+			String oldestKey = null;
+			long oldestAt = Long.MAX_VALUE;
+			for (Map.Entry<String, Long> entry : recentSelfFingerprints.entrySet()) {
+				Long value = entry.getValue();
+				if (value == null || value >= oldestAt) {
+					continue;
+				}
+
+				oldestAt = value;
+				oldestKey = entry.getKey();
+			}
+
+			if (oldestKey == null) {
+				break;
+			}
+
+			recentSelfFingerprints.remove(oldestKey);
+		}
 	}
 
 	private boolean isSelfEcho(String content) {
@@ -548,7 +584,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			return false;
 		}
 
-		return System.currentTimeMillis() - at <= 15000L;
+		return System.currentTimeMillis() - at <= SELF_FINGERPRINT_WINDOW_MS;
 	}
 
 	@Override

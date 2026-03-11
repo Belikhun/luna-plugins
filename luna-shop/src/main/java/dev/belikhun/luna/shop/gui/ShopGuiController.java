@@ -25,6 +25,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -33,11 +35,11 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.ArrayList;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ShopGuiController implements Listener {
 	private static final int PAGE_SIZE = 45;
@@ -72,15 +74,34 @@ public final class ShopGuiController implements Listener {
 		this.guiManager = new GuiManager();
 		this.numberSelector = new NumberSelectorGui(plugin, this.guiManager);
 		this.plainText = PlainTextComponentSerializer.plainText();
-		this.waitingSearch = new HashMap<>();
-		this.waitingItemEditorText = new HashMap<>();
-		this.waitingCreateItemCategory = new HashMap<>();
-		this.waitingAdminPrompt = new HashMap<>();
-		this.pendingConfirmations = new HashMap<>();
-		this.openItemEditors = new HashMap<>();
+		this.waitingSearch = new ConcurrentHashMap<>();
+		this.waitingItemEditorText = new ConcurrentHashMap<>();
+		this.waitingCreateItemCategory = new ConcurrentHashMap<>();
+		this.waitingAdminPrompt = new ConcurrentHashMap<>();
+		this.pendingConfirmations = new ConcurrentHashMap<>();
+		this.openItemEditors = new ConcurrentHashMap<>();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
+	}
+
+	@EventHandler
+	public void onQuit(PlayerQuitEvent event) {
+		clearTransientState(event.getPlayer().getUniqueId());
+	}
+
+	@EventHandler
+	public void onKick(PlayerKickEvent event) {
+		clearTransientState(event.getPlayer().getUniqueId());
+	}
+
+	private void clearTransientState(UUID playerId) {
+		waitingSearch.remove(playerId);
+		waitingItemEditorText.remove(playerId);
+		waitingCreateItemCategory.remove(playerId);
+		waitingAdminPrompt.remove(playerId);
+		pendingConfirmations.remove(playerId);
+		openItemEditors.remove(playerId);
 	}
 
 	public void openManagementMenu(Player player, int page) {
