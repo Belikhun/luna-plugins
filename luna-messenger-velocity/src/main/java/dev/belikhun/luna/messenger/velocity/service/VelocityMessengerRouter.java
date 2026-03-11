@@ -783,15 +783,28 @@ public final class VelocityMessengerRouter {
 			"sender_display", playerDisplay,
 			"receiver_display", ""
 		));
+		boolean senderHandled = false;
 		for (Player online : proxyServer.getAllPlayers()) {
 			if (!canReceiveBroadcastPresence(player, online)) {
 				continue;
+			}
+
+			if (online.getUniqueId().equals(player.getUniqueId())) {
+				senderHandled = true;
 			}
 
 			String viewerRendered = formatPresenceForViewer(player, joinRendered);
 			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
 			if (!delivered && online.getUniqueId().equals(player.getUniqueId())) {
 				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
+			}
+		}
+
+		if (!senderHandled) {
+			String selfRendered = formatPresenceForViewer(player, joinRendered);
+			boolean delivered = sendResultIfConnected(player, MessengerResultType.NETWORK_CHAT, selfRendered, null, Map.of());
+			if (!delivered) {
+				pendingSelfPresenceByPlayer.put(player.getUniqueId(), selfRendered);
 			}
 		}
 
@@ -899,9 +912,16 @@ public final class VelocityMessengerRouter {
 	}
 
 	public void handleServerSwitch(Player player, String previousServerName, String currentServerName) {
-		String toServerName = currentServerName == null || currentServerName.isBlank()
-			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("")
-			: currentServerName;
+		String toServerName = currentServerName == null ? "" : currentServerName.trim();
+		if (toServerName.isBlank()) {
+			toServerName = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
+		}
+		if (toServerName.isBlank()) {
+			toServerName = lastKnownServerByPlayer.getOrDefault(player.getUniqueId(), "");
+		}
+		if (toServerName.isBlank()) {
+			toServerName = "proxy";
+		}
 		lastKnownServerByPlayer.put(player.getUniqueId(), toServerName);
 		sendPresenceUpdate(new MessengerPresenceMessage(
 			MessengerPresenceMessage.CURRENT_PROTOCOL,
@@ -946,16 +966,29 @@ public final class VelocityMessengerRouter {
 			"sender_display", playerDisplay,
 			"receiver_display", ""
 		));
+		boolean senderHandled = false;
 
 		for (Player online : proxyServer.getAllPlayers()) {
 			if (!canReceiveBroadcastPresence(player, online)) {
 				continue;
 			}
 
+			if (online.getUniqueId().equals(player.getUniqueId())) {
+				senderHandled = true;
+			}
+
 			String viewerRendered = formatPresenceForViewer(player, rendered);
 			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
 			if (!delivered && online.getUniqueId().equals(player.getUniqueId())) {
 				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
+			}
+		}
+
+		if (!senderHandled) {
+			String selfRendered = formatPresenceForViewer(player, rendered);
+			boolean delivered = sendResultIfConnected(player, MessengerResultType.NETWORK_CHAT, selfRendered, null, Map.of());
+			if (!delivered) {
+				pendingSelfPresenceByPlayer.put(player.getUniqueId(), selfRendered);
 			}
 		}
 
