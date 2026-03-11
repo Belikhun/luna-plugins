@@ -5,6 +5,7 @@ import dev.belikhun.luna.core.api.ui.LunaUi;
 
 import dev.belikhun.luna.countdown.commands.CountdownCommand;
 import dev.belikhun.luna.countdown.commands.ShutdownCommand;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -37,16 +38,17 @@ public class Countdown extends JavaPlugin {
 		Bukkit.getServer().getPluginManager().registerEvents(new PlayerEvent(), this);
 
 		CountdownCommand countdownCommand = new CountdownCommand();
-		registerCommand("countdown", countdownCommand);
-		registerCommand("cd", countdownCommand);
-
 		ShutdownCommand shutdownCommand = new ShutdownCommand();
-		registerCommand("shutdown", shutdownCommand);
-		registerCommand("stoptimer", shutdownCommand);
+		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
+			commands.registrar().register("countdown", countdownCommand);
+			commands.registrar().register("cd", countdownCommand);
+			commands.registrar().register("shutdown", shutdownCommand);
+			commands.registrar().register("stoptimer", shutdownCommand);
+		});
 
 		logger.success("LunaCountdown đã khởi động thành công.");
 	}
-	
+
 	@Override
 	public void onDisable() {
 		if (ShutdownCommand.instance != null)

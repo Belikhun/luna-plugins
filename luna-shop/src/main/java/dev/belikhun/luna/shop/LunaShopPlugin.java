@@ -13,6 +13,7 @@ import dev.belikhun.luna.shop.service.ShopService;
 import dev.belikhun.luna.shop.service.ShopTradeLimitService;
 import dev.belikhun.luna.shop.service.ShopTransactionStore;
 import dev.belikhun.luna.shop.store.ShopItemStore;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 
 import java.io.File;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -64,12 +65,16 @@ public final class LunaShopPlugin extends JavaPlugin {
 		this.guiController = new ShopGuiController(this, shopService, itemStore);
 
 		ShopCommand shopCommand = new ShopCommand(guiController, itemStore);
-		registerCommand("shop", shopCommand);
-		registerCommand("buy", shopCommand);
-		registerCommand("store", shopCommand);
-		registerCommand("b", shopCommand);
-		registerCommand("shopadmin", new ShopAdminCommand(this, itemStore, shopService, guiController));
-		registerCommand("lunashop", new LunaShopReloadCommand(this));
+		ShopAdminCommand shopAdminCommand = new ShopAdminCommand(this, itemStore, shopService, guiController);
+		LunaShopReloadCommand reloadCommand = new LunaShopReloadCommand(this);
+		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
+			commands.registrar().register("shop", shopCommand);
+			commands.registrar().register("buy", shopCommand);
+			commands.registrar().register("store", shopCommand);
+			commands.registrar().register("b", shopCommand);
+			commands.registrar().register("shopadmin", shopAdminCommand);
+			commands.registrar().register("lunashop", reloadCommand);
+		});
 		logger.success("LunaShop đã khởi động thành công với " + itemStore.all().size() + " mặt hàng.");
 	}
 

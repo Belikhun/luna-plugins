@@ -1,6 +1,7 @@
 package dev.belikhun.luna.hat;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.Bukkit;
 import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
@@ -23,7 +24,7 @@ public class Hat extends JavaPlugin {
 		registerPermissions();
 
 		HatHandler handler = new HatHandler();
-		registerCommand("hat", handler);
+		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> commands.registrar().register("hat", handler));
 		this.getServer().getPluginManager().registerEvents(handler, this);
 
 		logger.success("LunaHat đã khởi động thành công.");

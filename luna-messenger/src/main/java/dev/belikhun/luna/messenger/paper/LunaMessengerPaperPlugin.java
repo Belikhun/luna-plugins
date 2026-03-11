@@ -9,6 +9,7 @@ import dev.belikhun.luna.messenger.paper.listener.PaperChatCaptureListener;
 import dev.belikhun.luna.messenger.paper.listener.PaperJoinLeaveSuppressListener;
 import dev.belikhun.luna.messenger.paper.service.PaperBackendPlaceholderResolver;
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -48,7 +49,7 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 		bindCommand("sv", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.SERVER));
 		bindCommand("msg", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.DIRECT));
 		bindCommand("r", new MessengerContextCommand(gateway, MessengerContextCommand.ContextType.REPLY));
-		registerCommand("poke", new MessengerPokeCommand(gateway));
+		bindCommand("poke", new MessengerPokeCommand(gateway));
 		getServer().getPluginManager().registerEvents(new PaperChatCaptureListener(gateway), this);
 		getServer().getPluginManager().registerEvents(new PaperJoinLeaveSuppressListener(), this);
 
@@ -65,7 +66,7 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 		}
 	}
 
-	private void bindCommand(String name, MessengerContextCommand command) {
-		registerCommand(name, command);
+	private void bindCommand(String name, io.papermc.paper.command.brigadier.BasicCommand command) {
+		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> commands.registrar().register(name, command));
 	}
 }
