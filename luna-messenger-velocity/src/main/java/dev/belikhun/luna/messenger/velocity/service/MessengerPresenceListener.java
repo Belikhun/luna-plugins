@@ -35,7 +35,7 @@ public final class MessengerPresenceListener {
 		}
 
 		String previousServerName = event.getPreviousServer().get().getServerInfo().getName();
-		router.handleServerSwitch(event.getPlayer(), previousServerName);
+		router.handleServerSwitch(event.getPlayer(), previousServerName, currentServerName);
 	}
 
 	@Subscribe

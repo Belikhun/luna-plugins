@@ -761,7 +761,7 @@ public final class VelocityMessengerRouter {
 
 			String viewerRendered = formatPresenceForViewer(player, joinRendered);
 			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
-			if (!delivered && online.getUniqueId().equals(player.getUniqueId()) && isSilentBroadcastSender(player)) {
+			if (!delivered && online.getUniqueId().equals(player.getUniqueId())) {
 				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
 			}
 		}
@@ -868,8 +868,10 @@ public final class VelocityMessengerRouter {
 		lastKnownServerByPlayer.remove(leavingId);
 	}
 
-	public void handleServerSwitch(Player player, String previousServerName) {
-		String toServerName = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
+	public void handleServerSwitch(Player player, String previousServerName, String currentServerName) {
+		String toServerName = currentServerName == null || currentServerName.isBlank()
+			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("")
+			: currentServerName;
 		lastKnownServerByPlayer.put(player.getUniqueId(), toServerName);
 		sendPresenceUpdate(new MessengerPresenceMessage(
 			MessengerPresenceMessage.CURRENT_PROTOCOL,
@@ -922,7 +924,7 @@ public final class VelocityMessengerRouter {
 
 			String viewerRendered = formatPresenceForViewer(player, rendered);
 			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
-			if (!delivered && online.getUniqueId().equals(player.getUniqueId()) && isSilentBroadcastSender(player)) {
+			if (!delivered && online.getUniqueId().equals(player.getUniqueId())) {
 				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
 			}
 		}
