@@ -73,7 +73,7 @@ subprojects {
 
     if (!isApiModule) {
         tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
-            destinationDirectory.set(rootProject.layout.projectDirectory.dir("output"))
+            destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/$platformTarget"))
             archiveBaseName.set("${moduleBaseName}-$platformTarget")
             archiveVersion.set("")
         }

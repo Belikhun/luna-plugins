@@ -36,7 +36,8 @@ import java.util.logging.Logger;
 	version = BuildConstants.VERSION,
 	description = "Centralized messenger and cross-server chat for Luna network",
 	dependencies = {
-		@Dependency(id = "lunacore")
+		@Dependency(id = "lunacore"),
+		@Dependency(id = "miniplaceholders", optional = true)
 	},
 	authors = {"Belikhun"}
 )
