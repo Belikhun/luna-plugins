@@ -4,6 +4,7 @@ public enum MessengerResultType {
 	INFO,
 	ERROR,
 	MENTION_ALERT,
+	POKE_ALERT,
 	NETWORK_CHAT,
 	SERVER_CHAT,
 	DIRECT_CHAT,

@@ -133,6 +133,9 @@ public final class PaperMessengerGateway {
 								+ " subtitle=" + subtitleText);
 						}
 					}
+				} else if (result.resultType() == MessengerResultType.POKE_ALERT) {
+					player.sendRichMessage(result.miniMessage());
+					playResultSound(player, result.metadata().get("poke.sound"), result.metadata().get("poke.volume"), result.metadata().get("poke.pitch"), "poke");
 				} else {
 					player.sendRichMessage(result.miniMessage());
 				}
@@ -319,6 +322,10 @@ public final class PaperMessengerGateway {
 	}
 
 	private void playMentionSound(Player player, String configuredSound) {
+		playResultSound(player, configuredSound, "1.0", "1.0", "mention");
+	}
+
+	private void playResultSound(Player player, String configuredSound, String volumeText, String pitchText, String label) {
 		if (configuredSound == null || configuredSound.isBlank() || configuredSound.equalsIgnoreCase("none")) {
 			return;
 		}
@@ -329,22 +336,37 @@ public final class PaperMessengerGateway {
 			normalized = "minecraft:" + normalized;
 		}
 
+		float volume = parseFloat(volumeText, 1f);
+		float pitch = parseFloat(pitchText, 1f);
+
 		try {
 			NamespacedKey key = NamespacedKey.fromString(normalized);
 			if (key == null) {
-				logger.debug("Sound mention không hợp lệ cho " + player.getName() + ": " + configuredSound);
+				logger.debug("Sound " + label + " không hợp lệ cho " + player.getName() + ": " + configuredSound);
 				return;
 			}
 
 			Sound sound = Registry.SOUNDS.get(key);
 			if (sound == null) {
-				logger.debug("Không tìm thấy sound mention cho " + player.getName() + ": " + normalized);
+				logger.debug("Không tìm thấy sound " + label + " cho " + player.getName() + ": " + normalized);
 				return;
 			}
 
-			player.playSound(player.getLocation(), sound, 1f, 1f);
+			player.playSound(player.getLocation(), sound, volume, pitch);
 		} catch (Throwable throwable) {
-			logger.debug("Không thể phát sound mention cho " + player.getName() + ": " + configuredSound);
+			logger.debug("Không thể phát sound " + label + " cho " + player.getName() + ": " + configuredSound);
+		}
+	}
+
+	private float parseFloat(String text, float fallback) {
+		if (text == null || text.isBlank()) {
+			return fallback;
+		}
+
+		try {
+			return Float.parseFloat(text.trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
 		}
 	}
 

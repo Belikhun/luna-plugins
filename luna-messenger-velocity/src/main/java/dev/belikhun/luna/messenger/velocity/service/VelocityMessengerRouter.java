@@ -17,10 +17,10 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import net.kyori.adventure.key.Key;
+import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.sound.Sound;
-import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
@@ -38,7 +38,6 @@ import java.util.regex.Pattern;
 public final class VelocityMessengerRouter {
 	private static final int DISCORD_LOOP_WINDOW_MS = 15000;
 	private static final long POKE_STREAK_WINDOW_MS = 15000L;
-	private static final long POKE_STREAK_MIN_INCREMENT_MS = 1250L;
 	private static final MiniMessage MM = MiniMessage.miniMessage();
 	private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.builder()
 		.character('&')
@@ -268,8 +267,7 @@ public final class VelocityMessengerRouter {
 
 		int streak = nextPokeStreak(sender.getUniqueId(), target.getUniqueId());
 		sendInfo(sender, pokeSenderMessage(target.getUsername(), streak), correlationId);
-		playPokeReceiverSound(target, streak);
-		sendInfo(target, pokeTargetMessage(sender.getUsername(), streak), null);
+		sendResult(target, MessengerResultType.POKE_ALERT, pokeTargetMessage(sender.getUsername(), streak), null, pokeReceiverMetadata(streak));
 		logger.audit("POKE " + sender.getUsername() + " -> " + target.getUsername() + " streak=" + streak);
 	}
 
@@ -284,17 +282,12 @@ public final class VelocityMessengerRouter {
 			return 1;
 		}
 
-		long elapsed = now - existing.lastPokeAtEpochMs();
-		if (elapsed < POKE_STREAK_MIN_INCREMENT_MS) {
-			return existing.streak();
-		}
-
 		int next = existing.streak() + 1;
 		pokeStreaks.put(key, new PokeStreakState(next, now));
 		return next;
 	}
 
-	private void playPokeReceiverSound(Player receiver, int streak) {
+	private Map<String, String> pokeReceiverMetadata(int streak) {
 		String soundKey;
 		float pitch;
 		switch (streakTier(streak)) {
@@ -316,11 +309,11 @@ public final class VelocityMessengerRouter {
 			}
 		}
 
-		try {
-			receiver.playSound(Sound.sound(Key.key(soundKey), Sound.Source.PLAYER, 1f, pitch));
-		} catch (Exception exception) {
-			logger.debug("Không thể phát sound poke cho " + receiver.getUsername() + ": " + soundKey);
-		}
+		return Map.of(
+			"poke.sound", soundKey,
+			"poke.pitch", Float.toString(pitch),
+			"poke.volume", "1.0"
+		);
 	}
 
 	private int streakTier(int streak) {
@@ -359,13 +352,13 @@ public final class VelocityMessengerRouter {
 			return "<gold>👉 <white>" + escaped + "</white> vừa chọc bạn!</gold>";
 		}
 		if (tier == 2) {
-			return "<yellow>👉 <white>" + escaped + "</white> đang chọc bạn liên hoàn x" + streak + "!</yellow>";
+			return "<yellow>👉 <white>" + escaped + "</white> spam chọc x" + streak + "! Não bạn rung nhẹ rồi.</yellow>";
 		}
 		if (tier == 3) {
-			return "<gold>⚠ <white>" + escaped + "</white> đã đạt chuỗi chọc x" + streak + " lên bạn!</gold>";
+			return "<gold>⚠ <white>" + escaped + "</white> combo x" + streak + "! Bạn mở khóa danh hiệu bao cát dễ thương.</gold>";
 		}
 
-		return "<red>🚨 <white>" + escaped + "</white> đang MEGA CHỌC bạn x" + streak + "!</red>";
+		return "<red>🚨 <white>" + escaped + "</white> MEGA CHỌC x" + streak + "! Về kể lại không ai tin luôn á.</red>";
 	}
 
 	private void handleSendDirect(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
