@@ -234,6 +234,12 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			return;
 		}
 
+		// Webhook messages are already delivered to all configured endpoints by webhook fan-out.
+		// Reprocessing them here would create mirror loops and duplicated join/leave notifications.
+		if (message.isWebhookMessage()) {
+			return;
+		}
+
 		if (config.ignoreBotMessages() && message.getAuthor().isBot()) {
 			return;
 		}
