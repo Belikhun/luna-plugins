@@ -13,11 +13,15 @@ import dev.belikhun.luna.core.api.messenger.BackendPlaceholderResolver;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
-import net.kyori.adventure.title.Title;
+import dev.belikhun.luna.core.paper.toast.ToastService;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -26,9 +30,12 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 public final class PaperMessengerGateway {
+	private static final MiniMessage MM = MiniMessage.miniMessage();
+
 	private final JavaPlugin plugin;
 	private final LunaLogger logger;
 	private final PluginMessageBus<Player, Player> bus;
+	private final ToastService toastService;
 	private final BackendPlaceholderResolver placeholderResolver;
 	private final Map<UUID, PendingRequest> pendingRequests;
 	private final ConcurrentMap<UUID, String> networkPlayerNames;
@@ -41,6 +48,7 @@ public final class PaperMessengerGateway {
 		JavaPlugin plugin,
 		LunaLogger logger,
 		PluginMessageBus<Player, Player> bus,
+		ToastService toastService,
 		BackendPlaceholderResolver placeholderResolver,
 		long requestTimeoutMillis,
 		long timeoutCheckIntervalTicks,
@@ -49,6 +57,7 @@ public final class PaperMessengerGateway {
 		this.plugin = plugin;
 		this.logger = logger.scope("Gateway");
 		this.bus = bus;
+		this.toastService = toastService;
 		this.placeholderResolver = placeholderResolver;
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.networkPlayerNames = new ConcurrentHashMap<>();
@@ -98,18 +107,25 @@ public final class PaperMessengerGateway {
 			if (player != null) {
 				if (result.resultType() == MessengerResultType.MENTION_ALERT) {
 					player.sendRichMessage(result.miniMessage());
+					playMentionSound(player, result.metadata().get("mention.sound"));
 					boolean toastEnabled = parseBoolean(result.metadata().get("toast.enabled"), true);
 					if (toastEnabled) {
 						String titleText = result.metadata().getOrDefault("toast.title", "<yellow>Bạn được nhắc đến</yellow>");
 						String subtitleText = result.metadata().getOrDefault("toast.subtitle", "<white>Kiểm tra khung chat</white>");
-						long fadeIn = parseLong(result.metadata().get("toast.fade-in-ms"), 200L);
-						long stay = parseLong(result.metadata().get("toast.stay-ms"), 2000L);
-						long fadeOut = parseLong(result.metadata().get("toast.fade-out-ms"), 300L);
-						player.showTitle(Title.title(
-							net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(titleText),
-							net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(subtitleText),
-							Title.Times.times(Duration.ofMillis(Math.max(0L, fadeIn)), Duration.ofMillis(Math.max(0L, stay)), Duration.ofMillis(Math.max(0L, fadeOut)))
-						));
+						Component toastTitle = MM.deserialize(titleText);
+						Component toastSubtitle = MM.deserialize(subtitleText);
+						ToastService.ToastResult toastResult = toastService.sendOneShot(
+							player,
+							"mention_toast",
+							toastTitle,
+							toastSubtitle
+						);
+						if (!toastResult.success()) {
+							logger.audit("MENTION_TOAST_FAIL player=" + player.getName()
+								+ " reason=" + toastResult.failureReason()
+								+ " title=" + titleText
+								+ " subtitle=" + subtitleText);
+						}
 					}
 				} else {
 					player.sendRichMessage(result.miniMessage());
@@ -241,23 +257,41 @@ public final class PaperMessengerGateway {
 		}
 	}
 
-	private long parseLong(String text, long fallback) {
-		if (text == null || text.isBlank()) {
-			return fallback;
-		}
-
-		try {
-			return Long.parseLong(text.trim());
-		} catch (NumberFormatException exception) {
-			return fallback;
-		}
-	}
-
 	private boolean parseBoolean(String text, boolean fallback) {
 		if (text == null || text.isBlank()) {
 			return fallback;
 		}
 		return Boolean.parseBoolean(text.trim());
+	}
+
+	private void playMentionSound(Player player, String configuredSound) {
+		if (configuredSound == null || configuredSound.isBlank() || configuredSound.equalsIgnoreCase("none")) {
+			return;
+		}
+
+		String normalized = configuredSound.trim().toLowerCase();
+		if (!normalized.contains(":")) {
+			normalized = normalized.replace('_', '.');
+			normalized = "minecraft:" + normalized;
+		}
+
+		try {
+			NamespacedKey key = NamespacedKey.fromString(normalized);
+			if (key == null) {
+				logger.debug("Sound mention không hợp lệ cho " + player.getName() + ": " + configuredSound);
+				return;
+			}
+
+			Sound sound = Registry.SOUNDS.get(key);
+			if (sound == null) {
+				logger.debug("Không tìm thấy sound mention cho " + player.getName() + ": " + normalized);
+				return;
+			}
+
+			player.playSound(player.getLocation(), sound, 1f, 1f);
+		} catch (Throwable throwable) {
+			logger.debug("Không thể phát sound mention cho " + player.getName() + ": " + configuredSound);
+		}
 	}
 
 	private record PendingRequest(UUID playerId, MessengerCommandType commandType, long createdAtEpochMillis) {

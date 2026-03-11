@@ -22,6 +22,8 @@ import dev.belikhun.luna.core.api.string.MessageFormatter;
 import dev.belikhun.luna.core.paper.migration.CoreConfigMigrations;
 import dev.belikhun.luna.core.paper.migration.CoreDatabaseMigrations;
 import dev.belikhun.luna.core.paper.messaging.PaperPluginMessagingBus;
+import dev.belikhun.luna.core.paper.toast.AdvancementToastService;
+import dev.belikhun.luna.core.paper.toast.ToastService;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
@@ -62,6 +64,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		coreLogger.audit("HTTP manager đã sẵn sàng.");
 		boolean pluginMessagingLogsEnabled = configStore.get("logging.pluginMessaging.enabled").asBoolean(false);
 		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger, pluginMessagingLogsEnabled);
+		ToastService toastService = new AdvancementToastService(this);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
 
 		UserProfileRepository userProfileRepository = new UserProfileRepository(databaseManager.getDatabase());
@@ -77,6 +80,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		dependencyManager.registerSingleton(HelpRegistry.class, helpRegistry);
 		dependencyManager.registerSingleton(HttpServerManager.class, httpServerManager);
 		dependencyManager.registerSingleton(PluginMessageBus.class, pluginMessaging);
+		dependencyManager.registerSingleton(ToastService.class, toastService);
 		dependencyManager.registerSingleton(Router.class, httpServerManager.router());
 		dependencyManager.registerSingleton(UserProfileRepository.class, userProfileRepository);
 		dependencyManager.registerSingleton(MigrationManager.class, migrationManager);
@@ -94,7 +98,8 @@ public final class LunaCorePlugin extends JavaPlugin {
 			helpRegistry,
 			httpServerManager,
 			userProfileRepository,
-			pluginMessaging
+			pluginMessaging,
+			toastService
 		);
 
 		LunaCore.set(services);

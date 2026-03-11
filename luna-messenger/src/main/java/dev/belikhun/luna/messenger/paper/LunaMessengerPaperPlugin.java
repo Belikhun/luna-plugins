@@ -35,6 +35,7 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 			this,
 			logger,
 			pluginMessaging,
+			LunaCore.services().toastService(),
 			new PaperBackendPlaceholderResolver(this, getConfig().getStringList("placeholder-api.export-keys")),
 			timeoutMillis,
 			timeoutCheckIntervalTicks,

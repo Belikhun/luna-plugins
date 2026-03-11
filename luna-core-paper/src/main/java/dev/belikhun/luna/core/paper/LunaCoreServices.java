@@ -10,6 +10,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
+import dev.belikhun.luna.core.paper.toast.ToastService;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
@@ -24,7 +25,8 @@ public record LunaCoreServices(
 	HelpRegistry helpRegistry,
 	HttpServerManager httpServerManager,
 	UserProfileRepository userProfileRepository,
-	PluginMessageBus<Player, Player> pluginMessaging
+	PluginMessageBus<Player, Player> pluginMessaging,
+	ToastService toastService
 ) {
 }
 

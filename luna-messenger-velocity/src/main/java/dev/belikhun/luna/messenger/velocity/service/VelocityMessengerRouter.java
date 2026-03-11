@@ -989,8 +989,8 @@ public final class VelocityMessengerRouter {
 
 	private String renderWithStack(String template, Map<String, String> internalValues, Map<String, String> backendValues, Player player) {
 		String internalRendered = render(template, internalValues == null ? Map.of() : internalValues);
-		String backendRendered = renderRaw(internalRendered, backendValues == null ? Map.of() : backendValues);
-		return miniPlaceholderResolver.resolve(player, backendRendered);
+		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered);
+		return renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
 	}
 
 	private void publishDiscord(
@@ -1079,7 +1079,7 @@ public final class VelocityMessengerRouter {
 	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {
 		String displayName = fallbackDisplayName == null ? "" : fallbackDisplayName;
 		String format = config.userDisplayFormat();
-		String rendered = renderRaw(format, Map.of(
+		String internalRendered = renderRaw(format, Map.of(
 			"player_prefix", playerPrefix == null ? "" : playerPrefix,
 			"displayname", displayName,
 			"player_name", displayName,
@@ -1087,8 +1087,8 @@ public final class VelocityMessengerRouter {
 			"target_name", displayName,
 			"receiver_name", displayName
 		));
-		rendered = renderRaw(rendered, backendValues == null ? Map.of() : backendValues);
-		rendered = miniPlaceholderResolver.resolve(player, rendered);
+		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered);
+		String rendered = renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
 		String normalized = rendered == null ? "" : rendered.trim();
 		return normalized.isEmpty() ? displayName : normalized;
 	}
@@ -1127,8 +1127,13 @@ public final class VelocityMessengerRouter {
 		Player player,
 		Map<String, String> unescapedValues
 	) {
-		String rendered = renderWithStack(template, internalValues, backendValues, player);
-		rendered = injectUnescapedPlaceholders(rendered, unescapedValues);
+		Map<String, String> unescapedMap = unescapedValues == null ? Map.of() : unescapedValues;
+		String rendered = render(template, internalValues == null ? Map.of() : internalValues);
+		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
+		rendered = miniPlaceholderResolver.resolve(player, rendered);
+		rendered = renderRaw(rendered, backendValues == null ? Map.of() : backendValues);
+		// Safeguard: backend-resolved values may still leave display placeholders unchanged.
+		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
 		String messageMini = legacyToMini(rawMessage);
 		if (rendered.contains("%message%")) {
 			return rendered.replace("%message%", messageMini);
@@ -1253,6 +1258,7 @@ public final class VelocityMessengerRouter {
 		metadata.put("toast.fade-in-ms", String.valueOf(mentionConfig.toastFadeInMs()));
 		metadata.put("toast.stay-ms", String.valueOf(mentionConfig.toastStayMs()));
 		metadata.put("toast.fade-out-ms", String.valueOf(mentionConfig.toastFadeOutMs()));
+		metadata.put("mention.sound", mentionConfig.sound() == null ? "" : mentionConfig.sound());
 		sendResult(recipient, MessengerResultType.MENTION_ALERT, alert, null, metadata);
 		playMentionSound(recipient, mentionConfig.sound());
 	}
@@ -1263,7 +1269,10 @@ public final class VelocityMessengerRouter {
 		}
 
 		try {
-			String normalized = soundName.toLowerCase();
+			String normalized = soundName.trim().toLowerCase();
+			if (!normalized.contains(":")) {
+				normalized = normalized.replace('_', '.');
+			}
 			if (!normalized.contains(":")) {
 				normalized = "minecraft:" + normalized;
 			}
