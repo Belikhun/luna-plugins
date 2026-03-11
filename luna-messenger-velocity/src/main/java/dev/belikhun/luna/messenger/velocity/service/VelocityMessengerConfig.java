@@ -10,6 +10,7 @@ import java.util.Map;
 public final class VelocityMessengerConfig {
 	private final FormatProfile defaults;
 	private final Map<String, FormatProfile> perServer;
+	private final String userDisplayFormat;
 	private final Map<String, String> serverDisplays;
 	private final String defaultServerColor;
 	private final Map<String, String> serverColors;
@@ -20,6 +21,7 @@ public final class VelocityMessengerConfig {
 	private VelocityMessengerConfig(
 		FormatProfile defaults,
 		Map<String, FormatProfile> perServer,
+		String userDisplayFormat,
 		Map<String, String> serverDisplays,
 		String defaultServerColor,
 		Map<String, String> serverColors,
@@ -29,6 +31,7 @@ public final class VelocityMessengerConfig {
 	) {
 		this.defaults = defaults;
 		this.perServer = perServer;
+		this.userDisplayFormat = userDisplayFormat;
 		this.serverDisplays = serverDisplays;
 		this.defaultServerColor = defaultServerColor;
 		this.serverColors = serverColors;
@@ -72,6 +75,7 @@ public final class VelocityMessengerConfig {
 		return new VelocityMessengerConfig(
 			defaults,
 			Map.copyOf(perServer),
+			str(formats.get("user-display-format"), "%player_prefix% %displayname%"),
 			Map.copyOf(serverDisplays),
 			defaultServerColor,
 			Map.copyOf(serverColors),
@@ -94,6 +98,10 @@ public final class VelocityMessengerConfig {
 
 	public MentionConfig mentions() {
 		return mentions;
+	}
+
+	public String userDisplayFormat() {
+		return userDisplayFormat;
 	}
 
 	public RateLimitConfig rateLimit() {
@@ -216,6 +224,7 @@ public final class VelocityMessengerConfig {
 	private static FormatProfile parseProfile(Map<String, Object> map, FormatProfile fallback) {
 		Map<String, Object> channel = map(map.get("channel"));
 		Map<String, Object> direct = map(map.get("direct"));
+		Map<String, Object> reply = map(map.get("reply"));
 		Map<String, Object> broadcast = map(map.get("broadcast"));
 		Map<String, Object> presence = map(map.get("presence"));
 		Map<String, Object> firstJoin = map(presence.get("first-join"));
@@ -228,6 +237,8 @@ public final class VelocityMessengerConfig {
 			str(channel.get("server"), fallback.serverFormat()),
 			str(direct.get("to-sender"), fallback.directToSenderFormat()),
 			str(direct.get("to-receiver"), fallback.directToReceiverFormat()),
+			str(reply.get("to-sender"), fallback.replyToSenderFormat()),
+			str(reply.get("to-receiver"), fallback.replyToReceiverFormat()),
 			str(broadcast.get("format"), fallback.broadcastFormat()),
 			str(firstJoin.get("format"), fallback.firstJoinNetworkFormat()),
 			str(join.get("format"), fallback.joinNetworkFormat()),
@@ -241,16 +252,18 @@ public final class VelocityMessengerConfig {
 
 	private static FormatProfile defaultProfile() {
 		return new FormatProfile(
-			"<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>",
-			"<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>",
-			"<gray>[<light_purple>DM</light_purple> -> <white>%target_name%</white>]</gray> %player_prefix% <white>%message%</white>",
-			"<gray>[<light_purple>DM</light_purple> <- <white>%sender_name%</white>]</gray> %player_prefix% <white>%message%</white>",
+			"<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>",
+			"<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>",
+			"<gray>[DM] Bạn nhắn cho</gray> %receiver_display%<gray>:</gray>",
+			"<gray>[DM]</gray> %sender_display% <gray>nhắn cho bạn:</gray>",
+			"<gray>[DM] Bạn trả lời</gray> %receiver_display%<gray>:</gray>",
+			"<gray>[DM]</gray> %sender_display% <gray>trả lời bạn:</gray>",
 			"<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>%message%</white>",
-			"<gray>[<green>++<gray>]<reset> %player_prefix% %displayname%",
-			"<gray>[<green>+<gray>]<reset> %player_prefix% %displayname%",
-			"<gray>[<red>-<gray>]<reset> %player_prefix% %displayname%",
+			"<gray>[<green>++<gray>]<reset> %player_display%",
+			"<gray>[<green>+<gray>]<reset> %player_display%",
+			"<gray>[<red>-<gray>]<reset> %player_display%",
 			true,
-			"<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>]</gray> %player_prefix% <white>%sender_name%</white>",
+			"<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>]</gray> %player_display%",
 			"<gray>[<color:#5865F2>#%channel_name%</color>]</gray> <light_purple>%discord_author%</light_purple> <gray><bold>>></bold></gray> <white>%message%</white>",
 			"[%channel_name%] %sender_name%: %message%"
 		);
@@ -356,6 +369,8 @@ public final class VelocityMessengerConfig {
 		String serverFormat,
 		String directToSenderFormat,
 		String directToReceiverFormat,
+		String replyToSenderFormat,
+		String replyToReceiverFormat,
 		String broadcastFormat,
 		String firstJoinNetworkFormat,
 		String joinNetworkFormat,

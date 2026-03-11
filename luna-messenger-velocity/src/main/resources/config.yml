@@ -13,6 +13,9 @@ chat:
 #
 # 1) Channel/Chat format placeholders
 #    - %sender_name%: Tên người gửi
+#    - %player_display%: Tên hiển thị người chơi theo formats.user-display-format
+#    - %sender_display%: Tên hiển thị người gửi theo formats.user-display-format
+#    - %receiver_display%: Tên hiển thị người nhận theo formats.user-display-format
 #    - %server_name%: Tên backend server hiện tại (Velocity)
 #    - %server_display%: Tên hiển thị server (map từ server-displays)
 #    - %server_color%: Màu nhấn của server (map từ server-colors)
@@ -106,32 +109,40 @@ server-colors:
   manhunt: "#A39AFF"
 
 formats:
+  # Format tập trung để hiển thị người chơi, dùng cho %player_display%/%sender_display%/%receiver_display%.
+  # Placeholder dùng được: %player_prefix%, %displayname%, %player_name% và third-party placeholders.
+  user-display-format: "%player_prefix% %displayname%"
+
   defaults:
-    # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %message%, %player_avatar_url%
+    # Placeholder dùng được: %player_name%, %player_prefix%, %player_display%, %server_name%, %channel_name%, %message%, %player_avatar_url%
     channel:
-      network: "<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>"
-      server: "<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>"
+      network: "<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>"
+      server: "<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>"
     broadcast:
       # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %server_color%, %message%
       format: "<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>%message%</white>"
     presence:
       first-join:
-        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %server_name%, %server_display%, %server_color%, %message%
-        format: "<gray>[<green>++<gray>]<reset> %player_prefix% %displayname%"
+        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %message%
+        format: "<gray>[<green>++<gray>]<reset> %player_display%"
       join:
-        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %server_name%, %server_display%, %server_color%, %message%
-        format: "<gray>[<green>+<gray>]<reset> %player_prefix% %displayname%"
+        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %message%
+        format: "<gray>[<green>+<gray>]<reset> %player_display%"
       leave:
-        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %server_name%, %server_display%, %server_color%, %message%
-        format: "<gray>[<red>-<gray>]<reset> %player_prefix% %displayname%"
+        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %message%
+        format: "<gray>[<red>-<gray>]<reset> %player_display%"
       server-switch:
         enabled: true
-        # Placeholder dùng được: %sender_name%, %displayname%, %player_prefix%, %from_server%, %to_server%, %from_display%, %to_display%, %from%, %to%, %from_clean%, %to_clean%, %server_display%, %server_color%
-        format: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>]</gray> %player_prefix% <white>%sender_name%</white>"
-    # Placeholder dùng được: %sender_name%, %target_name%, %player_prefix%, %server_name%, %channel_name%, %message%, %player_avatar_url%
+        # Placeholder dùng được: %sender_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %from_server%, %to_server%, %from_display%, %to_display%, %from%, %to%, %from_clean%, %to_clean%, %server_display%, %server_color%
+        format: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>]</gray> %player_display%"
+    # Placeholder dùng được: %sender_name%, %target_name%, %player_display%, %sender_display%, %receiver_display%, %server_name%, %channel_name%, %message%, %player_avatar_url%
     direct:
-      to-sender: "<gray>[<light_purple>DM</light_purple> -> <white>%target_name%</white>]</gray> %player_prefix% <white>%message%</white>"
-      to-receiver: "<gray>[<light_purple>DM</light_purple> <- <white>%sender_name%</white>]</gray> %player_prefix% <white>%message%</white>"
+      to-sender: "<gray>[DM] Bạn nhắn cho</gray> %receiver_display%<gray>:</gray>"
+      to-receiver: "<gray>[DM]</gray> %sender_display% <gray>nhắn cho bạn:</gray>"
+    # Placeholder dùng được tương tự direct.
+    reply:
+      to-sender: "<gray>[DM] Bạn trả lời</gray> %receiver_display%<gray>:</gray>"
+      to-receiver: "<gray>[DM]</gray> %sender_display% <gray>trả lời bạn:</gray>"
     # inbound-network: %discord_author%, %channel_name%, %message%
     discord:
       inbound-network: "<gray>[<color:#5865F2>#%channel_name%</color>]</gray> <light_purple>%discord_author%</light_purple> <gray><bold>>></bold></gray> <white>%message%</white>"

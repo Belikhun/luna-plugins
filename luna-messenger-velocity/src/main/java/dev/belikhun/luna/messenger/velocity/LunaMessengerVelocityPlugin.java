@@ -19,6 +19,7 @@ import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerBroadcastCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerModerationCommand;
+import dev.belikhun.luna.messenger.velocity.command.MessengerSpyCommand;
 import dev.belikhun.luna.messenger.velocity.service.DiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.JdaDiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.MessengerPresenceListener;
@@ -130,6 +131,11 @@ public final class LunaMessengerVelocityPlugin {
 			.plugin(this)
 			.build();
 		manager.register(broadcastMeta, new MessengerBroadcastCommand(router));
+
+		CommandMeta spyMeta = manager.metaBuilder("spy")
+			.plugin(this)
+			.build();
+		manager.register(spyMeta, new MessengerSpyCommand(proxyServer, router));
 	}
 
 	private synchronized void reloadRuntimeConfig() {

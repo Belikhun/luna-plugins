@@ -60,6 +60,7 @@ public final class VelocityMessengerRouter {
 	private final Map<UUID, MessagingContext> contextByPlayer;
 	private final Map<UUID, UUID> lastReplyByPlayer;
 	private final Map<UUID, MuteRecord> mutedPlayers;
+	private final Map<UUID, SpySubscription> spySubscriptions;
 	private final Map<UUID, RateLimitState> rateLimitStates;
 	private final Set<UUID> seenPlayers;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
@@ -84,6 +85,7 @@ public final class VelocityMessengerRouter {
 		this.contextByPlayer = new ConcurrentHashMap<>();
 		this.lastReplyByPlayer = new ConcurrentHashMap<>();
 		this.mutedPlayers = new ConcurrentHashMap<>();
+		this.spySubscriptions = new ConcurrentHashMap<>();
 		this.rateLimitStates = new ConcurrentHashMap<>();
 		this.seenPlayers = ConcurrentHashMap.newKeySet();
 		this.recentDiscordOutboundFingerprints = new ConcurrentHashMap<>();
@@ -106,6 +108,7 @@ public final class VelocityMessengerRouter {
 		contextByPlayer.clear();
 		lastReplyByPlayer.clear();
 		mutedPlayers.clear();
+		spySubscriptions.clear();
 		rateLimitStates.clear();
 		seenPlayers.clear();
 		recentDiscordOutboundFingerprints.clear();
@@ -252,7 +255,7 @@ public final class VelocityMessengerRouter {
 			return;
 		}
 
-		sendDirect(sender, target, message, resolvedValues, correlationId);
+		sendDirect(sender, target, message, resolvedValues, correlationId, false);
 	}
 
 	private void handleSwitchDirect(Player sender, String targetName, UUID correlationId) {
@@ -287,7 +290,7 @@ public final class VelocityMessengerRouter {
 			return;
 		}
 
-		sendDirect(sender, target, message, resolvedValues, correlationId);
+		sendDirect(sender, target, message, resolvedValues, correlationId, true);
 	}
 
 	private void routeChat(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
@@ -312,7 +315,7 @@ public final class VelocityMessengerRouter {
 				sendInfo(sender, "<yellow>ℹ Đã tự động chuyển bạn về kênh <white>mạng</white>.</yellow>", correlationId);
 				return;
 			}
-			sendDirect(sender, target, message, resolvedValues, correlationId);
+			sendDirect(sender, target, message, resolvedValues, correlationId, false);
 			return;
 		}
 		routeNetwork(sender, message, resolvedValues, correlationId);
@@ -322,6 +325,8 @@ public final class VelocityMessengerRouter {
 		String serverName = sender.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
 		String serverDisplay = config.serverDisplay(serverName);
 		String serverColor = config.serverColor(serverName);
+		String senderPrefix = resolvePresencePlayerPrefix(sender);
+		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String channelName = config.discord().networkChannelName();
 		String avatarUrl = resolveAvatarUrl(sender, resolvedValues);
@@ -335,7 +340,11 @@ public final class VelocityMessengerRouter {
 			"server_color", serverColor
 		);
 		String rendered = renderPlayerMessage(profile.networkFormat(), mention.renderedMessage(), internalValues, resolvedValues, sender, Map.of(
-			"server_display", serverDisplay
+			"server_display", serverDisplay,
+			"player_prefix", senderPrefix,
+			"player_display", senderDisplay,
+			"sender_display", senderDisplay,
+			"receiver_display", ""
 		));
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, correlationId);
@@ -370,6 +379,8 @@ public final class VelocityMessengerRouter {
 		String serverName = senderServer.getServerInfo().getName();
 		String serverDisplay = config.serverDisplay(serverName);
 		String serverColor = config.serverColor(serverName);
+		String senderPrefix = resolvePresencePlayerPrefix(sender);
+		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		List<Player> recipients = new java.util.ArrayList<>();
 		for (Player player : proxyServer.getAllPlayers()) {
@@ -390,7 +401,11 @@ public final class VelocityMessengerRouter {
 			"player_avatar_url", resolveAvatarUrl(sender, resolvedValues),
 			"server_color", serverColor
 		), resolvedValues, sender, Map.of(
-			"server_display", serverDisplay
+			"server_display", serverDisplay,
+			"player_prefix", senderPrefix,
+			"player_display", senderDisplay,
+			"sender_display", senderDisplay,
+			"receiver_display", ""
 		));
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.SERVER_CHAT, rendered, correlationId);
@@ -399,39 +414,98 @@ public final class VelocityMessengerRouter {
 		logger.audit("CHAT[SERVER:" + serverName + "] " + toConsoleText(rendered));
 	}
 
-	private void sendDirect(Player sender, Player target, String message, Map<String, String> resolvedValues, UUID correlationId) {
+	private void sendDirect(Player sender, Player target, String message, Map<String, String> resolvedValues, UUID correlationId, boolean replyMode) {
 		String senderServer = sender.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
 		String senderServerDisplay = config.serverDisplay(senderServer);
 		String senderServerColor = config.serverColor(senderServer);
 		String senderPrefix = resolvePresencePlayerPrefix(sender);
+		String targetPrefix = resolvePresencePlayerPrefix(target);
+		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
+		String targetDisplay = resolvePlayerDisplay(target, targetPrefix, target.getUsername(), resolvedValues);
+		String senderDisplayName = sender.getUsername();
+		String targetDisplayName = target.getUsername();
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(senderServer);
-		String toSender = renderPlayerMessage(profile.directToSenderFormat(), message, Map.of(
+		String toSenderTemplate = replyMode ? profile.replyToSenderFormat() : profile.directToSenderFormat();
+		String toReceiverTemplate = replyMode ? profile.replyToReceiverFormat() : profile.directToReceiverFormat();
+		String toSender = renderPlayerMessage(toSenderTemplate, message, Map.of(
 			"sender_name", sender.getUsername(),
 			"target_name", target.getUsername(),
-			"player_prefix", senderPrefix,
+			"sender_player_name", sender.getUsername(),
+			"receiver_player_name", target.getUsername(),
+			"sender_player_displayname", senderDisplayName,
+			"receiver_player_displayname", targetDisplayName,
 			"server_name", senderServer,
 			"channel_name", "direct",
 			"player_avatar_url", resolveAvatarUrl(sender, resolvedValues),
 			"server_color", senderServerColor
 		), resolvedValues, sender, Map.of(
-			"server_display", senderServerDisplay
+			"server_display", senderServerDisplay,
+			"player_prefix", senderPrefix,
+			"sender_prefix", senderPrefix,
+			"target_prefix", targetPrefix,
+			"receiver_prefix", targetPrefix,
+			"player_display", senderDisplay,
+			"sender_display", senderDisplay,
+			"receiver_display", targetDisplay
 		));
-		String toTarget = renderPlayerMessage(profile.directToReceiverFormat(), message, Map.of(
+		String toTarget = renderPlayerMessage(toReceiverTemplate, message, Map.of(
 			"sender_name", sender.getUsername(),
 			"target_name", target.getUsername(),
-			"player_prefix", senderPrefix,
+			"sender_player_name", sender.getUsername(),
+			"receiver_player_name", target.getUsername(),
+			"sender_player_displayname", senderDisplayName,
+			"receiver_player_displayname", targetDisplayName,
 			"server_name", senderServer,
 			"channel_name", "direct",
 			"player_avatar_url", resolveAvatarUrl(target, resolvedValues),
 			"server_color", senderServerColor
 		), resolvedValues, sender, Map.of(
-			"server_display", senderServerDisplay
+			"server_display", senderServerDisplay,
+			"player_prefix", senderPrefix,
+			"sender_prefix", senderPrefix,
+			"target_prefix", targetPrefix,
+			"receiver_prefix", targetPrefix,
+			"player_display", targetDisplay,
+			"sender_display", senderDisplay,
+			"receiver_display", targetDisplay
 		));
 		sendResult(sender, MessengerResultType.DIRECT_ECHO, toSender, correlationId);
 		sendResult(target, MessengerResultType.DIRECT_CHAT, toTarget, correlationId);
+		notifySpy(sender, target, message, senderDisplay, targetDisplay, replyMode);
 		logger.audit("CHAT[DIRECT] " + sender.getUsername() + " -> " + target.getUsername() + ": " + toConsoleText(toSender));
 		lastReplyByPlayer.put(sender.getUniqueId(), target.getUniqueId());
 		lastReplyByPlayer.put(target.getUniqueId(), sender.getUniqueId());
+	}
+
+	private void notifySpy(Player sender, Player receiver, String rawMessage, String senderDisplay, String receiverDisplay, boolean replyMode) {
+		if (spySubscriptions.isEmpty()) {
+			return;
+		}
+
+		String messageMini = legacyToMini(rawMessage);
+		for (Map.Entry<UUID, SpySubscription> entry : spySubscriptions.entrySet()) {
+			UUID watcherId = entry.getKey();
+			SpySubscription subscription = entry.getValue();
+			if (subscription == null) {
+				continue;
+			}
+
+			if (!subscription.matches(sender.getUniqueId(), receiver.getUniqueId())) {
+				continue;
+			}
+
+			Player watcher = proxyServer.getPlayer(watcherId).orElse(null);
+			if (watcher == null) {
+				spySubscriptions.remove(watcherId, subscription);
+				continue;
+			}
+
+			String modeText = replyMode ? "REPLY" : "DM";
+			watcher.sendRichMessage(
+				"<gray>[<yellow>SPY</yellow>]</gray> <gray>[" + modeText + "]</gray> "
+					+ senderDisplay + " <gray>-></gray> " + receiverDisplay + "<gray>:</gray> <white>" + messageMini + "</white>"
+			);
+		}
 	}
 
 	public void routeInboundDiscordMessage(DiscordInboundMessage inboundMessage) {
@@ -483,6 +557,7 @@ public final class VelocityMessengerRouter {
 		String serverColor = config.serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
+		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
 		String serverDisplay = config.serverDisplay(serverName);
 		String presenceMessage = firstJoin
 			? player.getUsername() + " đã vào mạng lần đầu"
@@ -506,7 +581,10 @@ public final class VelocityMessengerRouter {
 		joinRendered = injectUnescapedPlaceholders(joinRendered, Map.of(
 			"player_prefix", playerPrefix,
 			"server_display", serverDisplay,
-			"message", presenceMessage
+			"message", presenceMessage,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
 		));
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, joinRendered, null);
@@ -551,6 +629,7 @@ public final class VelocityMessengerRouter {
 		String serverColor = config.serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
+		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
 		String serverDisplay = config.serverDisplay(serverName);
 		String presenceMessage = player.getUsername() + " đã rời mạng";
 		String leaveRendered = renderWithStack(
@@ -571,7 +650,10 @@ public final class VelocityMessengerRouter {
 		leaveRendered = injectUnescapedPlaceholders(leaveRendered, Map.of(
 			"player_prefix", playerPrefix,
 			"server_display", serverDisplay,
-			"message", presenceMessage
+			"message", presenceMessage,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
 		));
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, leaveRendered, null);
@@ -603,6 +685,7 @@ public final class VelocityMessengerRouter {
 		String fromDisplay = config.serverDisplay(previousServerName);
 		String toServerColor = config.serverColor(toServerName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
+		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(toServerName);
 		if (!profile.serverSwitchEnabled()) {
 			return;
@@ -625,7 +708,10 @@ public final class VelocityMessengerRouter {
 			"player_prefix", playerPrefix,
 			"from_display", fromDisplay,
 			"to_display", toDisplay,
-			"server_display", toDisplay
+			"server_display", toDisplay,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
 		));
 
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -748,6 +834,11 @@ public final class VelocityMessengerRouter {
 			null
 		);
 		rendered = injectUnescapedPlaceholders(rendered, Map.of("message", message));
+		rendered = injectUnescapedPlaceholders(rendered, Map.of(
+			"player_display", actor == null || actor.isBlank() ? "Console" : actor,
+			"sender_display", actor == null || actor.isBlank() ? "Console" : actor,
+			"receiver_display", ""
+		));
 
 		int sent = 0;
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -758,6 +849,59 @@ public final class VelocityMessengerRouter {
 		logger.audit("CHAT[BROADCAST] " + toConsoleText(rendered));
 		logger.audit("BROADCAST actor=" + actor + " recipients=" + sent + " message=" + message);
 		return new ModerationResult(true, "<green>✔ Đã phát thông báo đến <white>" + sent + "</white> người chơi.</green>");
+	}
+
+	public ModerationResult enableSpyAll(UUID watcherId) {
+		if (watcherId == null) {
+			return new ModerationResult(false, "<red>❌ Không thể bật spy: watcher không hợp lệ.</red>");
+		}
+
+		spySubscriptions.put(watcherId, SpySubscription.all());
+		return new ModerationResult(true, "<green>✔ Đã bật spy cho <white>toàn bộ người chơi</white>.</green>");
+	}
+
+	public ModerationResult enableSpyTarget(UUID watcherId, String targetName) {
+		if (watcherId == null) {
+			return new ModerationResult(false, "<red>❌ Không thể bật spy: watcher không hợp lệ.</red>");
+		}
+
+		Player target = proxyServer.getPlayer(targetName).orElse(null);
+		if (target == null) {
+			return new ModerationResult(false, "<red>❌ Không tìm thấy người chơi <white>" + escape(targetName) + "</white>.</red>");
+		}
+
+		spySubscriptions.put(watcherId, SpySubscription.player(target.getUniqueId(), target.getUsername()));
+		return new ModerationResult(true, "<green>✔ Đã bật spy cho người chơi <white>" + escape(target.getUsername()) + "</white>.</green>");
+	}
+
+	public ModerationResult disableSpy(UUID watcherId) {
+		if (watcherId == null) {
+			return new ModerationResult(false, "<red>❌ Không thể tắt spy: watcher không hợp lệ.</red>");
+		}
+
+		SpySubscription removed = spySubscriptions.remove(watcherId);
+		if (removed == null) {
+			return new ModerationResult(false, "<yellow>ℹ Bạn chưa bật spy trước đó.</yellow>");
+		}
+
+		return new ModerationResult(true, "<green>✔ Đã tắt chế độ spy.</green>");
+	}
+
+	public ModerationResult spyStatus(UUID watcherId) {
+		if (watcherId == null) {
+			return new ModerationResult(false, "<red>❌ Không thể xem trạng thái spy: watcher không hợp lệ.</red>");
+		}
+
+		SpySubscription subscription = spySubscriptions.get(watcherId);
+		if (subscription == null) {
+			return new ModerationResult(true, "<yellow>ℹ Spy hiện đang <white>tắt</white>.</yellow>");
+		}
+
+		if (subscription.allPlayers()) {
+			return new ModerationResult(true, "<green>✔ Spy đang theo dõi <white>toàn bộ người chơi</white>.</green>");
+		}
+
+		return new ModerationResult(true, "<green>✔ Spy đang theo dõi người chơi <white>" + escape(subscription.targetPlayerName()) + "</white>.</green>");
 	}
 
 	private void sendInfo(Player player, String message) {
@@ -932,6 +1076,23 @@ public final class VelocityMessengerRouter {
 		}
 	}
 
+	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {
+		String displayName = fallbackDisplayName == null ? "" : fallbackDisplayName;
+		String format = config.userDisplayFormat();
+		String rendered = renderRaw(format, Map.of(
+			"player_prefix", playerPrefix == null ? "" : playerPrefix,
+			"displayname", displayName,
+			"player_name", displayName,
+			"sender_name", displayName,
+			"target_name", displayName,
+			"receiver_name", displayName
+		));
+		rendered = renderRaw(rendered, backendValues == null ? Map.of() : backendValues);
+		rendered = miniPlaceholderResolver.resolve(player, rendered);
+		String normalized = rendered == null ? "" : rendered.trim();
+		return normalized.isEmpty() ? displayName : normalized;
+	}
+
 	private String resolveAvatarUrl(Player player, Map<String, String> resolvedValues) {
 		Map<String, String> internalValues = Map.of(
 			"sender_name", player.getUsername(),
@@ -969,7 +1130,19 @@ public final class VelocityMessengerRouter {
 		String rendered = renderWithStack(template, internalValues, backendValues, player);
 		rendered = injectUnescapedPlaceholders(rendered, unescapedValues);
 		String messageMini = legacyToMini(rawMessage);
-		return rendered.replace("%message%", messageMini);
+		if (rendered.contains("%message%")) {
+			return rendered.replace("%message%", messageMini);
+		}
+
+		if (messageMini.isBlank()) {
+			return rendered;
+		}
+
+		if (rendered.isBlank()) {
+			return messageMini;
+		}
+
+		return rendered + " " + messageMini;
 	}
 
 	private String injectUnescapedPlaceholders(String rendered, Map<String, String> values) {
@@ -1194,6 +1367,26 @@ public final class VelocityMessengerRouter {
 	}
 
 	private record MuteRecord(String actor, String reason, long mutedAtEpochMs, Long expiresAtEpochMs) {
+	}
+
+	private record SpySubscription(boolean allPlayers, UUID targetPlayerId, String targetPlayerName) {
+		private static SpySubscription all() {
+			return new SpySubscription(true, null, "");
+		}
+
+		private static SpySubscription player(UUID targetPlayerId, String targetPlayerName) {
+			return new SpySubscription(false, targetPlayerId, targetPlayerName == null ? "" : targetPlayerName);
+		}
+
+		private boolean matches(UUID senderId, UUID receiverId) {
+			if (allPlayers) {
+				return true;
+			}
+			if (targetPlayerId == null) {
+				return false;
+			}
+			return targetPlayerId.equals(senderId) || targetPlayerId.equals(receiverId);
+		}
 	}
 
 	private static final class RateLimitState {
