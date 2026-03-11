@@ -12,6 +12,7 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.pack.command.PackAdminCommand;
 import dev.belikhun.luna.pack.config.LoaderConfig;
@@ -67,7 +68,7 @@ public final class LunaPackLoaderPlugin {
 		configService.ensureDefaults();
 		LoaderConfig config = builtInHttpService.resolve(configService.load());
 		PackReloadReport report = catalogService.reload(config);
-		pluginMessagingBus = new VelocityPluginMessagingBus(server, this, logger);
+		pluginMessagingBus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		packLoadBroadcastService = new PackLoadStateBroadcastService(server, logger, pluginMessagingBus);
 		dispatchService.bindBroadcastService(packLoadBroadcastService);
 
@@ -93,9 +94,6 @@ public final class LunaPackLoaderPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		if (pluginMessagingBus != null) {
-			pluginMessagingBus.close();
-		}
 		builtInHttpService.stopIfRunning();
 	}
 

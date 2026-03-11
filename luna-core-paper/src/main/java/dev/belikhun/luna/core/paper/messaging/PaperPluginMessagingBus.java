@@ -26,7 +26,7 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 	private final Set<String> outgoingChannels;
 
 	public PaperPluginMessagingBus(Plugin plugin, LunaLogger logger) {
-		this(plugin, logger, true);
+		this(plugin, logger, false);
 	}
 
 	public PaperPluginMessagingBus(Plugin plugin, LunaLogger logger, boolean loggingEnabled) {

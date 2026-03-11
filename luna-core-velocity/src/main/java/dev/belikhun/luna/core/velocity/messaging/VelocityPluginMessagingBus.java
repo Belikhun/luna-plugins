@@ -29,7 +29,7 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 	private final Set<String> outgoingChannels;
 
 	public VelocityPluginMessagingBus(ProxyServer proxyServer, Object plugin, LunaLogger logger) {
-		this(proxyServer, plugin, logger, true);
+		this(proxyServer, plugin, logger, false);
 	}
 
 	public VelocityPluginMessagingBus(ProxyServer proxyServer, Object plugin, LunaLogger logger, boolean loggingEnabled) {

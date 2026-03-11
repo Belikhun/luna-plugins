@@ -64,7 +64,7 @@ public final class LunaMessengerVelocityPlugin {
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
-		bus = new VelocityPluginMessagingBus(proxyServer, this, logger);
+		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		discordBridge = createDiscordGateway(config);
 		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, discordBridge);
@@ -89,9 +89,6 @@ public final class LunaMessengerVelocityPlugin {
 		}
 		if (discordBridge != null) {
 			discordBridge.close();
-		}
-		if (bus != null) {
-			bus.close();
 		}
 		logger.audit("LunaMessenger (Velocity) đã tắt.");
 	}
