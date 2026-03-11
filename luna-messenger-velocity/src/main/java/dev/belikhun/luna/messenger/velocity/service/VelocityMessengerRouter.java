@@ -66,6 +66,7 @@ public final class VelocityMessengerRouter {
 	private final Map<PokeStreakKey, PokeStreakState> pokeStreaks;
 	private final Map<UUID, String> lastKnownServerByPlayer;
 	private final Map<UUID, Long> playerSessionStartedAt;
+	private final Map<UUID, String> pendingSelfPresenceByPlayer;
 	private final Set<UUID> seenPlayers;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
 
@@ -94,6 +95,7 @@ public final class VelocityMessengerRouter {
 		this.pokeStreaks = new ConcurrentHashMap<>();
 		this.lastKnownServerByPlayer = new ConcurrentHashMap<>();
 		this.playerSessionStartedAt = new ConcurrentHashMap<>();
+		this.pendingSelfPresenceByPlayer = new ConcurrentHashMap<>();
 		this.seenPlayers = ConcurrentHashMap.newKeySet();
 		this.recentDiscordOutboundFingerprints = new ConcurrentHashMap<>();
 	}
@@ -120,8 +122,22 @@ public final class VelocityMessengerRouter {
 		pokeStreaks.clear();
 		lastKnownServerByPlayer.clear();
 		playerSessionStartedAt.clear();
+		pendingSelfPresenceByPlayer.clear();
 		seenPlayers.clear();
 		recentDiscordOutboundFingerprints.clear();
+	}
+
+	public void flushPendingSelfPresence(Player player) {
+		if (player == null) {
+			return;
+		}
+
+		String pending = pendingSelfPresenceByPlayer.remove(player.getUniqueId());
+		if (pending == null || pending.isBlank()) {
+			return;
+		}
+
+		sendResult(player, MessengerResultType.NETWORK_CHAT, pending, null);
 	}
 
 	public PersistentState snapshotPersistentState() {
@@ -743,7 +759,11 @@ public final class VelocityMessengerRouter {
 				continue;
 			}
 
-			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, joinRendered), null);
+			String viewerRendered = formatPresenceForViewer(player, joinRendered);
+			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
+			if (!delivered && online.getUniqueId().equals(player.getUniqueId()) && isSilentBroadcastSender(player)) {
+				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
+			}
 		}
 
 		if (isSilentBroadcastSender(player)) {
@@ -825,7 +845,8 @@ public final class VelocityMessengerRouter {
 				continue;
 			}
 
-			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, leaveRendered), null);
+			String viewerRendered = formatPresenceForViewer(player, leaveRendered);
+			sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
 		}
 
 		if (isSilentBroadcastSender(player)) {
@@ -899,7 +920,11 @@ public final class VelocityMessengerRouter {
 				continue;
 			}
 
-			sendResult(online, MessengerResultType.NETWORK_CHAT, formatPresenceForViewer(player, rendered), null);
+			String viewerRendered = formatPresenceForViewer(player, rendered);
+			boolean delivered = sendResultIfConnected(online, MessengerResultType.NETWORK_CHAT, viewerRendered, null, Map.of());
+			if (!delivered && online.getUniqueId().equals(player.getUniqueId()) && isSilentBroadcastSender(player)) {
+				pendingSelfPresenceByPlayer.put(player.getUniqueId(), viewerRendered);
+			}
 		}
 
 		if (isSilentBroadcastSender(player)) {
@@ -1186,10 +1211,14 @@ public final class VelocityMessengerRouter {
 	}
 
 	private void sendResult(Player player, MessengerResultType resultType, String message, UUID correlationId, Map<String, String> metadata) {
+		sendResultIfConnected(player, resultType, message, correlationId, metadata);
+	}
+
+	private boolean sendResultIfConnected(Player player, MessengerResultType resultType, String message, UUID correlationId, Map<String, String> metadata) {
 		ServerConnection connection = player.getCurrentServer().orElse(null);
 		if (connection == null) {
 			logger.debug("Bỏ qua gửi kết quả vì người chơi không có backend server: " + player.getUsername());
-			return;
+			return false;
 		}
 
 		MessengerResultMessage result = new MessengerResultMessage(
@@ -1206,6 +1235,8 @@ public final class VelocityMessengerRouter {
 		if (correlationId != null) {
 			logger.audit("TX result=" + resultType.name() + " reqId=" + correlationId + " to=" + player.getUsername());
 		}
+
+		return true;
 	}
 
 	private void sendPresenceUpdate(MessengerPresenceMessage presenceMessage) {

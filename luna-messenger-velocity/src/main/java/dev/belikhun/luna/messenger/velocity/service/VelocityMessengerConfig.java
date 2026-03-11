@@ -187,7 +187,7 @@ public final class VelocityMessengerConfig {
 		return new SilentBroadcastConfig(
 			bool(silentBroadcast.get("enabled"), true),
 			str(silentBroadcast.get("permission"), "lunamessenger.silentbroadcast"),
-			str(silentBroadcast.get("prefix"), "<dark_gray>[xuỵt]</dark_gray> ")
+			strPreserveWhitespace(silentBroadcast.get("prefix"), "<dark_gray>[xuỵt]</dark_gray> ")
 		);
 	}
 
@@ -413,6 +413,15 @@ public final class VelocityMessengerConfig {
 			return fallback;
 		}
 		String text = String.valueOf(value).trim();
+		return text.isEmpty() ? fallback : text;
+	}
+
+	private static String strPreserveWhitespace(Object value, String fallback) {
+		if (value == null) {
+			return fallback;
+		}
+
+		String text = String.valueOf(value);
 		return text.isEmpty() ? fallback : text;
 	}
 

@@ -3,6 +3,7 @@ package dev.belikhun.luna.messenger.velocity.service;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 
 import java.util.Map;
 import java.util.UUID;
@@ -32,6 +33,13 @@ public final class MessengerPresenceListener {
 			router.handlePlayerJoin(event.getPlayer(), currentServerName);
 			return;
 		}
-		router.handleServerSwitch(event.getPlayer(), event.getPreviousServer().get().getServerInfo().getName());
+
+		String previousServerName = event.getPreviousServer().get().getServerInfo().getName();
+		router.handleServerSwitch(event.getPlayer(), previousServerName);
+	}
+
+	@Subscribe
+	public void onServerPostConnect(ServerPostConnectEvent event) {
+		router.flushPendingSelfPresence(event.getPlayer());
 	}
 }
