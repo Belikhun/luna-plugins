@@ -18,35 +18,31 @@ public final class RoutingDiscordBridgeGateway implements DiscordBridgeGateway {
 	}
 
 	@Override
-	public void publish(DiscordOutboundMessage message) {
+	public boolean publish(DiscordOutboundMessage message) {
 		if (message == null) {
-			return;
-		}
-
-		DiscordOutboundMessage.DispatchType dispatchType = message.dispatchType() == null
-			? DiscordOutboundMessage.DispatchType.PLAYER_CHAT
-			: message.dispatchType();
-
-		if (dispatchType == DiscordOutboundMessage.DispatchType.BROADCAST) {
-			if (botGateway != null) {
-				botGateway.publish(message);
-				return;
-			}
-			if (webhookGateway != null) {
-				logger.debug("Discord bot chưa sẵn sàng, fallback broadcast sang webhook.");
-				webhookGateway.publish(message);
-			}
-			return;
+			return false;
 		}
 
 		if (webhookGateway != null) {
-			webhookGateway.publish(message);
-			return;
+			boolean webhookSent = webhookGateway.publish(message);
+			if (webhookSent) {
+				return true;
+			}
+
+			if (botGateway != null) {
+				logger.warn("Discord webhook gửi thất bại, fallback outbound sang bot.");
+				return botGateway.publish(message);
+			}
+
+			return false;
 		}
+
 		if (botGateway != null) {
-			logger.debug("Discord webhook chưa sẵn sàng, fallback player chat sang bot.");
-			botGateway.publish(message);
+			logger.debug("Discord webhook chưa sẵn sàng, fallback outbound sang bot.");
+			return botGateway.publish(message);
 		}
+
+		return false;
 	}
 
 	@Override

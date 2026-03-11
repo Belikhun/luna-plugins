@@ -48,9 +48,12 @@ chat:
 #    - %discord_author_id%: ID tác giả từ Discord
 #
 # 4) Discord webhook placeholders (outbound)
-#    - %sender_name%
+#    - %user_name% (tên hiển thị chính)
+#    - %user_username% (username gốc)
+#    - %user_nickname% (nickname/hiển thị)
 #    - %target_name% (DM context)
 #    - %server_name%
+#    - %server_display%
 #    - %server_color%
 #    - %channel_name%
 #    - %message%
@@ -64,8 +67,8 @@ chat:
 #      Nếu plugin khác không resolve, chuỗi placeholder sẽ giữ nguyên.
 
 # Discord bridge modes:
-# - bot mode (discord.bot.enabled=true): dùng bot token + channel-id để nhận/gửi.
-# - webhook mode: chỉ gửi outbound qua discord.webhook.url.
+# - bot mode (discord.bot.enabled=true): dùng bot token + channel-ids để nhận/gửi.
+# - webhook mode: gửi outbound qua discord.webhook.urls.
 
 mentions:
   enabled: true
@@ -117,7 +120,7 @@ formats:
     # Placeholder dùng được: %player_name%, %player_prefix%, %player_display%, %server_name%, %channel_name%, %message%, %player_avatar_url%
     channel:
       network: "<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>"
-      server: "<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>"
+      server: "<color:%server_color%>⏺</color> <gray>[<aqua>%server_display%</aqua>]</gray> %player_display% <gray><bold>>></bold></gray> <white>%message%</white>"
     broadcast:
       # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %server_color%, %message%
       format: "<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>%message%</white>"
@@ -129,7 +132,7 @@ formats:
         # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %message%
         format: "<gray>[<green>+<gray>]<reset> %player_display%"
       leave:
-        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %message%
+        # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %player_display%, %sender_display%, %server_name%, %server_display%, %server_color%, %player_playtime%, %message%
         format: "<gray>[<red>-<gray>]<reset> %player_display%"
       server-switch:
         enabled: true
@@ -160,21 +163,25 @@ discord:
 
   bot:
     # Bật bridge Discord qua bot token (JDA).
-    # Khi bật, plugin sẽ vừa lắng nghe vừa gửi ở cùng channel-id.
+    # Khi bật, plugin sẽ lắng nghe/gửi ở tất cả channel-id được cấu hình.
+    # Dùng channel-ids để cấu hình danh sách nhiều channel.
+    # Tin nhắn gửi vào một channel sẽ được sync sang các channel còn lại.
     enabled: false
     token: ""
-    channel-id: ""
+    channel-ids: []
     # Bỏ qua tin của bot để tránh echo-loop.
     ignore-bot-messages: true
     # Nhãn nguồn dùng cho attribution/anti-loop trong inbound path.
     source-id: "discord-bot-jda"
 
   webhook:
-    # Discord webhook URL dùng để gửi chat/join/leave với username/avatar tùy biến.
-    url: ""
-    # Placeholder dùng được: %sender_name%, %target_name%, %server_name%, %channel_name%, %message%, %player_avatar_url%, %discord_content%
+    # Discord webhook endpoint(s) dùng để gửi chat/join/leave với username/avatar tùy biến.
+    # Dùng urls để cấu hình danh sách nhiều endpoint.
+    # Khi cấu hình nhiều endpoint, plugin sẽ gửi tới tất cả endpoint.
+    urls: []
+    # Placeholder dùng được: %player_prefix%, %player_name%, %player_display%, %user_name%, %user_username%, %user_nickname%, %target_name%, %server_name%, %server_display%, %channel_name%, %message%, %player_avatar_url%, %discord_content%
     # Prefix sẽ được tự động strip toàn bộ định dạng (MiniMessage/legacy) trước khi gửi Discord.
-    username-format: "%luckperms_prefix% %sender_name%"
+    username-format: "[%server_display%] %luckperms_prefix% %user_name%"
     # Placeholder dùng được tương tự username-format.
     # Có thể dùng third-party token như %skinsrestorer_texture_id_or_steve%.
     avatar-url-format: "https://visage.surgeplay.com/bust/128/<skinsrestorer_texture_id_or_steve>.png"
@@ -185,10 +192,13 @@ discord:
       message:
         enabled: true
         mode: text # text | embed
-        # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %message%, %player_avatar_url%, %discord_content%
+        # Placeholder dùng được: %user_name%, %user_username%, %user_nickname%, %server_name%, %server_display%, %channel_name%, %message%, %player_avatar_url%, %discord_content%
         content: "%discord_content%"
         embed:
           # Placeholder dùng được giống content
+          author: ""
+          author-url: ""
+          author-icon-url: ""
           title: ""
           description: "%discord_content%"
           color: "#58B2FF"
@@ -200,36 +210,45 @@ discord:
       join:
         enabled: true
         mode: embed # text | embed
-        # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %message%, %player_avatar_url%
-        content: "<gray>[<green>+<gray>]</gray> %sender_name%"
+        # Placeholder dùng được: %user_name%, %user_username%, %user_nickname%, %server_name%, %server_display%, %channel_name%, %message%, %player_avatar_url%
+        content: "<gray>[<green>+<gray>]</gray> %user_name%"
         embed:
           # Placeholder dùng được giống content
+          author: ""
+          author-url: ""
+          author-icon-url: ""
           title: "Đã kết nối vào máy chủ"
-          description: "<gray>[<green>+<gray>]</gray> %sender_name%"
+          description: "<gray>[<green>+<gray>]</gray> %user_name%"
           color: "#3D8C40"
           thumbnail-url: "%player_avatar_url%"
           image-url: ""
       leave:
         enabled: true
         mode: embed # text | embed
-        # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %message%, %player_avatar_url%
-        content: "<gray>[<red>-<gray>]</gray> %sender_name%"
+        # Placeholder dùng được: %user_name%, %user_username%, %user_nickname%, %server_name%, %server_display%, %channel_name%, %player_playtime%, %message%, %player_avatar_url%
+        content: "<gray>[<red>-<gray>]</gray> %user_name%"
         embed:
           # Placeholder dùng được giống content
+          author: ""
+          author-url: ""
+          author-icon-url: ""
           title: "Đã ngắt kết nối khỏi máy chủ"
-          description: "<gray>[<red>-<gray>]</gray> %sender_name%"
+          description: "<gray>[<red>-<gray>]</gray> %user_name%"
           color: "#FF0000"
           thumbnail-url: "%player_avatar_url%"
           image-url: ""
       switch:
         enabled: true
         mode: embed # text | embed
-        # Placeholder dùng được: %sender_name%, %from_server%, %to_server%, %from_display%, %to_display%, %server_name%, %server_display%, %channel_name%, %message%, %player_avatar_url%
-        content: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>] %sender_name%"
+        # Placeholder dùng được: %user_name%, %user_username%, %user_nickname%, %from_server%, %to_server%, %from_display%, %to_display%, %server_name%, %server_display%, %channel_name%, %message%, %player_avatar_url%
+        content: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>] %user_name%"
         embed:
           # Placeholder dùng được giống content
+          author: ""
+          author-url: ""
+          author-icon-url: ""
           title: "Đã chuyển máy chủ"
-          description: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>] %sender_name%"
+          description: "<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>] %user_name%"
           color: "#444444"
           thumbnail-url: "%player_avatar_url%"
           image-url: ""

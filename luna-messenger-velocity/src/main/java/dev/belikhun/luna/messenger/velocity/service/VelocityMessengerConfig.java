@@ -3,9 +3,13 @@ package dev.belikhun.luna.messenger.velocity.service;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 public final class VelocityMessengerConfig {
 	private final FormatProfile defaults;
@@ -156,11 +160,11 @@ public final class VelocityMessengerConfig {
 			new DiscordBotConfig(
 				bool(bot.get("enabled"), false),
 				str(bot.get("token"), ""),
-				str(bot.get("channel-id"), ""),
+				List.copyOf(parseChannelIds(bot)),
 				bool(bot.get("ignore-bot-messages"), true),
 				str(bot.get("source-id"), "discord-bot-jda")
 			),
-			str(webhook.get("url"), ""),
+			List.copyOf(parseWebhookUrls(webhook)),
 			str(webhook.get("username-format"), "%luckperms_prefix% %sender_name%"),
 			str(webhook.get("avatar-url-format"), "https://visage.surgeplay.com/bust/128/<skinsrestorer_texture_id_or_steve>.png"),
 			parseMessageRoute(map(network.get("message")), defaultNetworkRoute()),
@@ -186,6 +190,9 @@ public final class VelocityMessengerConfig {
 			bool(map.get("enabled"), fallback.enabled()),
 			PayloadType.byName(str(map.get("mode"), fallback.mode().name())),
 			str(map.get("content"), fallback.content()),
+			str(embed.get("author"), fallback.embedAuthor()),
+			str(embed.get("author-url"), fallback.embedAuthorUrl()),
+			str(embed.get("author-icon-url"), fallback.embedAuthorIconUrl()),
 			str(embed.get("title"), fallback.embedTitle()),
 			str(embed.get("description"), fallback.embedDescription()),
 			parseColor(embed.get("color"), fallback.embedColor()),
@@ -219,6 +226,46 @@ public final class VelocityMessengerConfig {
 		}
 
 		return fallback;
+	}
+
+	private static List<String> parseChannelIds(Map<String, Object> bot) {
+		Set<String> output = new LinkedHashSet<>();
+		addChannelIds(output, bot.get("channel-ids"));
+		return new ArrayList<>(output);
+	}
+
+	private static List<String> parseWebhookUrls(Map<String, Object> webhook) {
+		Set<String> output = new LinkedHashSet<>();
+		addChannelIds(output, webhook.get("urls"));
+		return new ArrayList<>(output);
+	}
+
+	private static void addChannelIds(Set<String> output, Object rawValue) {
+		if (rawValue == null) {
+			return;
+		}
+
+		if (rawValue instanceof Iterable<?> iterable) {
+			for (Object item : iterable) {
+				String value = String.valueOf(item).trim();
+				if (!value.isEmpty()) {
+					output.add(value);
+				}
+			}
+			return;
+		}
+
+		String text = String.valueOf(rawValue).trim();
+		if (text.isEmpty()) {
+			return;
+		}
+
+		for (String token : text.split(",")) {
+			String value = token.trim();
+			if (!value.isEmpty()) {
+				output.add(value);
+			}
+		}
 	}
 
 	private static FormatProfile parseProfile(Map<String, Object> map, FormatProfile fallback) {
@@ -276,6 +323,9 @@ public final class VelocityMessengerConfig {
 			"[%channel_name%] %sender_name%: %message%",
 			"",
 			"",
+			"",
+			"",
+			"",
 			null,
 			"",
 			""
@@ -287,6 +337,9 @@ public final class VelocityMessengerConfig {
 			true,
 			PayloadType.TEXT,
 			"[JOIN] %sender_name% đã vào mạng (%server_name%)",
+			"",
+			"",
+			"",
 			"",
 			"",
 			null,
@@ -302,6 +355,9 @@ public final class VelocityMessengerConfig {
 			"[LEAVE] %sender_name% đã rời mạng",
 			"",
 			"",
+			"",
+			"",
+			"",
 			null,
 			"",
 			""
@@ -313,6 +369,9 @@ public final class VelocityMessengerConfig {
 			true,
 			PayloadType.TEXT,
 			"[SWAP] %sender_name% chuyển %from_server% -> %to_server%",
+			"",
+			"",
+			"",
 			"",
 			"",
 			null,
@@ -387,7 +446,7 @@ public final class VelocityMessengerConfig {
 		String networkChannelName,
 		DiscordRetryConfig retry,
 		DiscordBotConfig bot,
-		String webhookUrl,
+		List<String> webhookUrls,
 		String webhookUsernameFormat,
 		String avatarUrlFormat,
 		MessageRouteConfig networkMessage,
@@ -395,6 +454,9 @@ public final class VelocityMessengerConfig {
 		MessageRouteConfig leaveMessage,
 		MessageRouteConfig switchMessage
 	) {
+		public DiscordConfig {
+			webhookUrls = webhookUrls == null ? List.of() : List.copyOf(webhookUrls);
+		}
 	}
 
 	public record DiscordRetryConfig(
@@ -406,10 +468,13 @@ public final class VelocityMessengerConfig {
 	public record DiscordBotConfig(
 		boolean enabled,
 		String token,
-		String channelId,
+		List<String> channelIds,
 		boolean ignoreBotMessages,
 		String sourceId
 	) {
+		public DiscordBotConfig {
+			channelIds = channelIds == null ? List.of() : List.copyOf(channelIds);
+		}
 	}
 
 	public record MentionConfig(
@@ -431,6 +496,9 @@ public final class VelocityMessengerConfig {
 		boolean enabled,
 		PayloadType mode,
 		String content,
+		String embedAuthor,
+		String embedAuthorUrl,
+		String embedAuthorIconUrl,
 		String embedTitle,
 		String embedDescription,
 		Integer embedColor,

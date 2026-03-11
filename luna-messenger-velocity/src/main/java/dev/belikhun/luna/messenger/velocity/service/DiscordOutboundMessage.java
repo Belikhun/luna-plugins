@@ -13,6 +13,9 @@ public record DiscordOutboundMessage(
 	}
 
 	public record Embed(
+		String author,
+		String authorUrl,
+		String authorIconUrl,
 		String title,
 		String description,
 		Integer color,

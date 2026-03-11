@@ -163,14 +163,14 @@ public final class LunaMessengerVelocityPlugin {
 		}
 
 		DiscordBridgeGateway webhookGateway = null;
-		if (discord.webhookUrl() != null && !discord.webhookUrl().isBlank()) {
-			webhookGateway = new WebhookDiscordBridgeGateway(logger, discord.webhookUrl(), discord.retry());
+		if (!discord.webhookUrls().isEmpty()) {
+			webhookGateway = new WebhookDiscordBridgeGateway(logger, discord.webhookUrls(), discord.retry());
 		}
 
 		VelocityMessengerConfig.DiscordBotConfig bot = discord.bot();
 		if (bot != null && bot.enabled()) {
-			if (bot.token() == null || bot.token().isBlank() || bot.channelId() == null || bot.channelId().isBlank()) {
-				logger.warn("Discord bot mode được bật nhưng thiếu bot.token hoặc bot.channel-id. Chỉ dùng webhook nếu có.");
+			if (bot.token() == null || bot.token().isBlank() || bot.channelIds().isEmpty()) {
+				logger.warn("Discord bot mode được bật nhưng thiếu bot.token hoặc bot.channel-ids. Chỉ dùng webhook nếu có.");
 				if (webhookGateway != null) {
 					return new RoutingDiscordBridgeGateway(logger, webhookGateway, null);
 				}
@@ -182,7 +182,7 @@ public final class LunaMessengerVelocityPlugin {
 					if (router != null) {
 						router.routeInboundDiscordMessage(message);
 					}
-				});
+				}, discord.webhookUrls());
 				return new RoutingDiscordBridgeGateway(logger, webhookGateway, botGateway);
 			} catch (Exception exception) {
 				logger.warn("Không thể khởi tạo Discord bot gateway: " + exception.getMessage());
@@ -194,7 +194,7 @@ public final class LunaMessengerVelocityPlugin {
 		}
 
 		if (webhookGateway == null) {
-			logger.warn("Discord bridge được bật nhưng thiếu webhook.url. Sử dụng noop gateway.");
+			logger.warn("Discord bridge được bật nhưng thiếu webhook.urls. Sử dụng noop gateway.");
 			return new NoopDiscordBridgeGateway(logger);
 		}
 		return new RoutingDiscordBridgeGateway(logger, webhookGateway, null);

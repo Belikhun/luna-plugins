@@ -10,8 +10,9 @@ public final class NoopDiscordBridgeGateway implements DiscordBridgeGateway {
 	}
 
 	@Override
-	public void publish(DiscordOutboundMessage message) {
+	public boolean publish(DiscordOutboundMessage message) {
 		logger.debug("Discord bridge chưa được bật. Bỏ qua outbound message.");
+		return false;
 	}
 
 	@Override
