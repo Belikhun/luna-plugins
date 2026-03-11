@@ -16,6 +16,7 @@ import java.util.logging.Logger;
 
 public final class LunaCoreLibraryLoader implements PluginLoader {
 	private static final Logger LOGGER = Logger.getLogger("LunaCoreLoader");
+	private static final String FALLBACK_MAVEN_CENTRAL = "https://repo1.maven.org/maven2/";
 	private static final String SQLITE_COORDINATE = "org.xerial:sqlite-jdbc:3.47.2.0";
 	private static final String MYSQL_COORDINATE = "com.mysql:mysql-connector-j:9.1.0";
 	private static final String MARIADB_COORDINATE = "org.mariadb.jdbc:mariadb-java-client:3.4.1";
@@ -24,7 +25,7 @@ public final class LunaCoreLibraryLoader implements PluginLoader {
 	public void classloader(PluginClasspathBuilder classpathBuilder) {
 		MavenLibraryResolver resolver = new MavenLibraryResolver();
 		resolver.addRepository(new RemoteRepository.Builder("paper", "default", "https://repo.papermc.io/repository/maven-public/").build());
-		resolver.addRepository(new RemoteRepository.Builder("central", "default", MavenLibraryResolver.MAVEN_CENTRAL_DEFAULT_MIRROR).build());
+		resolver.addRepository(new RemoteRepository.Builder("central", "default", resolveMavenCentralMirror()).build());
 
 		String configuredType = readDatabaseType();
 		LOGGER.info("[LunaCore] Loader database.type = " + configuredType);
@@ -41,6 +42,20 @@ public final class LunaCoreLibraryLoader implements PluginLoader {
 		}
 
 		classpathBuilder.addLibrary(resolver);
+	}
+
+	private static String resolveMavenCentralMirror() {
+		try {
+			Object value = MavenLibraryResolver.class.getField("MAVEN_CENTRAL_DEFAULT_MIRROR").get(null);
+			if (value instanceof String mirror && !mirror.isBlank()) {
+				return mirror;
+			}
+		} catch (ReflectiveOperationException ignored) {
+			// Older Paper builds do not expose this field.
+		}
+
+		LOGGER.info("[LunaCore] Falling back to default Maven Central URL for older Paper compatibility.");
+		return FALLBACK_MAVEN_CENTRAL;
 	}
 
 	private static void addCoordinate(MavenLibraryResolver resolver, String coordinate, String label) {
