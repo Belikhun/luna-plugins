@@ -216,6 +216,7 @@ public final class VelocityMessengerConfig {
 	private static FormatProfile parseProfile(Map<String, Object> map, FormatProfile fallback) {
 		Map<String, Object> channel = map(map.get("channel"));
 		Map<String, Object> direct = map(map.get("direct"));
+		Map<String, Object> broadcast = map(map.get("broadcast"));
 		Map<String, Object> presence = map(map.get("presence"));
 		Map<String, Object> firstJoin = map(presence.get("first-join"));
 		Map<String, Object> join = map(presence.get("join"));
@@ -227,6 +228,7 @@ public final class VelocityMessengerConfig {
 			str(channel.get("server"), fallback.serverFormat()),
 			str(direct.get("to-sender"), fallback.directToSenderFormat()),
 			str(direct.get("to-receiver"), fallback.directToReceiverFormat()),
+			str(broadcast.get("format"), fallback.broadcastFormat()),
 			str(firstJoin.get("format"), fallback.firstJoinNetworkFormat()),
 			str(join.get("format"), fallback.joinNetworkFormat()),
 			str(leave.get("format"), fallback.leaveNetworkFormat()),
@@ -243,6 +245,7 @@ public final class VelocityMessengerConfig {
 			"<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>",
 			"<gray>[<light_purple>DM</light_purple> -> <white>%target_name%</white>]</gray> %player_prefix% <white>%message%</white>",
 			"<gray>[<light_purple>DM</light_purple> <- <white>%sender_name%</white>]</gray> %player_prefix% <white>%message%</white>",
+			"<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>%message%</white>",
 			"<gray>[<green>++<gray>]<reset> %player_prefix% %displayname%",
 			"<gray>[<green>+<gray>]<reset> %player_prefix% %displayname%",
 			"<gray>[<red>-<gray>]<reset> %player_prefix% %displayname%",
@@ -353,6 +356,7 @@ public final class VelocityMessengerConfig {
 		String serverFormat,
 		String directToSenderFormat,
 		String directToReceiverFormat,
+		String broadcastFormat,
 		String firstJoinNetworkFormat,
 		String joinNetworkFormat,
 		String leaveNetworkFormat,

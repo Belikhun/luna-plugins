@@ -111,6 +111,9 @@ formats:
     channel:
       network: "<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>"
       server: "<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>"
+    broadcast:
+      # Placeholder dùng được: %sender_name%, %server_name%, %channel_name%, %server_color%, %message%
+      format: "<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>%message%</white>"
     presence:
       first-join:
         # Placeholder dùng được: %sender_name%, %player_name%, %displayname%, %player_prefix%, %server_name%, %server_display%, %server_color%, %message%

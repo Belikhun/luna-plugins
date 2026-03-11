@@ -643,9 +643,10 @@ public final class VelocityMessengerRouter {
 			return new ModerationResult(false, "<red>❌ Nội dung thông báo không được để trống.</red>");
 		}
 
+		VelocityMessengerConfig.FormatProfile profile = config.profileForServer("proxy");
 		String serverColor = config.serverColor("");
 		String rendered = renderWithStack(
-			"<gray>[<gold>THÔNG BÁO</gold>]</gray> <white>{message}</white>",
+			profile.broadcastFormat(),
 			Map.of(
 				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
 				"server_name", "proxy",
