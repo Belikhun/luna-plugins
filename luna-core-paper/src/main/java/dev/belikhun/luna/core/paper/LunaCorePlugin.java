@@ -60,7 +60,8 @@ public final class LunaCorePlugin extends JavaPlugin {
 		HttpServerManager httpServerManager = new HttpServerManager(this, configStore, messageFormatter, logger);
 		httpServerManager.startIfEnabled();
 		coreLogger.audit("HTTP manager đã sẵn sàng.");
-		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger);
+		boolean pluginMessagingLogsEnabled = configStore.get("logging.pluginMessaging.enabled").asBoolean(false);
+		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger, pluginMessagingLogsEnabled);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
 
 		UserProfileRepository userProfileRepository = new UserProfileRepository(databaseManager.getDatabase());

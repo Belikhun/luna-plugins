@@ -120,11 +120,11 @@ public final class VelocityMessengerConfig {
 			bool(mentions.get("enabled"), true),
 			bool(mentions.get("exact-username-only"), true),
 			str(mentions.get("sound"), "ENTITY_PLAYER_LEVELUP"),
-			str(mentions.get("highlight-format"), "&e@{name}&r"),
-			str(mentions.get("alert-format"), "<yellow>⚠ <white>{sender_name}</white> đã nhắc đến bạn.</yellow>"),
+			str(mentions.get("highlight-format"), "&e@%name%&r"),
+			str(mentions.get("alert-format"), "<yellow>⚠ <white>%sender_name%</white> đã nhắc đến bạn.</yellow>"),
 			bool(toast.get("enabled"), true),
 			str(toast.get("title"), "<yellow>Bạn được nhắc đến</yellow>"),
-			str(toast.get("subtitle"), "<white>{sender_name}</white> vừa nhắc bạn trong chat"),
+			str(toast.get("subtitle"), "<white>%sender_name%</white> vừa nhắc bạn trong chat"),
 			integer(toast.get("fade-in-ms"), 200),
 			integer(toast.get("stay-ms"), 2000),
 			integer(toast.get("fade-out-ms"), 300)
@@ -153,8 +153,8 @@ public final class VelocityMessengerConfig {
 				str(bot.get("source-id"), "discord-bot-jda")
 			),
 			str(webhook.get("url"), ""),
-			str(webhook.get("username-format"), "{sender_name}"),
-			str(webhook.get("avatar-url-format"), "https://visage.surgeplay.com/bust/128/%skinsrestorer_texture_id_or_steve%.png"),
+			str(webhook.get("username-format"), "%luckperms_prefix% %sender_name%"),
+			str(webhook.get("avatar-url-format"), "https://visage.surgeplay.com/bust/128/<skinsrestorer_texture_id_or_steve>.png"),
 			parseMessageRoute(map(network.get("message")), defaultNetworkRoute()),
 			parseMessageRoute(map(joinLeave.get("join")), defaultJoinRoute()),
 			parseMessageRoute(map(joinLeave.get("leave")), defaultLeaveRoute()),
@@ -216,14 +216,22 @@ public final class VelocityMessengerConfig {
 	private static FormatProfile parseProfile(Map<String, Object> map, FormatProfile fallback) {
 		Map<String, Object> channel = map(map.get("channel"));
 		Map<String, Object> direct = map(map.get("direct"));
+		Map<String, Object> presence = map(map.get("presence"));
+		Map<String, Object> firstJoin = map(presence.get("first-join"));
+		Map<String, Object> join = map(presence.get("join"));
+		Map<String, Object> leave = map(presence.get("leave"));
+		Map<String, Object> serverSwitch = map(presence.get("server-switch"));
 		Map<String, Object> discord = map(map.get("discord"));
 		return new FormatProfile(
 			str(channel.get("network"), fallback.networkFormat()),
 			str(channel.get("server"), fallback.serverFormat()),
 			str(direct.get("to-sender"), fallback.directToSenderFormat()),
 			str(direct.get("to-receiver"), fallback.directToReceiverFormat()),
-			bool(map(map(map.get("presence")).get("server-switch")).get("enabled"), fallback.serverSwitchEnabled()),
-			str(map(map(map.get("presence")).get("server-switch")).get("format"), fallback.serverSwitchFormat()),
+			str(firstJoin.get("format"), fallback.firstJoinNetworkFormat()),
+			str(join.get("format"), fallback.joinNetworkFormat()),
+			str(leave.get("format"), fallback.leaveNetworkFormat()),
+			bool(serverSwitch.get("enabled"), fallback.serverSwitchEnabled()),
+			str(serverSwitch.get("format"), fallback.serverSwitchFormat()),
 			str(discord.get("inbound-network"), fallback.discordInboundNetworkFormat()),
 			str(discord.get("outbound-network"), fallback.discordOutboundNetworkFormat())
 		);
@@ -231,14 +239,17 @@ public final class VelocityMessengerConfig {
 
 	private static FormatProfile defaultProfile() {
 		return new FormatProfile(
-			"<gray>[<gold>NW</gold>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>",
-			"<gray>[<aqua>SV</aqua>/<white>{server_name}</white>]</gray> <yellow>{sender_name}</yellow><gray>:</gray> <white>{message}</white>",
-			"<gray>[<light_purple>DM</light_purple> -> <white>{target_name}</white>]</gray> <white>{message}</white>",
-			"<gray>[<light_purple>DM</light_purple> <- <white>{sender_name}</white>]</gray> <white>{message}</white>",
+			"<color:%server_color%>⏺</color> <gray>[<gold>N</gold>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>",
+			"<color:%server_color%>⏺</color> <gray>[<aqua>S</aqua>]</gray> %luckperms_prefix% <white>%sender_name%</white> <gray><bold>>></bold></gray> <white>%message%</white>",
+			"<gray>[<light_purple>DM</light_purple> -> <white>%target_name%</white>]</gray> %player_prefix% <white>%message%</white>",
+			"<gray>[<light_purple>DM</light_purple> <- <white>%sender_name%</white>]</gray> %player_prefix% <white>%message%</white>",
+			"<gray>[<green>++<gray>]<reset> %player_prefix% %displayname%",
+			"<gray>[<green>+<gray>]<reset> %player_prefix% %displayname%",
+			"<gray>[<red>-<gray>]<reset> %player_prefix% %displayname%",
 			true,
-			"<gray>[<yellow>{from_display}</yellow> <white><bold>-></bold> <blue>{to_display}</blue><gray>]</gray> <yellow>{sender_name}</yellow>",
-			"<gray>[<blue>DC</blue>]</gray> <light_purple>{discord_author}</light_purple><gray>:</gray> <white>{message}</white>",
-			"[{channel_name}] {sender_name}: {message}"
+			"<gray>[<yellow>%from_display%</yellow> <white><bold>-></bold> <blue>%to_display%</blue><gray>]</gray> %player_prefix% <white>%sender_name%</white>",
+			"<gray>[<color:#5865F2>#%channel_name%</color>]</gray> <light_purple>%discord_author%</light_purple> <gray><bold>>></bold></gray> <white>%message%</white>",
+			"[%channel_name%] %sender_name%: %message%"
 		);
 	}
 
@@ -246,7 +257,7 @@ public final class VelocityMessengerConfig {
 		return new MessageRouteConfig(
 			true,
 			PayloadType.TEXT,
-			"[{channel_name}] {sender_name}: {message}",
+			"[%channel_name%] %sender_name%: %message%",
 			"",
 			"",
 			null,
@@ -259,7 +270,7 @@ public final class VelocityMessengerConfig {
 		return new MessageRouteConfig(
 			true,
 			PayloadType.TEXT,
-			"[JOIN] {sender_name} đã vào mạng ({server_name})",
+			"[JOIN] %sender_name% đã vào mạng (%server_name%)",
 			"",
 			"",
 			null,
@@ -272,7 +283,7 @@ public final class VelocityMessengerConfig {
 		return new MessageRouteConfig(
 			true,
 			PayloadType.TEXT,
-			"[LEAVE] {sender_name} đã rời mạng",
+			"[LEAVE] %sender_name% đã rời mạng",
 			"",
 			"",
 			null,
@@ -285,7 +296,7 @@ public final class VelocityMessengerConfig {
 		return new MessageRouteConfig(
 			true,
 			PayloadType.TEXT,
-			"[SWAP] {sender_name} chuyển {from_server} -> {to_server}",
+			"[SWAP] %sender_name% chuyển %from_server% -> %to_server%",
 			"",
 			"",
 			null,
@@ -342,6 +353,9 @@ public final class VelocityMessengerConfig {
 		String serverFormat,
 		String directToSenderFormat,
 		String directToReceiverFormat,
+		String firstJoinNetworkFormat,
+		String joinNetworkFormat,
+		String leaveNetworkFormat,
 		boolean serverSwitchEnabled,
 		String serverSwitchFormat,
 		String discordInboundNetworkFormat,

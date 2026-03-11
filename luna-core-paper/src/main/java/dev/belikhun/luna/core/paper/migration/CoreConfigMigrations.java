@@ -45,6 +45,7 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "logging.ansi", true);
 				ensureDefault(store, "logging.defaultScope", "LunaCore");
 				ensureDefault(store, "logging.level", "INFO");
+				ensureDefault(store, "logging.pluginMessaging.enabled", false);
 			}
 		});
 
@@ -64,7 +65,25 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "logging.ansi", true);
 				ensureDefault(store, "logging.defaultScope", "LunaCore");
 				ensureDefault(store, "logging.level", "INFO");
+				ensureDefault(store, "logging.pluginMessaging.enabled", false);
 				ensureDefault(store, "strings.money.format", "{amount}{symbol}");
+			}
+		});
+
+		migrator.register(new ConfigMigration() {
+			@Override
+			public int version() {
+				return 3;
+			}
+
+			@Override
+			public String name() {
+				return "add_plugin_messaging_logging_toggle";
+			}
+
+			@Override
+			public void migrate(dev.belikhun.luna.core.api.config.ConfigStore store) {
+				ensureDefault(store, "logging.pluginMessaging.enabled", false);
 			}
 		});
 	}

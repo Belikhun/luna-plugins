@@ -291,6 +291,7 @@ public final class VelocityMessengerRouter {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, correlationId);
 			notifyMentionTarget(sender, player, mention.mentionedById());
 		}
+		logger.audit("CHAT[NETWORK] " + toConsoleText(rendered));
 
 		// Chỉ tin nhắn network mới được bridge ra Discord.
 		Map<String, String> outboundInternalValues = Map.of(
@@ -345,16 +346,19 @@ public final class VelocityMessengerRouter {
 			sendResult(player, MessengerResultType.SERVER_CHAT, rendered, correlationId);
 			notifyMentionTarget(sender, player, mention.mentionedById());
 		}
+		logger.audit("CHAT[SERVER:" + serverName + "] " + toConsoleText(rendered));
 	}
 
 	private void sendDirect(Player sender, Player target, String message, Map<String, String> resolvedValues, UUID correlationId) {
 		String senderServer = sender.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
 		String senderServerDisplay = config.serverDisplay(senderServer);
 		String senderServerColor = config.serverColor(senderServer);
+		String senderPrefix = resolvePresencePlayerPrefix(sender);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(senderServer);
 		String toSender = renderPlayerMessage(profile.directToSenderFormat(), message, Map.of(
 			"sender_name", sender.getUsername(),
 			"target_name", target.getUsername(),
+			"player_prefix", senderPrefix,
 			"server_name", senderServer,
 			"channel_name", "direct",
 			"player_avatar_url", resolveAvatarUrl(sender, resolvedValues),
@@ -365,6 +369,7 @@ public final class VelocityMessengerRouter {
 		String toTarget = renderPlayerMessage(profile.directToReceiverFormat(), message, Map.of(
 			"sender_name", sender.getUsername(),
 			"target_name", target.getUsername(),
+			"player_prefix", senderPrefix,
 			"server_name", senderServer,
 			"channel_name", "direct",
 			"player_avatar_url", resolveAvatarUrl(target, resolvedValues),
@@ -374,6 +379,7 @@ public final class VelocityMessengerRouter {
 		));
 		sendResult(sender, MessengerResultType.DIRECT_ECHO, toSender, correlationId);
 		sendResult(target, MessengerResultType.DIRECT_CHAT, toTarget, correlationId);
+		logger.audit("CHAT[DIRECT] " + sender.getUsername() + " -> " + target.getUsername() + ": " + toConsoleText(toSender));
 		lastReplyByPlayer.put(sender.getUniqueId(), target.getUniqueId());
 		lastReplyByPlayer.put(target.getUniqueId(), sender.getUniqueId());
 	}
@@ -409,26 +415,33 @@ public final class VelocityMessengerRouter {
 		}
 	}
 
-	public void handlePlayerJoin(Player player) {
+	public void handlePlayerJoin(Player player, String connectedServerName) {
 		boolean firstJoin = seenPlayers.add(player.getUniqueId());
-		String serverName = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("proxy");
+		String serverName = (connectedServerName == null || connectedServerName.isBlank())
+			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("proxy")
+			: connectedServerName;
 		String serverColor = config.serverColor(serverName);
-		String joinRendered = renderPresenceRouteForNetwork(
-			config.discord().joinMessage(),
-			Map.of(
-				"sender_name", player.getUsername(),
-				"server_name", serverName,
-				"channel_name", config.discord().networkChannelName(),
-				"server_color", serverColor,
-				"player_avatar_url", resolveAvatarUrl(player, Map.of()),
-				"presence_type", firstJoin ? "FIRST_JOIN" : "JOIN",
-				"message", firstJoin
+		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
+		String joinTemplate = firstJoin ? profile.firstJoinNetworkFormat() : profile.joinNetworkFormat();
+		String joinRendered = renderWithStack(
+			joinTemplate,
+			Map.ofEntries(
+				Map.entry("sender_name", player.getUsername()),
+				Map.entry("player_name", player.getUsername()),
+				Map.entry("displayname", player.getUsername()),
+				Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
+				Map.entry("server_name", serverName),
+				Map.entry("server_display", config.serverDisplay(serverName)),
+				Map.entry("channel_name", config.discord().networkChannelName()),
+				Map.entry("server_color", serverColor),
+				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
+				Map.entry("presence_type", firstJoin ? "FIRST_JOIN" : "JOIN"),
+				Map.entry("message", firstJoin
 					? player.getUsername() + " đã vào mạng lần đầu"
-					: player.getUsername() + " đã vào mạng"
+					: player.getUsername() + " đã vào mạng")
 			),
 			Map.of(),
-			player,
-			"<gray>[<green>+<gray>]</gray> <white>" + escape(player.getUsername()) + "</white>"
+			player
 		);
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, joinRendered, null);
@@ -447,7 +460,7 @@ public final class VelocityMessengerRouter {
 		), Map.of(), player, DiscordOutboundMessage.DispatchType.BROADCAST);
 	}
 
-	public void handlePlayerLeave(Player player) {
+	public void handlePlayerLeave(Player player, String previousServerName) {
 		UUID leavingId = player.getUniqueId();
 		lastReplyByPlayer.remove(leavingId);
 		rateLimitStates.remove(leavingId);
@@ -457,20 +470,28 @@ public final class VelocityMessengerRouter {
 			return context != null && context.type() == MessagingContextType.DIRECT && leavingId.equals(context.directTargetId());
 		});
 
-		String serverColor = config.serverColor("");
-		String leaveRendered = renderPresenceRouteForNetwork(
-			config.discord().leaveMessage(),
-			Map.of(
-				"sender_name", player.getUsername(),
-				"server_name", "",
-				"channel_name", config.discord().networkChannelName(),
-				"server_color", serverColor,
-				"player_avatar_url", resolveAvatarUrl(player, Map.of()),
-				"message", player.getUsername() + " đã rời mạng"
+		String serverName = (previousServerName == null || previousServerName.isBlank())
+			? player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("")
+			: previousServerName;
+		String serverColor = config.serverColor(serverName);
+		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
+		String leaveRendered = renderWithStack(
+			profile.leaveNetworkFormat(),
+			Map.ofEntries(
+				Map.entry("sender_name", player.getUsername()),
+				Map.entry("player_name", player.getUsername()),
+				Map.entry("displayname", player.getUsername()),
+				Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
+				Map.entry("server_name", serverName),
+				Map.entry("server_display", config.serverDisplay(serverName)),
+				Map.entry("channel_name", config.discord().networkChannelName()),
+				Map.entry("server_color", serverColor),
+				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
+				Map.entry("presence_type", "LEAVE"),
+				Map.entry("message", player.getUsername() + " đã rời mạng")
 			),
 			Map.of(),
-			player,
-			"<gray>[<red>-<gray>]</gray> <white>" + escape(player.getUsername()) + "</white>"
+			player
 		);
 		for (Player online : proxyServer.getAllPlayers()) {
 			sendResult(online, MessengerResultType.NETWORK_CHAT, leaveRendered, null);
@@ -496,13 +517,19 @@ public final class VelocityMessengerRouter {
 			return;
 		}
 
-		String rendered = renderWithStack(profile.serverSwitchFormat(), Map.of(
-			"sender_name", player.getUsername(),
-			"from_server", previousServerName,
-			"to_server", toServerName,
-			"presence_type", "SWAP",
-			"server_name", toServerName,
-			"server_color", toServerColor
+		String rendered = renderWithStack(profile.serverSwitchFormat(), Map.ofEntries(
+			Map.entry("sender_name", player.getUsername()),
+			Map.entry("displayname", player.getUsername()),
+			Map.entry("player_prefix", resolvePresencePlayerPrefix(player)),
+			Map.entry("from_server", previousServerName),
+			Map.entry("to_server", toServerName),
+			Map.entry("from", fromDisplay),
+			Map.entry("to", toDisplay),
+			Map.entry("from_clean", stripLegacy(fromDisplay)),
+			Map.entry("to_clean", stripLegacy(toDisplay)),
+			Map.entry("presence_type", "SWAP"),
+			Map.entry("server_name", toServerName),
+			Map.entry("server_color", toServerColor)
 		), Map.of(), player);
 		rendered = injectUnescapedPlaceholders(rendered, Map.of(
 			"from_display", fromDisplay,
@@ -636,22 +663,9 @@ public final class VelocityMessengerRouter {
 			sent++;
 		}
 
+		logger.audit("CHAT[BROADCAST] " + toConsoleText(rendered));
 		logger.audit("BROADCAST actor=" + actor + " recipients=" + sent + " message=" + message);
 		return new ModerationResult(true, "<green>✔ Đã phát thông báo đến <white>" + sent + "</white> người chơi.</green>");
-	}
-
-	private String renderPresenceRouteForNetwork(
-		VelocityMessengerConfig.MessageRouteConfig route,
-		Map<String, String> internalValues,
-		Map<String, String> backendValues,
-		Player player,
-		String fallbackTemplate
-	) {
-		String template = route.content();
-		if (template == null || template.isBlank()) {
-			template = fallbackTemplate;
-		}
-		return renderWithStack(template, internalValues, backendValues, player);
 	}
 
 	private void sendInfo(Player player, String message) {
@@ -711,7 +725,6 @@ public final class VelocityMessengerRouter {
 		for (Map.Entry<String, String> entry : safeValues.entrySet()) {
 			String key = entry.getKey();
 			String replacement = entry.getValue() == null ? "" : entry.getValue();
-			output = output.replace("{" + key + "}", replacement);
 			output = output.replace("%" + key + "%", replacement);
 		}
 		return output;
@@ -793,6 +806,14 @@ public final class VelocityMessengerRouter {
 		return left + "|" + right;
 	}
 
+	private String resolvePresencePlayerPrefix(Player player) {
+		String raw = miniPlaceholderResolver.resolve(player, "<luckperms_prefix>");
+		if (raw == null || raw.isBlank() || raw.equals("<luckperms_prefix>")) {
+			return "";
+		}
+		return raw;
+	}
+
 	private String resolveAvatarUrl(Player player, Map<String, String> resolvedValues) {
 		Map<String, String> internalValues = Map.of(
 			"sender_name", player.getUsername(),
@@ -830,16 +851,13 @@ public final class VelocityMessengerRouter {
 		String rendered = renderWithStack(template, internalValues, backendValues, player);
 		rendered = injectUnescapedPlaceholders(rendered, unescapedValues);
 		String messageMini = legacyToMini(rawMessage);
-		return rendered
-			.replace("{message}", messageMini)
-			.replace("%message%", messageMini);
+		return rendered.replace("%message%", messageMini);
 	}
 
 	private String injectUnescapedPlaceholders(String rendered, Map<String, String> values) {
 		String output = rendered;
 		for (Map.Entry<String, String> entry : values.entrySet()) {
 			String value = entry.getValue() == null ? "" : entry.getValue();
-			output = output.replace("{" + entry.getKey() + "}", value);
 			output = output.replace("%" + entry.getKey() + "%", value);
 		}
 		return output;
@@ -853,6 +871,14 @@ public final class VelocityMessengerRouter {
 	private String stripLegacy(String input) {
 		Component component = LEGACY.deserialize(normalizeLegacyHex(input));
 		return PLAIN.serialize(component);
+	}
+
+	private String toConsoleText(String input) {
+		String text = input == null ? "" : input;
+		text = MINI_TAG_PATTERN.matcher(text).replaceAll("");
+		text = LEGACY_CODE_PATTERN.matcher(text).replaceAll("");
+		text = stripLegacy(text);
+		return text.replaceAll("\\s+", " ").trim();
 	}
 
 	private String normalizeLegacyHex(String input) {

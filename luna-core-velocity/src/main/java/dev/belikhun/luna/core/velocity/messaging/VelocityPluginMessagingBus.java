@@ -24,13 +24,19 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 	private final ProxyServer proxyServer;
 	private final Object plugin;
 	private final LunaLogger logger;
+	private final boolean loggingEnabled;
 	private final Map<String, PluginMessageHandler<Object>> incomingHandlers;
 	private final Set<String> outgoingChannels;
 
 	public VelocityPluginMessagingBus(ProxyServer proxyServer, Object plugin, LunaLogger logger) {
+		this(proxyServer, plugin, logger, true);
+	}
+
+	public VelocityPluginMessagingBus(ProxyServer proxyServer, Object plugin, LunaLogger logger, boolean loggingEnabled) {
 		this.proxyServer = proxyServer;
 		this.plugin = plugin;
 		this.logger = logger.scope("PluginMessaging");
+		this.loggingEnabled = loggingEnabled;
 		this.incomingHandlers = new ConcurrentHashMap<>();
 		this.outgoingChannels = ConcurrentHashMap.newKeySet();
 		this.proxyServer.getEventManager().register(plugin, this);
@@ -41,7 +47,9 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		incomingHandlers.put(identifier.getId(), handler);
 		proxyServer.getChannelRegistrar().register(identifier);
-		logger.debug("Đã đăng ký incoming plugin channel: " + identifier.getId());
+		if (loggingEnabled) {
+			logger.debug("Đã đăng ký incoming plugin channel: " + identifier.getId());
+		}
 	}
 
 	@Override
@@ -51,7 +59,9 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			if (!outgoingChannels.contains(identifier.getId())) {
 				proxyServer.getChannelRegistrar().unregister(identifier);
 			}
-			logger.debug("Đã hủy incoming plugin channel: " + identifier.getId());
+			if (loggingEnabled) {
+				logger.debug("Đã hủy incoming plugin channel: " + identifier.getId());
+			}
 		}
 	}
 
@@ -60,7 +70,9 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		if (outgoingChannels.add(identifier.getId())) {
 			proxyServer.getChannelRegistrar().register(identifier);
-			logger.debug("Đã đăng ký outgoing plugin channel: " + identifier.getId());
+			if (loggingEnabled) {
+				logger.debug("Đã đăng ký outgoing plugin channel: " + identifier.getId());
+			}
 		}
 	}
 
@@ -71,7 +83,9 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			if (!incomingHandlers.containsKey(identifier.getId())) {
 				proxyServer.getChannelRegistrar().unregister(identifier);
 			}
-			logger.debug("Đã hủy outgoing plugin channel: " + identifier.getId());
+			if (loggingEnabled) {
+				logger.debug("Đã hủy outgoing plugin channel: " + identifier.getId());
+			}
 		}
 	}
 
@@ -84,28 +98,34 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 
 		if (target instanceof Player player) {
 			boolean sent = player.sendPluginMessage(identifier, payload);
-			logger.audit("[TX] proxy->player channel=" + identifier.getId()
-				+ " target=" + player.getUsername()
-				+ " bytes=" + payload.length
-				+ " sent=" + sent);
+			if (loggingEnabled) {
+				logger.audit("[TX] proxy->player channel=" + identifier.getId()
+					+ " target=" + player.getUsername()
+					+ " bytes=" + payload.length
+					+ " sent=" + sent);
+			}
 			return sent;
 		}
 
 		if (target instanceof RegisteredServer registeredServer) {
 			boolean sent = registeredServer.sendPluginMessage(identifier, payload);
-			logger.audit("[TX] proxy->backend channel=" + identifier.getId()
-				+ " target=" + registeredServer.getServerInfo().getName()
-				+ " bytes=" + payload.length
-				+ " sent=" + sent);
+			if (loggingEnabled) {
+				logger.audit("[TX] proxy->backend channel=" + identifier.getId()
+					+ " target=" + registeredServer.getServerInfo().getName()
+					+ " bytes=" + payload.length
+					+ " sent=" + sent);
+			}
 			return sent;
 		}
 
 		if (target instanceof ServerConnection serverConnection) {
 			boolean sent = serverConnection.sendPluginMessage(identifier, payload);
-			logger.audit("[TX] proxy->backend-connection channel=" + identifier.getId()
-				+ " target=" + serverConnection.getServerInfo().getName()
-				+ " bytes=" + payload.length
-				+ " sent=" + sent);
+			if (loggingEnabled) {
+				logger.audit("[TX] proxy->backend-connection channel=" + identifier.getId()
+					+ " target=" + serverConnection.getServerInfo().getName()
+					+ " bytes=" + payload.length
+					+ " sent=" + sent);
+			}
 			return sent;
 		}
 
@@ -134,13 +154,17 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			return;
 		}
 
-		logger.audit("[RX] channel=" + identifier.getId()
-			+ " source=" + event.getSource().getClass().getSimpleName()
-			+ " bytes=" + event.getData().length);
+		if (loggingEnabled) {
+			logger.audit("[RX] channel=" + identifier.getId()
+				+ " source=" + event.getSource().getClass().getSimpleName()
+				+ " bytes=" + event.getData().length);
+		}
 
 		PluginMessageHandler<Object> handler = incomingHandlers.get(identifier.getId());
 		if (handler == null) {
-			logger.debug("[RX] Không có handler cho channel=" + identifier.getId());
+			if (loggingEnabled) {
+				logger.debug("[RX] Không có handler cho channel=" + identifier.getId());
+			}
 			return;
 		}
 
@@ -152,7 +176,9 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 			event.setResult(PluginMessageEvent.ForwardResult.forward());
 		}
 
-		logger.audit("[RX] Đã xử lý channel=" + identifier.getId() + " result=" + dispatchResult.name());
+		if (loggingEnabled) {
+			logger.audit("[RX] Đã xử lý channel=" + identifier.getId() + " result=" + dispatchResult.name());
+		}
 	}
 
 	private MinecraftChannelIdentifier toIdentifier(PluginMessageChannel channel) {

@@ -12,6 +12,8 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -39,7 +41,12 @@ public final class LunaCoreVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
-		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger);
+		Path configPath = dataDirectory.resolve("config.yml");
+		Map<String, Object> rootConfig = LunaYamlConfig.loadMap(configPath);
+		Map<String, Object> loggingConfig = readMap(rootConfig, "logging");
+		Map<String, Object> pluginMessagingConfig = readMap(loggingConfig, "pluginMessaging");
+		boolean pluginMessagingLogsEnabled = readBoolean(pluginMessagingConfig, "enabled", false);
+		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
 		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
@@ -60,6 +67,42 @@ public final class LunaCoreVelocityPlugin {
 		} catch (RuntimeException exception) {
 			logger.error("Không thể khởi tạo config.yml mặc định cho LunaCore Velocity.", exception);
 		}
+	}
+
+	private Map<String, Object> readMap(Map<String, Object> source, String key) {
+		if (source == null) {
+			return Map.of();
+		}
+
+		Object value = source.get(key);
+		if (!(value instanceof Map<?, ?> nested)) {
+			return Map.of();
+		}
+
+		Map<String, Object> output = new LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : nested.entrySet()) {
+			output.put(String.valueOf(entry.getKey()), entry.getValue());
+		}
+		return output;
+	}
+
+	private boolean readBoolean(Map<String, Object> source, String key, boolean fallback) {
+		Object value = source.get(key);
+		if (value instanceof Boolean bool) {
+			return bool;
+		}
+		if (value == null) {
+			return fallback;
+		}
+
+		String text = String.valueOf(value).trim().toLowerCase();
+		if (text.equals("true") || text.equals("yes") || text.equals("1")) {
+			return true;
+		}
+		if (text.equals("false") || text.equals("no") || text.equals("0")) {
+			return false;
+		}
+		return fallback;
 	}
 }
 

@@ -12,10 +12,8 @@ public final class SimpleTemplateRenderer implements ProxyMessageTemplateRendere
 	public String renderTemplate(String template, Map<String, String> values) {
 		String output = template == null ? "" : template;
 		for (Map.Entry<String, String> entry : values.entrySet()) {
-			String curlyPlaceholder = "{" + entry.getKey() + "}";
 			String percentPlaceholder = "%" + entry.getKey() + "%";
 			String replacement = MM.escapeTags(entry.getValue() == null ? "" : entry.getValue());
-			output = output.replace(curlyPlaceholder, replacement);
 			output = output.replace(percentPlaceholder, replacement);
 		}
 		return output;

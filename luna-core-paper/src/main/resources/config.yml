@@ -37,3 +37,5 @@ logging:
   ansi: true
   defaultScope: "LunaCore"
   level: "INFO"
+  pluginMessaging:
+    enabled: false

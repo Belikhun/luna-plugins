@@ -8,3 +8,5 @@ logging:
   ansi: true
   defaultScope: "LunaCoreVelocity"
   level: "INFO"
+  pluginMessaging:
+    enabled: false

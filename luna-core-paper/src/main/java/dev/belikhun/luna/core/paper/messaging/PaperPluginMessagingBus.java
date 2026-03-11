@@ -20,13 +20,19 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 
 	private final Plugin plugin;
 	private final LunaLogger logger;
+	private final boolean loggingEnabled;
 	private final Messenger messenger;
 	private final Map<String, PluginMessageHandler<Player>> incomingHandlers;
 	private final Set<String> outgoingChannels;
 
 	public PaperPluginMessagingBus(Plugin plugin, LunaLogger logger) {
+		this(plugin, logger, true);
+	}
+
+	public PaperPluginMessagingBus(Plugin plugin, LunaLogger logger, boolean loggingEnabled) {
 		this.plugin = plugin;
 		this.logger = logger.scope("PluginMessaging");
+		this.loggingEnabled = loggingEnabled;
 		this.messenger = plugin.getServer().getMessenger();
 		this.incomingHandlers = new ConcurrentHashMap<>();
 		this.outgoingChannels = ConcurrentHashMap.newKeySet();
@@ -39,7 +45,9 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 		if (previous == null) {
 			messenger.registerIncomingPluginChannel(plugin, bukkitChannel, this);
 		}
-		logger.debug("Đã đăng ký incoming plugin channel: " + bukkitChannel);
+		if (loggingEnabled) {
+			logger.debug("Đã đăng ký incoming plugin channel: " + bukkitChannel);
+		}
 	}
 
 	@Override
@@ -47,7 +55,9 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 		String bukkitChannel = toBukkitChannel(channel);
 		if (incomingHandlers.remove(bukkitChannel) != null) {
 			messenger.unregisterIncomingPluginChannel(plugin, bukkitChannel, this);
-			logger.debug("Đã hủy incoming plugin channel: " + bukkitChannel);
+			if (loggingEnabled) {
+				logger.debug("Đã hủy incoming plugin channel: " + bukkitChannel);
+			}
 		}
 	}
 
@@ -56,7 +66,9 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 		String bukkitChannel = toBukkitChannel(channel);
 		if (outgoingChannels.add(bukkitChannel)) {
 			messenger.registerOutgoingPluginChannel(plugin, bukkitChannel);
-			logger.debug("Đã đăng ký outgoing plugin channel: " + bukkitChannel);
+			if (loggingEnabled) {
+				logger.debug("Đã đăng ký outgoing plugin channel: " + bukkitChannel);
+			}
 		}
 	}
 
@@ -65,7 +77,9 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 		String bukkitChannel = toBukkitChannel(channel);
 		if (outgoingChannels.remove(bukkitChannel)) {
 			messenger.unregisterOutgoingPluginChannel(plugin, bukkitChannel);
-			logger.debug("Đã hủy outgoing plugin channel: " + bukkitChannel);
+			if (loggingEnabled) {
+				logger.debug("Đã hủy outgoing plugin channel: " + bukkitChannel);
+			}
 		}
 	}
 
@@ -76,9 +90,11 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 			throw new PluginMessagingException("Outgoing plugin channel chưa được đăng ký: " + bukkitChannel);
 		}
 
-		logger.audit("[TX] backend->proxy channel=" + toApiChannel(bukkitChannel)
-			+ " target=" + target.getName()
-			+ " bytes=" + payload.length);
+		if (loggingEnabled) {
+			logger.audit("[TX] backend->proxy channel=" + toApiChannel(bukkitChannel)
+				+ " target=" + target.getName()
+				+ " bytes=" + payload.length);
+		}
 
 		target.sendPluginMessage(plugin, bukkitChannel, payload);
 		return true;
@@ -101,18 +117,24 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 	@Override
 	public void onPluginMessageReceived(String channel, Player player, byte[] message) {
 		String apiChannel = toApiChannel(channel);
-		logger.audit("[RX] proxy->backend channel=" + apiChannel
-			+ " source=" + player.getName()
-			+ " bytes=" + message.length);
+		if (loggingEnabled) {
+			logger.audit("[RX] proxy->backend channel=" + apiChannel
+				+ " source=" + player.getName()
+				+ " bytes=" + message.length);
+		}
 
 		PluginMessageHandler<Player> handler = incomingHandlers.get(channel);
 		if (handler == null) {
-			logger.debug("[RX] Không có handler cho channel=" + apiChannel);
+			if (loggingEnabled) {
+				logger.debug("[RX] Không có handler cho channel=" + apiChannel);
+			}
 			return;
 		}
 
 		handler.handle(new PluginMessageContext<>(PluginMessageChannel.of(apiChannel), player, message));
-		logger.audit("[RX] Đã xử lý channel=" + apiChannel + " source=" + player.getName());
+		if (loggingEnabled) {
+			logger.audit("[RX] Đã xử lý channel=" + apiChannel + " source=" + player.getName());
+		}
 	}
 
 	private String toBukkitChannel(PluginMessageChannel channel) {
