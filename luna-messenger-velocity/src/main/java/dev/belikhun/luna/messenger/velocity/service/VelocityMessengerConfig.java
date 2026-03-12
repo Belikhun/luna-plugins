@@ -199,14 +199,13 @@ public final class VelocityMessengerConfig {
 					str(presence.get("status"), "online"),
 					str(presence.get("activity-type"), "playing"),
 					str(presence.get("activity-name"), "Minecraft"),
-					str(presence.get("stream-url"), ""),
-					str(presence.get("activity"), "Minecraft")
+					str(presence.get("stream-url"), "")
 				));
 			}
 		}
 
 		if (presences.isEmpty()) {
-			presences.add(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"));
+			presences.add(new DiscordPresenceEntry("online", "playing", "Minecraft", ""));
 		}
 
 		return new DiscordPresenceUpdaterConfig(
@@ -215,16 +214,14 @@ public final class VelocityMessengerConfig {
 				str(startingPresence.get("status"), "do_not_disturb"),
 				str(startingPresence.get("activity-type"), "playing"),
 				str(startingPresence.get("activity-name"), "Đang khởi động..."),
-				str(startingPresence.get("stream-url"), ""),
-				str(startingPresence.get("activity"), "Đang khởi động...")
+				str(startingPresence.get("stream-url"), "")
 			),
 			bool(section.get("use-stopping-presence"), true),
 			new DiscordPresenceEntry(
 				str(stoppingPresence.get("status"), "idle"),
 				str(stoppingPresence.get("activity-type"), "playing"),
 				str(stoppingPresence.get("activity-name"), "Đang dừng..."),
-				str(stoppingPresence.get("stream-url"), ""),
-				str(stoppingPresence.get("activity"), "Đang dừng...")
+				str(stoppingPresence.get("stream-url"), "")
 			),
 			Math.max(30, integer(section.get("updater-rate-in-seconds"), 90)),
 			List.copyOf(presences)
@@ -519,11 +516,11 @@ public final class VelocityMessengerConfig {
 			channelIds = channelIds == null ? List.of() : List.copyOf(channelIds);
 			presenceUpdater = presenceUpdater == null ? new DiscordPresenceUpdaterConfig(
 				true,
-				new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", "", "Đang khởi động..."),
+				new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", ""),
 				true,
-				new DiscordPresenceEntry("idle", "playing", "Đang dừng...", "", "Đang dừng..."),
+				new DiscordPresenceEntry("idle", "playing", "Đang dừng...", ""),
 				90,
-				List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"))
+				List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", ""))
 			) : presenceUpdater;
 		}
 	}
@@ -537,11 +534,11 @@ public final class VelocityMessengerConfig {
 		List<DiscordPresenceEntry> presences
 	) {
 		public DiscordPresenceUpdaterConfig {
-			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", "", "Đang khởi động...") : startingPresence;
-			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "playing", "Đang dừng...", "", "Đang dừng...") : stoppingPresence;
+			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", "") : startingPresence;
+			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "playing", "Đang dừng...", "") : stoppingPresence;
 			updaterRateInSeconds = Math.max(30, updaterRateInSeconds);
 			presences = presences == null || presences.isEmpty()
-				? List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"))
+				? List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", ""))
 				: List.copyOf(presences);
 		}
 	}
@@ -550,15 +547,10 @@ public final class VelocityMessengerConfig {
 		String status,
 		String activityType,
 		String activityName,
-		String streamUrl,
-		String activity
+		String streamUrl
 	) {
-		public DiscordPresenceEntry(String status, String activityType, String activityName, String streamUrl) {
-			this(status, activityType, activityName, streamUrl, "");
-		}
-
 		public DiscordPresenceEntry(String status, String activityName) {
-			this(status, "playing", activityName, "", "");
+			this(status, "playing", activityName, "");
 		}
 
 		public DiscordPresenceEntry {
@@ -566,7 +558,6 @@ public final class VelocityMessengerConfig {
 			activityType = activityType == null ? "" : activityType;
 			activityName = activityName == null ? "" : activityName;
 			streamUrl = streamUrl == null ? "" : streamUrl;
-			activity = activity == null ? "" : activity;
 		}
 	}
 
