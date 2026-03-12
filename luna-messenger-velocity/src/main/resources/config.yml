@@ -189,23 +189,18 @@ discord:
         status: do_not_disturb
 
         # Tên activity chính (dòng chính).
-        # Nếu để trống, plugin sẽ dùng giá trị từ activity (tương thích cũ).
-        activity-name: ""
+        activity-name: "Đang khởi động..."
         # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
         detail-line-1: ""
         detail-line-2: ""
 
         # Tùy chọn chi tiết activity.
         # activity-type hợp lệ: playing, listening, watching, competing, streaming
-        # Khi để trống, plugin sẽ tự suy luận từ activity theo kiểu DiscordSRV.
-        activity-type: ""
+        activity-type: "playing"
         # Chỉ dùng khi activity-type=streaming.
         stream-url: ""
 
-        # Có thể thêm tiền tố kiểu activity: "playing", "listening", "watching", "competing in"
-        # Streaming: "streaming <url> <text>"
-        # Placeholder hỗ trợ:
-        # %playerlist_count% - Tổng số người chơi đang online trên proxy
+        # Legacy field cũ (không dùng nữa).
         activity: "Đang khởi động..."
 
       # Presence dùng khi proxy đang dừng.
@@ -215,23 +210,18 @@ discord:
         status: idle
 
         # Tên activity chính (dòng chính).
-        # Nếu để trống, plugin sẽ dùng giá trị từ activity (tương thích cũ).
-        activity-name: ""
+        activity-name: "Đang dừng..."
         # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
         detail-line-1: ""
         detail-line-2: ""
 
         # Tùy chọn chi tiết activity.
         # activity-type hợp lệ: playing, listening, watching, competing, streaming
-        # Khi để trống, plugin sẽ tự suy luận từ activity theo kiểu DiscordSRV.
-        activity-type: ""
+        activity-type: "playing"
         # Chỉ dùng khi activity-type=streaming.
         stream-url: ""
 
-        # Có thể thêm tiền tố kiểu activity: "playing", "listening", "watching", "competing in"
-        # Streaming: "streaming <url> <text>"
-        # Placeholder hỗ trợ:
-        # %playerlist_count% - Tổng số người chơi đang online trên proxy
+        # Legacy field cũ (không dùng nữa).
         activity: "Đang dừng..."
 
       # Chu kỳ cập nhật presence (giây). Tối thiểu: 30.
@@ -241,23 +231,18 @@ discord:
           status: online
 
           # Tên activity chính (dòng chính).
-          # Nếu để trống, plugin sẽ dùng giá trị từ activity (tương thích cũ).
-          activity-name: ""
+          activity-name: "Minecraft"
           # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
           detail-line-1: ""
           detail-line-2: ""
 
           # Tùy chọn chi tiết activity.
           # activity-type hợp lệ: playing, listening, watching, competing, streaming
-          # Khi để trống, plugin sẽ tự suy luận từ activity theo kiểu DiscordSRV.
-          activity-type: ""
+          activity-type: "playing"
           # Chỉ dùng khi activity-type=streaming.
           stream-url: ""
 
-          # Có thể thêm tiền tố kiểu activity: "playing", "listening", "watching", "competing in"
-          # Streaming: "streaming <url> <text>"
-          # Placeholder hỗ trợ:
-          # %playerlist_count% - Tổng số người chơi đang online trên proxy
+          # Legacy field cũ (không dùng nữa).
           activity: "playing Minecraft"
 
   webhook:

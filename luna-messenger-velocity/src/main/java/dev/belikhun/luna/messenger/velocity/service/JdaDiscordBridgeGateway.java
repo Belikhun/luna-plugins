@@ -173,10 +173,20 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 				detailLine2,
 				streamUrl
 			);
+			if (resolution.activity() == null) {
+				logger.warn("Presence không hợp lệ ở chế độ " + source
+					+ " (thiếu activity-name/detail-line hoặc cấu hình activity-type không phù hợp)."
+					+ " Vui lòng kiểm tra discord.bot.presence-updater trong config.yml.");
+				return;
+			}
 
 			jda.getPresence().setStatus(status);
 			jda.getPresence().setActivity(resolution.activity());
-			logger.debug("Đã cập nhật Discord presence (" + source + "): status=" + status + ", activity=" + resolution.displayText());
+			if ("starting".equals(source) || "stopping".equals(source)) {
+				logger.audit("Đã cập nhật Discord presence (" + source + "): status=" + status + ", activity=" + resolution.displayText());
+			} else {
+				logger.debug("Đã cập nhật Discord presence (" + source + "): status=" + status + ", activity=" + resolution.displayText());
+			}
 		} catch (Exception exception) {
 			logger.warn("Không thể cập nhật Discord presence (" + source + "): " + exception.getMessage());
 		}

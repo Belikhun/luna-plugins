@@ -198,9 +198,9 @@ public final class VelocityMessengerConfig {
 				presences.add(new DiscordPresenceEntry(
 					str(presence.get("status"), "online"),
 					str(presence.get("activity"), "playing Minecraft"),
-					str(presence.get("activity-type"), ""),
+					str(presence.get("activity-type"), "playing"),
 					str(presence.get("stream-url"), ""),
-					str(presence.get("activity-name"), ""),
+					str(presence.get("activity-name"), "Minecraft"),
 					str(presence.get("detail-line-1"), ""),
 					str(presence.get("detail-line-2"), "")
 				));
@@ -208,7 +208,7 @@ public final class VelocityMessengerConfig {
 		}
 
 		if (presences.isEmpty()) {
-			presences.add(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""));
+			presences.add(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""));
 		}
 
 		return new DiscordPresenceUpdaterConfig(
@@ -216,9 +216,9 @@ public final class VelocityMessengerConfig {
 			new DiscordPresenceEntry(
 				str(startingPresence.get("status"), "do_not_disturb"),
 				str(startingPresence.get("activity"), "Đang khởi động..."),
-				str(startingPresence.get("activity-type"), ""),
+				str(startingPresence.get("activity-type"), "playing"),
 				str(startingPresence.get("stream-url"), ""),
-				str(startingPresence.get("activity-name"), ""),
+				str(startingPresence.get("activity-name"), "Đang khởi động..."),
 				str(startingPresence.get("detail-line-1"), ""),
 				str(startingPresence.get("detail-line-2"), "")
 			),
@@ -226,9 +226,9 @@ public final class VelocityMessengerConfig {
 			new DiscordPresenceEntry(
 				str(stoppingPresence.get("status"), "idle"),
 				str(stoppingPresence.get("activity"), "Đang dừng..."),
-				str(stoppingPresence.get("activity-type"), ""),
+				str(stoppingPresence.get("activity-type"), "playing"),
 				str(stoppingPresence.get("stream-url"), ""),
-				str(stoppingPresence.get("activity-name"), ""),
+				str(stoppingPresence.get("activity-name"), "Đang dừng..."),
 				str(stoppingPresence.get("detail-line-1"), ""),
 				str(stoppingPresence.get("detail-line-2"), "")
 			),
@@ -525,11 +525,11 @@ public final class VelocityMessengerConfig {
 			channelIds = channelIds == null ? List.of() : List.copyOf(channelIds);
 			presenceUpdater = presenceUpdater == null ? new DiscordPresenceUpdaterConfig(
 				true,
-				new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "", "", "", "", ""),
+				new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "playing", "", "Đang khởi động...", "", ""),
 				true,
-				new DiscordPresenceEntry("idle", "Đang dừng...", "", "", "", "", ""),
+				new DiscordPresenceEntry("idle", "Đang dừng...", "playing", "", "Đang dừng...", "", ""),
 				90,
-				List.of(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""))
+				List.of(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""))
 			) : presenceUpdater;
 		}
 	}
@@ -543,11 +543,11 @@ public final class VelocityMessengerConfig {
 		List<DiscordPresenceEntry> presences
 	) {
 		public DiscordPresenceUpdaterConfig {
-			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "", "", "", "", "") : startingPresence;
-			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "Đang dừng...", "", "", "", "", "") : stoppingPresence;
+			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "playing", "", "Đang khởi động...", "", "") : startingPresence;
+			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "Đang dừng...", "playing", "", "Đang dừng...", "", "") : stoppingPresence;
 			updaterRateInSeconds = Math.max(30, updaterRateInSeconds);
 			presences = presences == null || presences.isEmpty()
-				? List.of(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""))
+				? List.of(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""))
 				: List.copyOf(presences);
 		}
 	}
