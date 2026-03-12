@@ -1429,6 +1429,7 @@ public final class VelocityMessengerRouter {
 
 		String playerName = player == null ? output.getOrDefault("sender_name", "Minecraft") : player.getUsername();
 		String playerPrefix = player == null ? output.getOrDefault("player_prefix", "") : resolvePresencePlayerPrefix(player);
+		String discordPlayerPrefix = Formatters.stripFormats(playerPrefix);
 		String playerDisplay = player == null
 			? output.getOrDefault("sender_display", playerName)
 			: resolvePlayerDisplay(player, playerPrefix, playerName, backendValues);
@@ -1443,7 +1444,7 @@ public final class VelocityMessengerRouter {
 
 		output.put("player_name", playerName);
 		output.put("sender_name", output.getOrDefault("sender_name", playerName));
-		output.put("player_prefix", playerPrefix == null ? "" : playerPrefix);
+		output.put("player_prefix", discordPlayerPrefix == null ? "" : discordPlayerPrefix);
 		output.put("player_display", playerDisplay == null ? "" : playerDisplay);
 		output.put("sender_display", output.getOrDefault("sender_display", playerDisplay));
 		output.put("server_display", serverDisplay == null ? "" : serverDisplay);
