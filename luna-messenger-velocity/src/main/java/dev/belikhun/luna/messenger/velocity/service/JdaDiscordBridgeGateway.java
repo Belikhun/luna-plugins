@@ -162,20 +162,16 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		try {
 			Map<String, String> placeholders = presencePlaceholderSupplier == null ? Map.of() : presencePlaceholderSupplier.get();
 			String activityName = resolvePresenceTemplate(presenceEntry.activityName(), placeholders);
-			String detailLine1 = resolvePresenceTemplate(presenceEntry.detailLine1(), placeholders);
-			String detailLine2 = resolvePresenceTemplate(presenceEntry.detailLine2(), placeholders);
 			String streamUrl = resolvePresenceTemplate(presenceEntry.streamUrl(), placeholders);
 			OnlineStatus status = parseOnlineStatus(presenceEntry.status());
 			PresenceActivityResolution resolution = resolvePresenceActivity(
 				presenceEntry.activityType(),
 				activityName,
-				detailLine1,
-				detailLine2,
 				streamUrl
 			);
 			if (resolution.activity() == null) {
 				logger.warn("Presence không hợp lệ ở chế độ " + source
-					+ " (thiếu activity-name/detail-line hoặc cấu hình activity-type không phù hợp)."
+					+ " (thiếu activity-name hoặc cấu hình activity-type không phù hợp)."
 					+ " Vui lòng kiểm tra discord.bot.presence-updater trong config.yml.");
 				return;
 			}
@@ -209,45 +205,12 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	private PresenceActivityResolution resolvePresenceActivity(
 		String activityType,
 		String activityName,
-		String detailLine1,
-		String detailLine2,
 		String streamUrl
 	) {
 		String normalizedType = activityType == null ? "" : activityType.trim().toLowerCase(Locale.ROOT);
-		String displayText = composeActivityText(activityName, detailLine1, detailLine2);
+		String displayText = activityName == null ? "" : activityName.trim();
 		Activity activity = createActivityByType(normalizedType, displayText, streamUrl);
 		return new PresenceActivityResolution(activity, displayText);
-	}
-
-	private String composeActivityText(String activityName, String detailLine1, String detailLine2) {
-		String baseName = activityName == null ? "" : activityName.trim();
-		String detail1 = detailLine1 == null ? "" : detailLine1.trim();
-		String detail2 = detailLine2 == null ? "" : detailLine2.trim();
-
-		if (baseName.isBlank() && detail1.isBlank() && detail2.isBlank()) {
-			return "";
-		}
-
-		StringBuilder builder = new StringBuilder();
-		if (!baseName.isBlank()) {
-			builder.append(baseName);
-		}
-
-		if (!detail1.isBlank()) {
-			if (builder.length() > 0) {
-				builder.append(" • ");
-			}
-			builder.append(detail1);
-		}
-
-		if (!detail2.isBlank()) {
-			if (builder.length() > 0) {
-				builder.append(" | ");
-			}
-			builder.append(detail2);
-		}
-
-		return builder.toString().trim();
 	}
 
 	private Activity createActivityByType(String normalizedType, String activityText, String streamUrl) {

@@ -190,18 +190,12 @@ discord:
 
         # Tên activity chính (dòng chính).
         activity-name: "Đang khởi động..."
-        # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
-        detail-line-1: ""
-        detail-line-2: ""
 
         # Tùy chọn chi tiết activity.
         # activity-type hợp lệ: playing, listening, watching, competing, streaming
         activity-type: "playing"
         # Chỉ dùng khi activity-type=streaming.
         stream-url: ""
-
-        # Legacy field cũ (không dùng nữa).
-        activity: "Đang khởi động..."
 
       # Presence dùng khi proxy đang dừng.
       use-stopping-presence: true
@@ -211,18 +205,12 @@ discord:
 
         # Tên activity chính (dòng chính).
         activity-name: "Đang dừng..."
-        # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
-        detail-line-1: ""
-        detail-line-2: ""
 
         # Tùy chọn chi tiết activity.
         # activity-type hợp lệ: playing, listening, watching, competing, streaming
         activity-type: "playing"
         # Chỉ dùng khi activity-type=streaming.
         stream-url: ""
-
-        # Legacy field cũ (không dùng nữa).
-        activity: "Đang dừng..."
 
       # Chu kỳ cập nhật presence (giây). Tối thiểu: 30.
       updater-rate-in-seconds: 90
@@ -232,18 +220,12 @@ discord:
 
           # Tên activity chính (dòng chính).
           activity-name: "Minecraft"
-          # Dòng chi tiết 1 và 2 sẽ được ghép vào activity text khi hiển thị trên Discord.
-          detail-line-1: ""
-          detail-line-2: ""
 
           # Tùy chọn chi tiết activity.
           # activity-type hợp lệ: playing, listening, watching, competing, streaming
           activity-type: "playing"
           # Chỉ dùng khi activity-type=streaming.
           stream-url: ""
-
-          # Legacy field cũ (không dùng nữa).
-          activity: "playing Minecraft"
 
   webhook:
     # Discord webhook endpoint(s) dùng để gửi chat/join/leave với username/avatar tùy biến.

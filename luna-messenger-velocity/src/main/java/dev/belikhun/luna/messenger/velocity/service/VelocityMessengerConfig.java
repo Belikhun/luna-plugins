@@ -197,40 +197,34 @@ public final class VelocityMessengerConfig {
 				Map<String, Object> presence = map(item);
 				presences.add(new DiscordPresenceEntry(
 					str(presence.get("status"), "online"),
-					str(presence.get("activity"), "playing Minecraft"),
 					str(presence.get("activity-type"), "playing"),
-					str(presence.get("stream-url"), ""),
 					str(presence.get("activity-name"), "Minecraft"),
-					str(presence.get("detail-line-1"), ""),
-					str(presence.get("detail-line-2"), "")
+					str(presence.get("stream-url"), ""),
+					str(presence.get("activity"), "Minecraft")
 				));
 			}
 		}
 
 		if (presences.isEmpty()) {
-			presences.add(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""));
+			presences.add(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"));
 		}
 
 		return new DiscordPresenceUpdaterConfig(
 			bool(section.get("use-starting-presence"), true),
 			new DiscordPresenceEntry(
 				str(startingPresence.get("status"), "do_not_disturb"),
-				str(startingPresence.get("activity"), "Đang khởi động..."),
 				str(startingPresence.get("activity-type"), "playing"),
-				str(startingPresence.get("stream-url"), ""),
 				str(startingPresence.get("activity-name"), "Đang khởi động..."),
-				str(startingPresence.get("detail-line-1"), ""),
-				str(startingPresence.get("detail-line-2"), "")
+				str(startingPresence.get("stream-url"), ""),
+				str(startingPresence.get("activity"), "Đang khởi động...")
 			),
 			bool(section.get("use-stopping-presence"), true),
 			new DiscordPresenceEntry(
 				str(stoppingPresence.get("status"), "idle"),
-				str(stoppingPresence.get("activity"), "Đang dừng..."),
 				str(stoppingPresence.get("activity-type"), "playing"),
-				str(stoppingPresence.get("stream-url"), ""),
 				str(stoppingPresence.get("activity-name"), "Đang dừng..."),
-				str(stoppingPresence.get("detail-line-1"), ""),
-				str(stoppingPresence.get("detail-line-2"), "")
+				str(stoppingPresence.get("stream-url"), ""),
+				str(stoppingPresence.get("activity"), "Đang dừng...")
 			),
 			Math.max(30, integer(section.get("updater-rate-in-seconds"), 90)),
 			List.copyOf(presences)
@@ -525,11 +519,11 @@ public final class VelocityMessengerConfig {
 			channelIds = channelIds == null ? List.of() : List.copyOf(channelIds);
 			presenceUpdater = presenceUpdater == null ? new DiscordPresenceUpdaterConfig(
 				true,
-				new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "playing", "", "Đang khởi động...", "", ""),
+				new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", "", "Đang khởi động..."),
 				true,
-				new DiscordPresenceEntry("idle", "Đang dừng...", "playing", "", "Đang dừng...", "", ""),
+				new DiscordPresenceEntry("idle", "playing", "Đang dừng...", "", "Đang dừng..."),
 				90,
-				List.of(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""))
+				List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"))
 			) : presenceUpdater;
 		}
 	}
@@ -543,40 +537,36 @@ public final class VelocityMessengerConfig {
 		List<DiscordPresenceEntry> presences
 	) {
 		public DiscordPresenceUpdaterConfig {
-			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "playing", "", "Đang khởi động...", "", "") : startingPresence;
-			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "Đang dừng...", "playing", "", "Đang dừng...", "", "") : stoppingPresence;
+			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "playing", "Đang khởi động...", "", "Đang khởi động...") : startingPresence;
+			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "playing", "Đang dừng...", "", "Đang dừng...") : stoppingPresence;
 			updaterRateInSeconds = Math.max(30, updaterRateInSeconds);
 			presences = presences == null || presences.isEmpty()
-				? List.of(new DiscordPresenceEntry("online", "playing Minecraft", "playing", "", "Minecraft", "", ""))
+				? List.of(new DiscordPresenceEntry("online", "playing", "Minecraft", "", "Minecraft"))
 				: List.copyOf(presences);
 		}
 	}
 
 	public record DiscordPresenceEntry(
 		String status,
-		String activity,
 		String activityType,
-		String streamUrl,
 		String activityName,
-		String detailLine1,
-		String detailLine2
+		String streamUrl,
+		String activity
 	) {
-		public DiscordPresenceEntry(String status, String activity) {
-			this(status, activity, "", "", "", "", "");
+		public DiscordPresenceEntry(String status, String activityType, String activityName, String streamUrl) {
+			this(status, activityType, activityName, streamUrl, "");
 		}
 
-		public DiscordPresenceEntry(String status, String activity, String activityType, String streamUrl) {
-			this(status, activity, activityType, streamUrl, "", "", "");
+		public DiscordPresenceEntry(String status, String activityName) {
+			this(status, "playing", activityName, "", "");
 		}
 
 		public DiscordPresenceEntry {
 			status = (status == null || status.isBlank()) ? "online" : status;
-			activity = activity == null ? "" : activity;
 			activityType = activityType == null ? "" : activityType;
-			streamUrl = streamUrl == null ? "" : streamUrl;
 			activityName = activityName == null ? "" : activityName;
-			detailLine1 = detailLine1 == null ? "" : detailLine1;
-			detailLine2 = detailLine2 == null ? "" : detailLine2;
+			streamUrl = streamUrl == null ? "" : streamUrl;
+			activity = activity == null ? "" : activity;
 		}
 	}
 
