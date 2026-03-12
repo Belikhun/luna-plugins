@@ -119,7 +119,8 @@ public final class LunaCorePlugin extends JavaPlugin {
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
 				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));
-				commands.registrar().register("lunacore", new LunaCoreCommand(this));
+				commands.registrar().register("lunacorepaper", new LunaCoreCommand(this));
+				commands.registrar().register("lcp", new LunaCoreCommand(this));
 			}
 		);
 		coreLogger.audit("Help command API đã được đăng ký theo Paper Command Lifecycle.");

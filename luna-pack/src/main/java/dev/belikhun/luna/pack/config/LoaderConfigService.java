@@ -1,5 +1,6 @@
 package dev.belikhun.luna.pack.config;
 
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
@@ -41,8 +42,8 @@ public final class LoaderConfigService {
 
 		try {
 			Map<String, Object> map = LunaYamlConfig.loadMap(configPath);
-			String baseUrl = normalizeBaseUrl(readString(map, "base-url", DEFAULT_BASE_URL));
-			String packPathRaw = readString(map, "pack-path", DEFAULT_PACK_PATH);
+			String baseUrl = normalizeBaseUrl(ConfigValues.string(map, "base-url", DEFAULT_BASE_URL));
+			String packPathRaw = ConfigValues.string(map, "pack-path", DEFAULT_PACK_PATH);
 			current = new LoaderConfig(baseUrl, resolvePackPath(packPathRaw));
 			return current;
 		} catch (RuntimeException exception) {
@@ -55,16 +56,6 @@ public final class LoaderConfigService {
 
 	public LoaderConfig current() {
 		return current;
-	}
-
-	private String readString(Map<?, ?> map, String key, String fallback) {
-		Object value = map.get(key);
-		if (value == null) {
-			return fallback;
-		}
-
-		String text = String.valueOf(value).trim();
-		return text.isEmpty() ? fallback : text;
 	}
 
 	private String normalizeBaseUrl(String raw) {

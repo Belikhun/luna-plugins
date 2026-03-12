@@ -11,9 +11,11 @@ permissions:
     default: op
     description: Quyền quản trị Luna Core.
 commands:
-  lunacore:
+  lunacorepaper:
     description: Quản trị Luna Core.
-    usage: /lunacore [reload]
+    usage: /lunacorepaper [reload]
+    aliases:
+      - lcp
     permission: lunacore.admin
 dependencies:
   server:

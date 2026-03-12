@@ -1,6 +1,7 @@
 package dev.belikhun.luna.messenger.paper.service;
 
 import com.loohp.interactivechat.api.InteractiveChatAPI;
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messenger.MessengerChannels;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandRequest;
@@ -124,7 +125,7 @@ public final class PaperMessengerGateway {
 				if (result.resultType() == MessengerResultType.MENTION_ALERT) {
 					sendComponentMessage(player, result.miniMessage(), result.metadata());
 					playMentionSound(player, result.metadata().get("mention.sound"));
-					boolean toastEnabled = parseBoolean(result.metadata().get("toast.enabled"), true);
+					boolean toastEnabled = ConfigValues.booleanValue(result.metadata().get("toast.enabled"), true);
 					if (toastEnabled) {
 						String titleText = result.metadata().getOrDefault("toast.title", "<yellow>Bạn được nhắc đến</yellow>");
 						String subtitleText = result.metadata().getOrDefault("toast.subtitle", "<white>Kiểm tra khung chat</white>");
@@ -364,13 +365,6 @@ public final class PaperMessengerGateway {
 			}
 			logger.warn("Timeout command=" + pending.commandType().name() + " reqId=" + entry.getKey());
 		}
-	}
-
-	private boolean parseBoolean(String text, boolean fallback) {
-		if (text == null || text.isBlank()) {
-			return fallback;
-		}
-		return Boolean.parseBoolean(text.trim());
 	}
 
 	private void playMentionSound(Player player, String configuredSound) {

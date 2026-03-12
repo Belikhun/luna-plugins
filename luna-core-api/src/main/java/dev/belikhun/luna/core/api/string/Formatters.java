@@ -90,6 +90,31 @@ public final class Formatters {
 		return text.toString().trim();
 	}
 
+	public static String compactDuration(Duration duration) {
+		long totalSeconds = Math.max(1L, duration.getSeconds());
+		long days = totalSeconds / 86400L;
+		totalSeconds %= 86400L;
+		long hours = totalSeconds / 3600L;
+		totalSeconds %= 3600L;
+		long minutes = totalSeconds / 60L;
+		long seconds = totalSeconds % 60L;
+
+		StringBuilder builder = new StringBuilder();
+		if (days > 0) {
+			builder.append(days).append("d ");
+		}
+		if (hours > 0) {
+			builder.append(hours).append("h ");
+		}
+		if (minutes > 0) {
+			builder.append(minutes).append("m ");
+		}
+		if (seconds > 0 || builder.isEmpty()) {
+			builder.append(seconds).append("s");
+		}
+		return builder.toString().trim();
+	}
+
 	public static String stripFormats(String value) {
 		if (value == null || value.isBlank()) {
 			return "";

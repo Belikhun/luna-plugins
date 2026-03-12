@@ -4,6 +4,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.messenger.MessagingContext;
 import dev.belikhun.luna.core.api.messenger.MessagingContextType;
 import dev.belikhun.luna.core.api.messenger.MessengerChannels;
@@ -24,6 +25,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.ArrayDeque;
@@ -833,7 +835,7 @@ public final class VelocityMessengerRouter {
 		pendingSelfPresenceByPlayer.remove(leavingId);
 		long now = System.currentTimeMillis();
 		Long sessionStartedAt = playerSessionStartedAt.remove(leavingId);
-		String playtime = formatDuration(sessionStartedAt == null ? 0L : Math.max(0L, now - sessionStartedAt));
+		String playtime = Formatters.compactDuration(Duration.ofMillis(sessionStartedAt == null ? 0L : Math.max(0L, now - sessionStartedAt)));
 		lastReplyByPlayer.entrySet().removeIf(entry -> entry.getValue().equals(leavingId));
 		contextByPlayer.entrySet().removeIf(entry -> {
 			MessagingContext context = entry.getValue();
@@ -1103,7 +1105,7 @@ public final class VelocityMessengerRouter {
 
 		if (expiresAt != null) {
 			long effectiveDurationMillis = durationMillis == null ? 0L : durationMillis;
-			String durationText = formatDuration(effectiveDurationMillis);
+			String durationText = Formatters.compactDuration(Duration.ofMillis(Math.max(0L, effectiveDurationMillis)));
 			sendError(target, "<red>❌ Bạn đã bị tắt chat toàn mạng trong <white>" + durationText + "</white>. Lý do: <white>" + escape(reason) + "</white></red>");
 			return new ModerationResult(true, "<green>✔ Đã mute <white>" + escape(target.getUsername()) + "</white> trong <white>" + durationText + "</white>.</green>");
 		}
@@ -1146,7 +1148,7 @@ public final class VelocityMessengerRouter {
 			}
 			long remaining = record.expiresAtEpochMs() - now;
 			return new ModerationResult(true,
-				"<yellow>ℹ <white>" + escape(target.getUsername()) + "</white> đang bị mute. Còn lại: <white>" + formatDuration(remaining)
+				"<yellow>ℹ <white>" + escape(target.getUsername()) + "</white> đang bị mute. Còn lại: <white>" + Formatters.compactDuration(Duration.ofMillis(Math.max(0L, remaining)))
 					+ "</white>. Lý do: <white>" + escape(record.reason()) + "</white></yellow>");
 		}
 
@@ -1756,7 +1758,7 @@ public final class VelocityMessengerRouter {
 			}
 
 			long remaining = record.expiresAtEpochMs() - now;
-			sendError(sender, "<red>❌ Bạn đang bị mute chat toàn mạng. Còn lại: <white>" + formatDuration(remaining) + "</white>. Lý do: <white>" + escape(record.reason()) + "</white></red>", correlationId);
+			sendError(sender, "<red>❌ Bạn đang bị mute chat toàn mạng. Còn lại: <white>" + Formatters.compactDuration(Duration.ofMillis(Math.max(0L, remaining))) + "</white>. Lý do: <white>" + escape(record.reason()) + "</white></red>", correlationId);
 			return true;
 		}
 
@@ -1786,7 +1788,7 @@ public final class VelocityMessengerRouter {
 				long diff = now - state.lastMessageAt;
 				if (diff < cooldownMs) {
 					sendError(sender,
-						"<red>❌ Bạn gửi chat quá nhanh. Hãy chờ <white>" + formatDuration(cooldownMs - diff) + "</white>.</red>",
+						"<red>❌ Bạn gửi chat quá nhanh. Hãy chờ <white>" + Formatters.compactDuration(Duration.ofMillis(Math.max(0L, cooldownMs - diff))) + "</white>.</red>",
 						correlationId
 					);
 					return true;
@@ -1808,31 +1810,6 @@ public final class VelocityMessengerRouter {
 			state.lastMessageAt = now;
 		}
 		return false;
-	}
-
-	private String formatDuration(long millis) {
-		long totalSeconds = Math.max(1L, millis / 1000L);
-		long days = totalSeconds / 86400L;
-		totalSeconds %= 86400L;
-		long hours = totalSeconds / 3600L;
-		totalSeconds %= 3600L;
-		long minutes = totalSeconds / 60L;
-		long seconds = totalSeconds % 60L;
-
-		StringBuilder builder = new StringBuilder();
-		if (days > 0) {
-			builder.append(days).append("d ");
-		}
-		if (hours > 0) {
-			builder.append(hours).append("h ");
-		}
-		if (minutes > 0) {
-			builder.append(minutes).append("m ");
-		}
-		if (seconds > 0 || builder.isEmpty()) {
-			builder.append(seconds).append("s");
-		}
-		return builder.toString().trim();
 	}
 
 	private record MuteRecord(String actor, String reason, long mutedAtEpochMs, Long expiresAtEpochMs) {

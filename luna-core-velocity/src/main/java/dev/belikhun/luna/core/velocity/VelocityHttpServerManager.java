@@ -2,6 +2,7 @@ package dev.belikhun.luna.core.velocity;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.http.HttpRequest;
 import dev.belikhun.luna.core.api.http.HttpResponse;
@@ -38,17 +39,17 @@ public final class VelocityHttpServerManager {
 
 	public void startIfEnabled(Path configPath) {
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
-		Map<String, Object> http = readMap(root, "http");
+		Map<String, Object> http = ConfigValues.map(root, "http");
 
-		boolean enabled = readBoolean(http, "enabled", false);
+		boolean enabled = ConfigValues.booleanValue(http, "enabled", false);
 		if (!enabled) {
 			logger.debug("HTTP server đang tắt trong cấu hình.");
 			return;
 		}
 
-		String host = readString(http, "host", "0.0.0.0");
-		int port = readInt(http, "port", 32452);
-		pathPrefix = normalizePathPrefix(readString(http, "pathPrefix", "/api"));
+		String host = ConfigValues.string(http, "host", "0.0.0.0");
+		int port = ConfigValues.intValue(http, "port", 32452);
+		pathPrefix = normalizePathPrefix(ConfigValues.string(http, "pathPrefix", "/api"));
 
 		try {
 			server = HttpServer.create(new InetSocketAddress(host, port), 0);
@@ -170,62 +171,4 @@ public final class VelocityHttpServerManager {
 		return remaining;
 	}
 
-	private Map<String, Object> readMap(Map<String, Object> map, String key) {
-		if (map == null) {
-			return Map.of();
-		}
-		Object value = map.get(key);
-		if (!(value instanceof Map<?, ?> nested)) {
-			return Map.of();
-		}
-
-		Map<String, Object> output = new LinkedHashMap<>();
-		for (Map.Entry<?, ?> entry : nested.entrySet()) {
-			output.put(String.valueOf(entry.getKey()), entry.getValue());
-		}
-		return output;
-	}
-
-	private String readString(Map<String, Object> map, String key, String fallback) {
-		Object value = map.get(key);
-		if (value == null) {
-			return fallback;
-		}
-		String text = String.valueOf(value).trim();
-		return text.isBlank() ? fallback : text;
-	}
-
-	private int readInt(Map<String, Object> map, String key, int fallback) {
-		Object value = map.get(key);
-		if (value instanceof Number number) {
-			return number.intValue();
-		}
-		if (value == null) {
-			return fallback;
-		}
-
-		try {
-			return Integer.parseInt(String.valueOf(value).trim());
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private boolean readBoolean(Map<String, Object> map, String key, boolean fallback) {
-		Object value = map.get(key);
-		if (value instanceof Boolean bool) {
-			return bool;
-		}
-		if (value == null) {
-			return fallback;
-		}
-		String text = String.valueOf(value).trim().toLowerCase();
-		if (text.equals("true") || text.equals("yes") || text.equals("1")) {
-			return true;
-		}
-		if (text.equals("false") || text.equals("no") || text.equals("0")) {
-			return false;
-		}
-		return fallback;
-	}
 }

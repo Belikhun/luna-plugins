@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.velocity.heartbeat;
 
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
@@ -46,7 +47,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 			Map<String, String> payload = HeartbeatFormCodec.decode(request.body());
 			BackendHeartbeatStats stats = HeartbeatFormCodec.decodeStats(payload);
-			boolean online = readBoolean(payload, "online", true);
+			boolean online = ConfigValues.booleanValue(payload, "online", true);
 			String resolvedServerName = nameResolver.resolve(serverName, request.headers(), stats.serverPort());
 			BackendServerStatus status = online
 				? statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis())
@@ -120,19 +121,4 @@ public final class VelocityHeartbeatHttpEndpoints {
 		return HttpResponse.bytes(401, "unauthorized".getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
 	}
 
-	private boolean readBoolean(Map<String, String> payload, String key, boolean fallback) {
-		String value = payload.get(key);
-		if (value == null || value.isBlank()) {
-			return fallback;
-		}
-
-		String normalized = value.trim().toLowerCase();
-		if (normalized.equals("true") || normalized.equals("1") || normalized.equals("yes")) {
-			return true;
-		}
-		if (normalized.equals("false") || normalized.equals("0") || normalized.equals("no")) {
-			return false;
-		}
-		return fallback;
-	}
 }

@@ -1,5 +1,7 @@
 package dev.belikhun.luna.core.api.heartbeat;
 
+import dev.belikhun.luna.core.api.config.ConfigValues;
+
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -211,19 +213,7 @@ public final class HeartbeatFormCodec {
 	}
 
 	private static boolean boolValue(Map<String, String> fields, String key, boolean fallback) {
-		String value = fields.get(key);
-		if (value == null || value.isBlank()) {
-			return fallback;
-		}
-
-		String normalized = value.trim().toLowerCase();
-		if (normalized.equals("true") || normalized.equals("1") || normalized.equals("yes")) {
-			return true;
-		}
-		if (normalized.equals("false") || normalized.equals("0") || normalized.equals("no")) {
-			return false;
-		}
-		return fallback;
+		return ConfigValues.booleanValue(fields, key, fallback);
 	}
 
 	private static String encodePart(String value) {

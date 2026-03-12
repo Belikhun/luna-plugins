@@ -33,7 +33,7 @@ public final class LunaCoreCommand implements BasicCommand {
 			return;
 		}
 
-		sender.sendRichMessage(CommandStrings.usage("/lunacore", CommandStrings.literal("reload")));
+		sender.sendRichMessage(CommandStrings.usage("/lunacorepaper", CommandStrings.literal("reload")));
 	}
 
 	@Override

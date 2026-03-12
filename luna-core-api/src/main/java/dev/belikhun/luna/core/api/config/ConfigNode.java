@@ -81,15 +81,7 @@ public final class ConfigNode {
 
 	public boolean asBoolean(boolean fallback) {
 		Object rawValue = value();
-		if (rawValue instanceof Boolean bool) {
-			return bool;
-		}
-
-		if (rawValue == null) {
-			return fallback;
-		}
-
-		return Boolean.parseBoolean(rawValue.toString());
+		return ConfigValues.booleanValue(rawValue, fallback);
 	}
 
 	public ConfigNode set(Object value) {

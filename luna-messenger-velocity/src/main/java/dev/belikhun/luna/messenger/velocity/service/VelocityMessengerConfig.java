@@ -1,5 +1,6 @@
 package dev.belikhun.luna.messenger.velocity.service;
 
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 
 import java.nio.file.Path;
@@ -451,55 +452,23 @@ public final class VelocityMessengerConfig {
 	}
 
 	private static Map<String, Object> map(Object value) {
-		if (value instanceof Map<?, ?> map) {
-			Map<String, Object> output = new HashMap<>();
-			for (Map.Entry<?, ?> entry : map.entrySet()) {
-				output.put(String.valueOf(entry.getKey()), entry.getValue());
-			}
-			return output;
-		}
-		return Map.of();
+		return ConfigValues.map(value);
 	}
 
 	private static String str(Object value, String fallback) {
-		if (value == null) {
-			return fallback;
-		}
-		String text = String.valueOf(value).trim();
-		return text.isEmpty() ? fallback : text;
+		return ConfigValues.string(value, fallback);
 	}
 
 	private static String strPreserveWhitespace(Object value, String fallback) {
-		if (value == null) {
-			return fallback;
-		}
-
-		String text = String.valueOf(value);
-		return text.isEmpty() ? fallback : text;
+		return ConfigValues.stringPreserveWhitespace(value, fallback);
 	}
 
 	private static boolean bool(Object value, boolean fallback) {
-		if (value instanceof Boolean bool) {
-			return bool;
-		}
-		if (value instanceof String text) {
-			return Boolean.parseBoolean(text);
-		}
-		return fallback;
+		return ConfigValues.booleanValue(value, fallback);
 	}
 
 	private static Integer integer(Object value, Integer fallback) {
-		if (value instanceof Number number) {
-			return number.intValue();
-		}
-		if (value instanceof String text) {
-			try {
-				return Integer.parseInt(text.trim());
-			} catch (NumberFormatException ignored) {
-				return fallback;
-			}
-		}
-		return fallback;
+		return ConfigValues.integerValue(value, fallback);
 	}
 
 	public record FormatProfile(
