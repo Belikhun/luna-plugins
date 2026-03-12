@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class VelocityForwardingSecretResolver {
@@ -52,9 +53,22 @@ public final class VelocityForwardingSecretResolver {
 			}
 		}
 
-		Path secretPath = root.resolve(secretFile).normalize();
-		if (!Files.exists(secretPath)) {
-			logger.warn("Không tìm thấy forwarding secret file tại " + secretPath);
+		List<Path> candidates = resolveSecretCandidates(root, secretFile);
+		Path secretPath = null;
+		for (Path candidate : candidates) {
+			if (Files.exists(candidate)) {
+				secretPath = candidate;
+				break;
+			}
+		}
+
+		if (secretPath == null) {
+			String searched = candidates.stream()
+				.map(Path::toString)
+				.distinct()
+				.reduce((first, second) -> first + ", " + second)
+				.orElse(root.resolve(secretFile).normalize().toString());
+			logger.warn("Không tìm thấy forwarding secret file. Đã tìm tại: " + searched);
 			return "";
 		}
 
@@ -76,9 +90,30 @@ public final class VelocityForwardingSecretResolver {
 			return Path.of(".").toAbsolutePath().normalize();
 		}
 
-		Path pluginsDir = dataDirectory.getParent();
+		Path absoluteDataDirectory = dataDirectory.toAbsolutePath().normalize();
+		Path discoveredFromToml = discoverProxyRootFromVelocityToml(absoluteDataDirectory);
+		if (discoveredFromToml != null) {
+			return discoveredFromToml;
+		}
+
+		Path fileName = absoluteDataDirectory.getFileName();
+		if (fileName != null && "plugins".equalsIgnoreCase(fileName.toString())) {
+			Path root = absoluteDataDirectory.getParent();
+			return root == null ? absoluteDataDirectory : root;
+		}
+
+		Path parent = absoluteDataDirectory.getParent();
+		if (parent != null) {
+			Path parentName = parent.getFileName();
+			if (parentName != null && "plugins".equalsIgnoreCase(parentName.toString())) {
+				Path root = parent.getParent();
+				return root == null ? parent : root;
+			}
+		}
+
+		Path pluginsDir = absoluteDataDirectory.getParent();
 		if (pluginsDir == null) {
-			return dataDirectory.toAbsolutePath().normalize();
+			return absoluteDataDirectory;
 		}
 
 		Path root = pluginsDir.getParent();
@@ -87,5 +122,28 @@ public final class VelocityForwardingSecretResolver {
 		}
 
 		return root.toAbsolutePath().normalize();
+	}
+
+	private static Path discoverProxyRootFromVelocityToml(Path start) {
+		Path current = start;
+		for (int i = 0; i < 8 && current != null; i++) {
+			if (Files.exists(current.resolve("velocity.toml"))) {
+				return current;
+			}
+			current = current.getParent();
+		}
+		return null;
+	}
+
+	private static List<Path> resolveSecretCandidates(Path root, String secretFile) {
+		List<Path> candidates = new ArrayList<>();
+		Path configured = Path.of(secretFile);
+		if (configured.isAbsolute()) {
+			candidates.add(configured.normalize());
+			return candidates;
+		}
+
+		candidates.add(root.resolve(configured).normalize());
+		return candidates;
 	}
 }
