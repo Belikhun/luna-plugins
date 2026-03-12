@@ -22,7 +22,6 @@ import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 import java.time.Duration;
@@ -48,11 +47,8 @@ public final class VelocityMessengerRouter {
 		.hexColors()
 		.useUnusualXRepeatedCharacterHexFormat()
 		.build();
-	private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 	private static final Pattern LEGACY_HEX_PATTERN = Pattern.compile("&?#([0-9a-fA-F]{6})");
 	private static final Pattern MENTION_PATTERN = Pattern.compile("@([A-Za-z0-9_]{3,16})");
-	private static final Pattern MINI_TAG_PATTERN = Pattern.compile("<[^>]+>");
-	private static final Pattern LEGACY_CODE_PATTERN = Pattern.compile("(?i)[&§][0-9A-FK-ORX]");
 
 	private final ProxyServer proxyServer;
 	private final LunaLogger logger;
@@ -540,7 +536,7 @@ public final class VelocityMessengerRouter {
 			"server_display", normalizeDiscordDisplayToken(serverDisplay),
 			"channel_name", channelName,
 			"player_avatar_url", avatarUrl,
-			"message", stripLegacy(message),
+			"message", Formatters.stripFormats(message),
 			"server_color", serverColor
 		);
 		String outbound = renderWithStack(profile.discordOutboundNetworkFormat(), outboundInternalValues, resolvedValues, sender);
@@ -722,7 +718,7 @@ public final class VelocityMessengerRouter {
 			Map.entry("user_username", authorUsername),
 			Map.entry("user_nickname", authorNickname),
 			Map.entry("server_name", "proxy"),
-			Map.entry("server_display", stripLegacy(serverDisplay)),
+			Map.entry("server_display", Formatters.stripFormats(serverDisplay)),
 			Map.entry("channel_name", channelName),
 			Map.entry("message", message),
 			Map.entry("server_color", serverColor),
@@ -768,7 +764,7 @@ public final class VelocityMessengerRouter {
 				Map.entry("player_name", player.getUsername()),
 				Map.entry("displayname", player.getUsername()),
 				Map.entry("server_name", serverName),
-				Map.entry("server_display", stripLegacy(serverDisplay)),
+				Map.entry("server_display", Formatters.stripFormats(serverDisplay)),
 				Map.entry("channel_name", config.discord().networkChannelName()),
 				Map.entry("server_color", serverColor),
 				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
@@ -866,7 +862,7 @@ public final class VelocityMessengerRouter {
 				Map.entry("player_name", player.getUsername()),
 				Map.entry("displayname", player.getUsername()),
 				Map.entry("server_name", serverName),
-				Map.entry("server_display", stripLegacy(serverDisplay)),
+				Map.entry("server_display", Formatters.stripFormats(serverDisplay)),
 				Map.entry("channel_name", config.discord().networkChannelName()),
 				Map.entry("server_color", serverColor),
 				Map.entry("player_avatar_url", resolveAvatarUrl(player, Map.of())),
@@ -950,11 +946,11 @@ public final class VelocityMessengerRouter {
 			Map.entry("displayname", player.getUsername()),
 			Map.entry("from_server", previousServerName),
 			Map.entry("to_server", toServerName),
-			Map.entry("server_display", stripLegacy(toDisplay)),
-			Map.entry("from", stripLegacy(fromDisplay)),
-			Map.entry("to", stripLegacy(toDisplay)),
-			Map.entry("from_clean", stripLegacy(fromDisplay)),
-			Map.entry("to_clean", stripLegacy(toDisplay)),
+			Map.entry("server_display", Formatters.stripFormats(toDisplay)),
+			Map.entry("from", Formatters.stripFormats(fromDisplay)),
+			Map.entry("to", Formatters.stripFormats(toDisplay)),
+			Map.entry("from_clean", Formatters.stripFormats(fromDisplay)),
+			Map.entry("to_clean", Formatters.stripFormats(toDisplay)),
 			Map.entry("presence_type", "SWAP"),
 			Map.entry("server_name", toServerName),
 			Map.entry("server_color", toServerColor)
@@ -1179,7 +1175,7 @@ public final class VelocityMessengerRouter {
 			Map.of(
 				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
 				"server_name", "proxy",
-				"server_display", stripLegacy(config.serverDisplay("proxy")),
+				"server_display", Formatters.stripFormats(config.serverDisplay("proxy")),
 				"channel_name", "broadcast",
 				"server_color", serverColor
 			),
@@ -1442,7 +1438,7 @@ public final class VelocityMessengerRouter {
 		String serverName = output.getOrDefault("server_name", "");
 		String serverDisplay = output.getOrDefault("server_display", "");
 		if ((serverDisplay == null || serverDisplay.isBlank()) && !serverName.isBlank()) {
-			serverDisplay = stripLegacy(config.serverDisplay(serverName));
+			serverDisplay = Formatters.stripFormats(config.serverDisplay(serverName));
 		}
 
 		output.put("player_name", playerName);
@@ -1560,10 +1556,7 @@ public final class VelocityMessengerRouter {
 	}
 
 	private String sanitizeDiscordText(String value) {
-		String sanitized = value == null ? "" : value;
-		sanitized = MINI_TAG_PATTERN.matcher(sanitized).replaceAll("");
-		sanitized = LEGACY_CODE_PATTERN.matcher(sanitized).replaceAll("");
-		sanitized = stripLegacy(sanitized);
+		String sanitized = Formatters.stripFormats(value);
 		return sanitized.replaceAll("\\s+", " ").trim();
 	}
 
@@ -1576,8 +1569,7 @@ public final class VelocityMessengerRouter {
 		if (value == null) {
 			return "";
 		}
-		String sanitized = MINI_TAG_PATTERN.matcher(value).replaceAll("");
-		sanitized = LEGACY_CODE_PATTERN.matcher(sanitized).replaceAll("");
+		String sanitized = Formatters.stripFormats(value);
 		return sanitized.trim();
 	}
 
@@ -1626,16 +1618,8 @@ public final class VelocityMessengerRouter {
 		return MM.serialize(component);
 	}
 
-	private String stripLegacy(String input) {
-		Component component = LEGACY.deserialize(normalizeLegacyHex(input));
-		return PLAIN.serialize(component);
-	}
-
 	private String toConsoleText(String input) {
-		String text = input == null ? "" : input;
-		text = MINI_TAG_PATTERN.matcher(text).replaceAll("");
-		text = LEGACY_CODE_PATTERN.matcher(text).replaceAll("");
-		text = stripLegacy(text);
+		String text = Formatters.stripFormats(input);
 		return text.replaceAll("\\s+", " ").trim();
 	}
 

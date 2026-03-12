@@ -1,6 +1,7 @@
 package dev.belikhun.luna.messenger.velocity.service;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.string.Formatters;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -62,6 +63,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	private final List<RelayWebhookEndpoint> relayWebhookEndpoints;
 	private final VelocityMessengerConfig.DiscordPresenceUpdaterConfig presenceUpdaterConfig;
 	private final Supplier<Map<String, String>> presencePlaceholderSupplier;
+	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
 	private final ScheduledExecutorService presenceExecutor;
 	private final AtomicInteger rotatingPresenceCursor;
 
@@ -86,6 +88,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		this.relayWebhookEndpoints = resolveRelayWebhookEndpoints(webhookUrls);
 		this.presenceUpdaterConfig = config.presenceUpdater();
 		this.presencePlaceholderSupplier = presencePlaceholderSupplier;
+		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
 		this.rotatingPresenceCursor = new AtomicInteger();
 		this.presenceExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-discord-presence-updater");
@@ -158,10 +161,10 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 
 		try {
 			Map<String, String> placeholders = presencePlaceholderSupplier == null ? Map.of() : presencePlaceholderSupplier.get();
-			String activityName = applyPlaceholders(presenceEntry.activityName(), placeholders);
-			String detailLine1 = applyPlaceholders(presenceEntry.detailLine1(), placeholders);
-			String detailLine2 = applyPlaceholders(presenceEntry.detailLine2(), placeholders);
-			String streamUrl = applyPlaceholders(presenceEntry.streamUrl(), placeholders);
+			String activityName = resolvePresenceTemplate(presenceEntry.activityName(), placeholders);
+			String detailLine1 = resolvePresenceTemplate(presenceEntry.detailLine1(), placeholders);
+			String detailLine2 = resolvePresenceTemplate(presenceEntry.detailLine2(), placeholders);
+			String streamUrl = resolvePresenceTemplate(presenceEntry.streamUrl(), placeholders);
 			OnlineStatus status = parseOnlineStatus(presenceEntry.status());
 			PresenceActivityResolution resolution = resolvePresenceActivity(
 				presenceEntry.activityType(),
@@ -177,6 +180,20 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		} catch (Exception exception) {
 			logger.warn("Không thể cập nhật Discord presence (" + source + "): " + exception.getMessage());
 		}
+	}
+
+	private String resolvePresenceTemplate(String template, Map<String, String> placeholders) {
+		String replaced = applyPlaceholders(template, placeholders);
+		String miniResolved = miniPlaceholderResolver.resolve(null, replaced);
+		return sanitizePresenceText(miniResolved);
+	}
+
+	private String sanitizePresenceText(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return "";
+		}
+
+		return Formatters.stripFormats(raw).trim();
 	}
 
 	private PresenceActivityResolution resolvePresenceActivity(

@@ -14,6 +14,7 @@ import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
@@ -32,6 +33,7 @@ import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerStateStore;
 import dev.belikhun.luna.messenger.velocity.service.WebhookDiscordBridgeGateway;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -51,6 +53,7 @@ public final class LunaMessengerVelocityPlugin {
 	private final ProxyServer proxyServer;
 	private final Path dataDirectory;
 	private final LunaLogger logger;
+	private final long startedAtEpochMs;
 	private PluginMessageBus<Object, Object> bus;
 	private VelocityMessengerRouter router;
 	private DiscordBridgeGateway discordBridge;
@@ -60,6 +63,7 @@ public final class LunaMessengerVelocityPlugin {
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
 		this.proxyServer = proxyServer;
 		this.dataDirectory = dataDirectory;
+		this.startedAtEpochMs = System.currentTimeMillis();
 		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaMessengerVelocity"), true).scope("MessengerVelocity");
 	}
 
@@ -204,11 +208,26 @@ public final class LunaMessengerVelocityPlugin {
 
 	private Map<String, String> presencePlaceholders() {
 		Map<String, String> values = new HashMap<>();
+		long now = System.currentTimeMillis();
+		long uptimeMs = Math.max(0L, now - startedAtEpochMs);
+		long uptimeSeconds = uptimeMs / 1000L;
 		int playerCount = proxyServer.getPlayerCount();
+		int totalServers = proxyServer.getAllServers().size();
+		int onlineServers = (int) proxyServer.getAllServers().stream()
+			.filter(server -> !server.getPlayersConnected().isEmpty())
+			.count();
+
 		values.put("playerlist_count", Integer.toString(playerCount));
 		values.put("player_count", Integer.toString(playerCount));
 		values.put("online_players", Integer.toString(playerCount));
-		values.put("registered_servers", Integer.toString(proxyServer.getAllServers().size()));
+		values.put("online_servers", Integer.toString(onlineServers));
+		values.put("registered_servers", Integer.toString(totalServers));
+		values.put("total_servers", Integer.toString(totalServers));
+		values.put("uptime_ms", Long.toString(uptimeMs));
+		values.put("uptime_seconds", Long.toString(uptimeSeconds));
+		values.put("uptime_minutes", Long.toString(uptimeSeconds / 60L));
+		values.put("uptime_hours", Long.toString(uptimeSeconds / 3600L));
+		values.put("uptime", Formatters.compactDuration(Duration.ofSeconds(uptimeSeconds)));
 		return values;
 	}
 }
