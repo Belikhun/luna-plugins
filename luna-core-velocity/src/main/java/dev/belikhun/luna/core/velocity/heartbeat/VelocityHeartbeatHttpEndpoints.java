@@ -34,11 +34,13 @@ public final class VelocityHeartbeatHttpEndpoints {
 	public void register(Router router) {
 		router.post("/heartbeat/{server}", request -> {
 			if (!isAuthorized(request.headers())) {
+				logger.warn("Từ chối heartbeat do sai token hoặc thiếu token.");
 				return unauthorized();
 			}
 
 			String serverName = request.pathParam("server", "").trim();
 			if (serverName.isBlank()) {
+				logger.warn("Heartbeat request thiếu server name trong path.");
 				return HttpResponse.text(400, "server name is required");
 			}
 
@@ -49,6 +51,11 @@ public final class VelocityHeartbeatHttpEndpoints {
 			BackendServerStatus status = online
 				? statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis())
 				: statusRegistry.markOffline(resolvedServerName, stats, System.currentTimeMillis());
+			logger.audit("Heartbeat endpoint: source=" + serverName
+				+ " resolved=" + resolvedServerName
+				+ " online=" + status.online()
+				+ " players=" + stats.onlinePlayers() + "/" + stats.maxPlayers()
+				+ " port=" + stats.serverPort());
 
 			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot());
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
@@ -56,8 +63,10 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 		router.get("/heartbeat/servers", request -> {
 			if (!isAuthorized(request.headers())) {
+				logger.warn("Từ chối truy vấn /heartbeat/servers do sai token hoặc thiếu token.");
 				return unauthorized();
 			}
+			logger.debug("Yêu cầu snapshot toàn bộ backend statuses.");
 
 			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot());
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
@@ -65,13 +74,16 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 		router.get("/heartbeat/servers/{server}", request -> {
 			if (!isAuthorized(request.headers())) {
+				logger.warn("Từ chối truy vấn /heartbeat/servers/{server} do sai token hoặc thiếu token.");
 				return unauthorized();
 			}
 
 			String serverName = request.pathParam("server", "").trim();
 			if (serverName.isBlank()) {
+				logger.warn("Truy vấn /heartbeat/servers/{server} thiếu server name.");
 				return HttpResponse.text(400, "server name is required");
 			}
+			logger.debug("Yêu cầu status cho backend=" + serverName);
 
 			Map<String, BackendServerStatus> single = new LinkedHashMap<>();
 			statusRegistry.status(serverName).ifPresent(status -> single.put(serverName.toLowerCase(), status));
