@@ -41,7 +41,7 @@ public final class PaperHeartbeatPublisher {
 
 	public void start() {
 		stop();
-		if (!configStore.get("heartbeat.enabled").asBoolean(false)) {
+		if (!configStore.get("heartbeat.enabled").asBoolean(true)) {
 			logger.debug("Heartbeat backend->velocity đang tắt trong cấu hình.");
 			return;
 		}

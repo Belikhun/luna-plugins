@@ -17,7 +17,7 @@ http:
   pathPrefix: "/api"
 
 heartbeat:
-  enabled: false
+  enabled: true
   endpoint: "http://127.0.0.1:32452/api/heartbeat"
   serverName: ""
   intervalSeconds: 5

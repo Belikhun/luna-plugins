@@ -41,7 +41,7 @@ public final class VelocityHttpServerManager {
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
 		Map<String, Object> http = ConfigValues.map(root, "http");
 
-		boolean enabled = ConfigValues.booleanValue(http, "enabled", false);
+		boolean enabled = ConfigValues.booleanValue(http, "enabled", true);
 		if (!enabled) {
 			logger.debug("HTTP server đang tắt trong cấu hình.");
 			return;

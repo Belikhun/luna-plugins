@@ -34,7 +34,7 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "http.host", "0.0.0.0");
 				ensureDefault(store, "http.port", 8080);
 				ensureDefault(store, "http.pathPrefix", "/api");
-				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.enabled", true);
 				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
 				ensureDefault(store, "heartbeat.serverName", "");
 				ensureDefault(store, "heartbeat.intervalSeconds", 5);
@@ -73,7 +73,7 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "logging.level", "INFO");
 				ensureDefault(store, "logging.pluginMessaging.enabled", false);
 				ensureDefault(store, "strings.money.format", "{amount}{symbol}");
-				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.enabled", true);
 				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
 				ensureDefault(store, "heartbeat.serverName", "");
 				ensureDefault(store, "heartbeat.intervalSeconds", 5);
@@ -96,7 +96,7 @@ public final class CoreConfigMigrations {
 			@Override
 			public void migrate(dev.belikhun.luna.core.api.config.ConfigStore store) {
 				ensureDefault(store, "logging.pluginMessaging.enabled", false);
-				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.enabled", true);
 				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
 				ensureDefault(store, "heartbeat.serverName", "");
 				ensureDefault(store, "heartbeat.intervalSeconds", 5);
