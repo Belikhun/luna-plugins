@@ -22,6 +22,7 @@ import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
 import dev.belikhun.luna.core.paper.heartbeat.PaperBackendStatusView;
 import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPublisher;
+import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPlayerListener;
 import dev.belikhun.luna.core.paper.migration.CoreConfigMigrations;
 import dev.belikhun.luna.core.paper.migration.CoreDatabaseMigrations;
 import dev.belikhun.luna.core.paper.messaging.PaperPluginMessagingBus;
@@ -116,6 +117,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		LunaCore.set(services);
 		HelpCommandListener helpCommandListener = new HelpCommandListener(services);
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
+		Bukkit.getPluginManager().registerEvents(new PaperHeartbeatPlayerListener(heartbeatPublisher), this);
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
 				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));

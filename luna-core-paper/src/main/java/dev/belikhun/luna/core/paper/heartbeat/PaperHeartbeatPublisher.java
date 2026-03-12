@@ -26,6 +26,7 @@ public final class PaperHeartbeatPublisher {
 	private URI heartbeatUri;
 	private String heartbeatSecret;
 	private int heartbeatReadTimeoutMillis;
+	private volatile int lastReportedPlayerCount;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -37,6 +38,7 @@ public final class PaperHeartbeatPublisher {
 		this.heartbeatUri = null;
 		this.heartbeatSecret = "";
 		this.heartbeatReadTimeoutMillis = 3000;
+		this.lastReportedPlayerCount = -1;
 	}
 
 	public void start() {
@@ -71,8 +73,25 @@ public final class PaperHeartbeatPublisher {
 		heartbeatUri = uri;
 		heartbeatSecret = secret;
 		heartbeatReadTimeoutMillis = readTimeoutMillis;
+		lastReportedPlayerCount = Bukkit.getOnlinePlayers().size();
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis), 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
+	}
+
+	public void publishNowIfPlayerCountChanged() {
+		if (taskId == -1) {
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTask(plugin, () -> {
+			int currentCount = Bukkit.getOnlinePlayers().size();
+			if (currentCount == lastReportedPlayerCount) {
+				return;
+			}
+
+			lastReportedPlayerCount = currentCount;
+			publishNowAsync();
+		});
 	}
 
 	public void stop() {
@@ -105,6 +124,7 @@ public final class PaperHeartbeatPublisher {
 
 		try {
 			BackendHeartbeatStats stats = collectStats();
+			lastReportedPlayerCount = stats.onlinePlayers();
 			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
 			bodyFields.put("online", String.valueOf(online));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
@@ -126,6 +146,17 @@ public final class PaperHeartbeatPublisher {
 		} catch (Exception exception) {
 			logger.debug("Heartbeat lỗi online=" + online + ": " + exception.getMessage());
 		}
+	}
+
+	private void publishNowAsync() {
+		URI uri = heartbeatUri;
+		String secret = heartbeatSecret;
+		int readTimeoutMillis = heartbeatReadTimeoutMillis;
+		if (uri == null || secret == null || secret.isBlank()) {
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis));
 	}
 
 	private BackendHeartbeatStats collectStats() {
