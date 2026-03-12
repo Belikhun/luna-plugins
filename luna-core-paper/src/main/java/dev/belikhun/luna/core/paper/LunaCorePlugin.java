@@ -144,7 +144,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		LunaLogger logger = services != null ? services.logger().scope("Core") : LunaLogger.forPlugin(this, true).scope("Core");
 		logger.audit("Đang tắt Luna Core.");
 		if (services != null) {
-			services.heartbeatPublisher().stop();
+			services.heartbeatPublisher().shutdown();
 			services.pluginMessaging().close();
 			services.httpServerManager().stop();
 			services.databaseManager().close();

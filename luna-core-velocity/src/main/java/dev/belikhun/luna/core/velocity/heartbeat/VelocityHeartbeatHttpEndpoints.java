@@ -44,9 +44,11 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 			Map<String, String> payload = HeartbeatFormCodec.decode(request.body());
 			BackendHeartbeatStats stats = HeartbeatFormCodec.decodeStats(payload);
+			boolean online = readBoolean(payload, "online", true);
 			String resolvedServerName = nameResolver.resolve(serverName, request.headers(), stats.serverPort());
-			BackendServerStatus status = statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis());
-			logger.audit("Heartbeat từ backend=" + status.serverName() + " players=" + stats.onlinePlayers() + "/" + stats.maxPlayers() + " tps=" + stats.tps());
+			BackendServerStatus status = online
+				? statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis())
+				: statusRegistry.markOffline(resolvedServerName, stats, System.currentTimeMillis());
 
 			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot());
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
@@ -104,5 +106,21 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 	private HttpResponse unauthorized() {
 		return HttpResponse.bytes(401, "unauthorized".getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
+	}
+
+	private boolean readBoolean(Map<String, String> payload, String key, boolean fallback) {
+		String value = payload.get(key);
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		String normalized = value.trim().toLowerCase();
+		if (normalized.equals("true") || normalized.equals("1") || normalized.equals("yes")) {
+			return true;
+		}
+		if (normalized.equals("false") || normalized.equals("0") || normalized.equals("no")) {
+			return false;
+		}
+		return fallback;
 	}
 }

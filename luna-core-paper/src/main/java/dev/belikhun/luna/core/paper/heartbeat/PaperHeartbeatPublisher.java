@@ -23,6 +23,9 @@ public final class PaperHeartbeatPublisher {
 	private final long bootEpochMillis;
 	private int taskId;
 	private HttpClient client;
+	private URI heartbeatUri;
+	private String heartbeatSecret;
+	private int heartbeatReadTimeoutMillis;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -31,6 +34,9 @@ public final class PaperHeartbeatPublisher {
 		this.statusView = statusView;
 		this.bootEpochMillis = System.currentTimeMillis();
 		this.taskId = -1;
+		this.heartbeatUri = null;
+		this.heartbeatSecret = "";
+		this.heartbeatReadTimeoutMillis = 3000;
 	}
 
 	public void start() {
@@ -62,21 +68,45 @@ public final class PaperHeartbeatPublisher {
 		}
 
 		client = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(connectTimeoutMillis)).build();
+		heartbeatUri = uri;
+		heartbeatSecret = secret;
+		heartbeatReadTimeoutMillis = readTimeoutMillis;
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis), 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
 	}
 
 	public void stop() {
+		stopInternal(false);
+	}
+
+	public void shutdown() {
+		stopInternal(true);
+	}
+
+	private void stopInternal(boolean sendOfflineMarker) {
 		if (taskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(taskId);
 			taskId = -1;
 		}
+
+		if (sendOfflineMarker) {
+			postHeartbeat(heartbeatUri, heartbeatSecret, heartbeatReadTimeoutMillis, false);
+		}
 	}
 
 	private void postHeartbeat(URI uri, String secret, int readTimeoutMillis) {
+		postHeartbeat(uri, secret, readTimeoutMillis, true);
+	}
+
+	private void postHeartbeat(URI uri, String secret, int readTimeoutMillis, boolean online) {
+		if (uri == null || secret == null || secret.isBlank()) {
+			return;
+		}
+
 		try {
 			BackendHeartbeatStats stats = collectStats();
 			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
+			bodyFields.put("online", String.valueOf(online));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
 
 			HttpRequest request = HttpRequest.newBuilder(uri)
@@ -88,13 +118,13 @@ public final class PaperHeartbeatPublisher {
 
 			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
 			if (response.statusCode() != 200) {
-				logger.warn("Heartbeat nhận statusCode=" + response.statusCode());
+				logger.warn("Heartbeat nhận statusCode=" + response.statusCode() + " online=" + online);
 				return;
 			}
 
 			statusView.updateSnapshot(HeartbeatFormCodec.decodeSnapshot(response.body()));
 		} catch (Exception exception) {
-			logger.debug("Heartbeat lỗi: " + exception.getMessage());
+			logger.debug("Heartbeat lỗi online=" + online + ": " + exception.getMessage());
 		}
 	}
 
@@ -122,7 +152,7 @@ public final class PaperHeartbeatPublisher {
 			tps,
 			Bukkit.getOnlinePlayers().size(),
 			Bukkit.getMaxPlayers(),
-			plugin.getServer().getMotd(),
+			plugin.getServer().motd().toString(),
 			Bukkit.hasWhitelist(),
 			used,
 			runtime.freeMemory(),
