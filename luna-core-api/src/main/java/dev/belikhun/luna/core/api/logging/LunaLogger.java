@@ -12,21 +12,27 @@ public final class LunaLogger {
 	private final Logger delegate;
 	private final String scope;
 	private final boolean colorsEnabled;
+	private final boolean debugEnabled;
 	private final Map<String, LogLevel> customLevels;
 
-	private LunaLogger(Logger delegate, String scope, boolean colorsEnabled, Map<String, LogLevel> customLevels) {
+	private LunaLogger(Logger delegate, String scope, boolean colorsEnabled, boolean debugEnabled, Map<String, LogLevel> customLevels) {
 		this.delegate = delegate;
 		this.scope = scope;
 		this.colorsEnabled = colorsEnabled;
+		this.debugEnabled = debugEnabled;
 		this.customLevels = customLevels;
 	}
 
 	public static LunaLogger forPlugin(Plugin plugin, boolean colorsEnabled) {
-		return new LunaLogger(plugin.getLogger(), "", colorsEnabled, new ConcurrentHashMap<>());
+		return new LunaLogger(plugin.getLogger(), "", colorsEnabled, false, new ConcurrentHashMap<>());
 	}
 
 	public static LunaLogger forLogger(Logger logger, boolean colorsEnabled) {
-		return new LunaLogger(logger, "", colorsEnabled, new ConcurrentHashMap<>());
+		return new LunaLogger(logger, "", colorsEnabled, false, new ConcurrentHashMap<>());
+	}
+
+	public LunaLogger withDebug(boolean enabled) {
+		return new LunaLogger(delegate, scope, colorsEnabled, enabled, customLevels);
 	}
 
 	public LunaLogger scope(String childScope) {
@@ -36,7 +42,7 @@ public final class LunaLogger {
 		}
 
 		String nextScope = scope.isBlank() ? normalized : scope + "/" + normalized;
-		return new LunaLogger(delegate, nextScope, colorsEnabled, customLevels);
+		return new LunaLogger(delegate, nextScope, colorsEnabled, debugEnabled, customLevels);
 	}
 
 	public LunaLogger registerLevel(LogLevel level) {
@@ -57,10 +63,16 @@ public final class LunaLogger {
 	}
 
 	public void trace(String message) {
+		if (!debugEnabled) {
+			return;
+		}
 		log(LogLevel.TRACE, message);
 	}
 
 	public void debug(String message) {
+		if (!debugEnabled) {
+			return;
+		}
 		log(LogLevel.DEBUG, message);
 	}
 
@@ -131,7 +143,7 @@ public final class LunaLogger {
 			return Level.WARNING;
 		}
 		if (level.priority() <= LogLevel.DEBUG.priority()) {
-			return Level.FINE;
+			return Level.INFO;
 		}
 		return Level.INFO;
 	}

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.messenger.paper.service;
 
+import com.loohp.interactivechat.api.InteractiveChatAPI;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messenger.MessengerChannels;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandRequest;
@@ -16,6 +17,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.paper.toast.ToastService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.Sound;
@@ -48,6 +50,7 @@ public final class PaperMessengerGateway {
 	private final long requestTimeoutMillis;
 	private final long timeoutCheckIntervalTicks;
 	private final boolean timeoutEnabled;
+	private final boolean interactiveChatDetected;
 
 	public PaperMessengerGateway(
 		JavaPlugin plugin,
@@ -72,6 +75,10 @@ public final class PaperMessengerGateway {
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.timeoutCheckIntervalTicks = Math.max(1L, timeoutCheckIntervalTicks);
 		this.timeoutEnabled = timeoutEnabled;
+		this.interactiveChatDetected = plugin.getServer().getPluginManager().isPluginEnabled("InteractiveChat");
+		if (this.interactiveChatDetected) {
+			this.logger.audit("Đã phát hiện InteractiveChat, sẽ dùng API để gửi chat component nếu khả dụng.");
+		}
 	}
 
 	public java.util.Collection<String> suggestDirectTargets(String partial, String senderName) {
@@ -115,7 +122,7 @@ public final class PaperMessengerGateway {
 			Player player = plugin.getServer().getPlayer(result.receiverId());
 			if (player != null) {
 				if (result.resultType() == MessengerResultType.MENTION_ALERT) {
-					player.sendRichMessage(result.miniMessage());
+					sendComponentMessage(player, result.miniMessage(), result.metadata());
 					playMentionSound(player, result.metadata().get("mention.sound"));
 					boolean toastEnabled = parseBoolean(result.metadata().get("toast.enabled"), true);
 					if (toastEnabled) {
@@ -137,10 +144,10 @@ public final class PaperMessengerGateway {
 						}
 					}
 				} else if (result.resultType() == MessengerResultType.POKE_ALERT) {
-					player.sendRichMessage(result.miniMessage());
+					sendComponentMessage(player, result.miniMessage(), result.metadata());
 					playResultSound(player, result.metadata().get("poke.sound"), result.metadata().get("poke.volume"), result.metadata().get("poke.pitch"), "poke");
 				} else {
-					player.sendRichMessage(result.miniMessage());
+					sendComponentMessage(player, result.miniMessage(), result.metadata());
 				}
 				if (result.correlationId() != null) {
 					PendingRequest pending = pendingRequests.get(result.correlationId());
@@ -165,6 +172,37 @@ public final class PaperMessengerGateway {
 
 		if (timeoutEnabled) {
 			timeoutTaskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(plugin, this::checkPendingTimeouts, timeoutCheckIntervalTicks, timeoutCheckIntervalTicks);
+		}
+	}
+
+	private void sendComponentMessage(Player player, String miniMessage, Map<String, String> metadata) {
+		String payload = miniMessage == null ? "" : miniMessage;
+		Map<String, String> safeMetadata = metadata == null ? Map.of() : metadata;
+		Component component = MM.deserialize(payload);
+
+		if (!interactiveChatDetected) {
+			player.sendRichMessage(payload);
+			return;
+		}
+
+		try {
+			String senderId = safeMetadata.getOrDefault("sender_id", "");
+			if (!senderId.isBlank()) {
+				try {
+					String markedMessage = InteractiveChatAPI.markSender(payload, UUID.fromString(senderId));
+					component = MM.deserialize(markedMessage);
+				} catch (Throwable ignored) {
+					// Marking sender is optional; continue with standard IC send.
+				}
+			}
+
+			String json = GsonComponentSerializer.gson().serialize(component);
+			com.loohp.interactivechat.libs.net.kyori.adventure.text.Component interactiveChatComponent =
+				com.loohp.interactivechat.utils.InteractiveChatComponentSerializer.gson().deserialize(json);
+			InteractiveChatAPI.sendMessage(player, interactiveChatComponent);
+		} catch (Throwable throwable) {
+			logger.debug("InteractiveChat API unavailable hoặc lỗi invoke, fallback sendRichMessage: " + throwable.getMessage());
+			player.sendRichMessage(payload);
 		}
 	}
 

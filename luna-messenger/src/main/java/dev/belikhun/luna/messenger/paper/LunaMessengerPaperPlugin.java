@@ -28,7 +28,8 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 
 		saveDefaultConfig();
 
-		logger = LunaLogger.forPlugin(this, true).scope("MessengerPaper");
+		boolean debugLogging = getConfig().getBoolean("logging.debug", false);
+		logger = LunaLogger.forPlugin(this, true).withDebug(debugLogging).scope("MessengerPaper");
 		pluginMessaging = LunaCore.services().pluginMessaging();
 		boolean timeoutEnabled = getConfig().getBoolean("request.timeout.enabled", true);
 		long timeoutMillis = getConfig().getLong("request.timeout.millis", 6000L);
@@ -53,6 +54,9 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 		getServer().getPluginManager().registerEvents(new PaperChatCaptureListener(gateway), this);
 		getServer().getPluginManager().registerEvents(new PaperJoinLeaveSuppressListener(), this);
 
+		if (debugLogging) {
+			logger.info("Đang bật debug logging cho LunaMessenger Paper.");
+		}
 		logger.success("LunaMessenger (Paper) đã khởi động thành công.");
 	}
 

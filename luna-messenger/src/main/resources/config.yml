@@ -1,3 +1,7 @@
+logging:
+  # Bật/tắt log mức debug cho LunaMessenger Paper.
+  debug: false
+
 request:
   timeout:
     # Bật/tắt timeout cho các yêu cầu gửi lên proxy.

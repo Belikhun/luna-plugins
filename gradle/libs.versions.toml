@@ -12,6 +12,7 @@ jda = "5.6.1"
 miniplaceholders = "3.1.0"
 placeholderapi = "2.12.2"
 luckperms = "5.4"
+interactivechat = "4.3.5.1"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -24,3 +25,4 @@ jda = { module = "net.dv8tion:JDA", version.ref = "jda" }
 miniplaceholders-api = { module = "io.github.miniplaceholders:miniplaceholders-api", version.ref = "miniplaceholders" }
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
 luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms" }
+interactivechat-api = { module = "com.loohp:InteractiveChat", version.ref = "interactivechat" }

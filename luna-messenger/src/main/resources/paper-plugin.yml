@@ -32,3 +32,7 @@ dependencies:
     PlaceholderAPI:
       load: BEFORE
       required: false
+    InteractiveChat:
+      load: BEFORE
+      required: false
+      join-classpath: true
