@@ -32,6 +32,8 @@ import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerStateStore;
 import dev.belikhun.luna.messenger.velocity.service.WebhookDiscordBridgeGateway;
 
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -182,7 +184,7 @@ public final class LunaMessengerVelocityPlugin {
 					if (router != null) {
 						router.routeInboundDiscordMessage(message);
 					}
-				}, discord.webhookUrls());
+				}, discord.webhookUrls(), this::presencePlaceholders);
 				return new RoutingDiscordBridgeGateway(logger, webhookGateway, botGateway);
 			} catch (Exception exception) {
 				logger.warn("Không thể khởi tạo Discord bot gateway: " + exception.getMessage());
@@ -198,5 +200,15 @@ public final class LunaMessengerVelocityPlugin {
 			return new NoopDiscordBridgeGateway(logger);
 		}
 		return new RoutingDiscordBridgeGateway(logger, webhookGateway, null);
+	}
+
+	private Map<String, String> presencePlaceholders() {
+		Map<String, String> values = new HashMap<>();
+		int playerCount = proxyServer.getPlayerCount();
+		values.put("playerlist_count", Integer.toString(playerCount));
+		values.put("player_count", Integer.toString(playerCount));
+		values.put("online_players", Integer.toString(playerCount));
+		values.put("registered_servers", Integer.toString(proxyServer.getAllServers().size()));
+		return values;
 	}
 }

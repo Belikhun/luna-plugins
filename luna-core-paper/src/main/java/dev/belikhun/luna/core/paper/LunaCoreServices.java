@@ -3,6 +3,7 @@ package dev.belikhun.luna.core.paper;
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.database.DatabaseManager;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.help.HelpRegistry;
 import dev.belikhun.luna.core.api.http.HttpServerManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -10,6 +11,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
+import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPublisher;
 import dev.belikhun.luna.core.paper.toast.ToastService;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
@@ -26,7 +28,9 @@ public record LunaCoreServices(
 	HttpServerManager httpServerManager,
 	UserProfileRepository userProfileRepository,
 	PluginMessageBus<Player, Player> pluginMessaging,
-	ToastService toastService
+	ToastService toastService,
+	BackendStatusView backendStatusView,
+	PaperHeartbeatPublisher heartbeatPublisher
 ) {
 }
 

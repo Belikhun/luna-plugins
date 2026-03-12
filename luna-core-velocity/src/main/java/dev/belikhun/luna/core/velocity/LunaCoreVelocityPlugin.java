@@ -9,8 +9,13 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityHeartbeatHttpEndpoints;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 
 import java.nio.file.Path;
@@ -32,6 +37,7 @@ public final class LunaCoreVelocityPlugin {
 	private final ProxyServer proxyServer;
 	private final DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
+	private VelocityBackendStatusRegistry backendStatusRegistry;
 
 	@Inject
 	public LunaCoreVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -49,15 +55,28 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> rootConfig = LunaYamlConfig.loadMap(configPath);
 		Map<String, Object> loggingConfig = readMap(rootConfig, "logging");
 		Map<String, Object> pluginMessagingConfig = readMap(loggingConfig, "pluginMessaging");
+		Map<String, Object> heartbeatConfig = readMap(rootConfig, "heartbeat");
 		boolean pluginMessagingLogsEnabled = readBoolean(pluginMessagingConfig, "enabled", false);
+		long heartbeatTimeoutMillis = Math.max(1000L, readInt(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
+		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
+		backendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis);
+		new VelocityHeartbeatHttpEndpoints(
+			logger,
+			backendStatusRegistry,
+			new VelocityBackendNameResolver(proxyServer),
+			forwardingSecret
+		).register(httpServerManager.router());
+
 		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
 		dependencyManager.registerSingleton(ProxyServer.class, proxyServer);
 		dependencyManager.registerSingleton(LunaLogger.class, logger);
 		dependencyManager.registerSingleton(VelocityHttpServerManager.class, httpServerManager);
 		dependencyManager.registerSingleton(VelocityPluginMessagingBus.class, pluginMessagingBus);
+		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusRegistry);
+		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
-		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus));
+		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry));
 		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
@@ -116,6 +135,22 @@ public final class LunaCoreVelocityPlugin {
 			return false;
 		}
 		return fallback;
+	}
+
+	private int readInt(Map<String, Object> source, String key, int fallback) {
+		Object value = source.get(key);
+		if (value instanceof Number number) {
+			return number.intValue();
+		}
+		if (value == null) {
+			return fallback;
+		}
+
+		try {
+			return Integer.parseInt(String.valueOf(value).trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
 	}
 }
 

@@ -4,8 +4,10 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -26,12 +28,16 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.StringJoiner;
 
 public final class JdaDiscordBridgeGateway extends ListenerAdapter implements DiscordBridgeGateway {
@@ -54,13 +60,18 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	private final Map<String, Long> recentSelfFingerprints;
 	private final HttpClient webhookRelayClient;
 	private final List<RelayWebhookEndpoint> relayWebhookEndpoints;
+	private final VelocityMessengerConfig.DiscordPresenceUpdaterConfig presenceUpdaterConfig;
+	private final Supplier<Map<String, String>> presencePlaceholderSupplier;
+	private final ScheduledExecutorService presenceExecutor;
+	private final AtomicInteger rotatingPresenceCursor;
 
 	public JdaDiscordBridgeGateway(
 		LunaLogger logger,
 		VelocityMessengerConfig.DiscordBotConfig config,
 		VelocityMessengerConfig.DiscordRetryConfig retryConfig,
 		InboundHandler inboundHandler,
-		List<String> webhookUrls
+		List<String> webhookUrls,
+		Supplier<Map<String, String>> presencePlaceholderSupplier
 	) throws Exception {
 		this.logger = logger.scope("DiscordBridge");
 		this.config = config;
@@ -73,6 +84,14 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			.connectTimeout(Duration.ofSeconds(5))
 			.build();
 		this.relayWebhookEndpoints = resolveRelayWebhookEndpoints(webhookUrls);
+		this.presenceUpdaterConfig = config.presenceUpdater();
+		this.presencePlaceholderSupplier = presencePlaceholderSupplier;
+		this.rotatingPresenceCursor = new AtomicInteger();
+		this.presenceExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
+			Thread thread = new Thread(task, "luna-discord-presence-updater");
+			thread.setDaemon(true);
+			return thread;
+		});
 		this.retryExecutor = Executors.newSingleThreadExecutor(task -> {
 			Thread thread = new Thread(task, "luna-discord-bot-retry");
 			thread.setDaemon(true);
@@ -88,6 +107,178 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			.awaitReady();
 
 		this.logger.audit("Discord bot đã kết nối thành công.");
+		applyStartingPresence();
+		startPresenceUpdater();
+	}
+
+	private void applyStartingPresence() {
+		if (presenceUpdaterConfig == null || !presenceUpdaterConfig.useStartingPresence()) {
+			return;
+		}
+
+		applyPresence(presenceUpdaterConfig.startingPresence(), "starting");
+	}
+
+	private void applyStoppingPresence() {
+		if (presenceUpdaterConfig == null || !presenceUpdaterConfig.useStoppingPresence()) {
+			return;
+		}
+
+		applyPresence(presenceUpdaterConfig.stoppingPresence(), "stopping");
+	}
+
+	private void startPresenceUpdater() {
+		if (presenceUpdaterConfig == null || presenceUpdaterConfig.presences().isEmpty()) {
+			return;
+		}
+
+		long periodSeconds = Math.max(30L, presenceUpdaterConfig.updaterRateInSeconds());
+		presenceExecutor.scheduleAtFixedRate(
+			this::applyRotatingPresence,
+			periodSeconds,
+			periodSeconds,
+			TimeUnit.SECONDS
+		);
+	}
+
+	private void applyRotatingPresence() {
+		if (presenceUpdaterConfig == null || presenceUpdaterConfig.presences().isEmpty()) {
+			return;
+		}
+
+		List<VelocityMessengerConfig.DiscordPresenceEntry> presences = presenceUpdaterConfig.presences();
+		int index = Math.floorMod(rotatingPresenceCursor.getAndIncrement(), presences.size());
+		applyPresence(presences.get(index), "rotation");
+	}
+
+	private void applyPresence(VelocityMessengerConfig.DiscordPresenceEntry presenceEntry, String source) {
+		if (presenceEntry == null) {
+			return;
+		}
+
+		try {
+			Map<String, String> placeholders = presencePlaceholderSupplier == null ? Map.of() : presencePlaceholderSupplier.get();
+			String activityName = applyPlaceholders(presenceEntry.activityName(), placeholders);
+			String detailLine1 = applyPlaceholders(presenceEntry.detailLine1(), placeholders);
+			String detailLine2 = applyPlaceholders(presenceEntry.detailLine2(), placeholders);
+			String streamUrl = applyPlaceholders(presenceEntry.streamUrl(), placeholders);
+			OnlineStatus status = parseOnlineStatus(presenceEntry.status());
+			PresenceActivityResolution resolution = resolvePresenceActivity(
+				presenceEntry.activityType(),
+				activityName,
+				detailLine1,
+				detailLine2,
+				streamUrl
+			);
+
+			jda.getPresence().setStatus(status);
+			jda.getPresence().setActivity(resolution.activity());
+			logger.debug("Đã cập nhật Discord presence (" + source + "): status=" + status + ", activity=" + resolution.displayText());
+		} catch (Exception exception) {
+			logger.warn("Không thể cập nhật Discord presence (" + source + "): " + exception.getMessage());
+		}
+	}
+
+	private PresenceActivityResolution resolvePresenceActivity(
+		String activityType,
+		String activityName,
+		String detailLine1,
+		String detailLine2,
+		String streamUrl
+	) {
+		String normalizedType = activityType == null ? "" : activityType.trim().toLowerCase(Locale.ROOT);
+		String displayText = composeActivityText(activityName, detailLine1, detailLine2);
+		Activity activity = createActivityByType(normalizedType, displayText, streamUrl);
+		return new PresenceActivityResolution(activity, displayText);
+	}
+
+	private String composeActivityText(String activityName, String detailLine1, String detailLine2) {
+		String baseName = activityName == null ? "" : activityName.trim();
+		String detail1 = detailLine1 == null ? "" : detailLine1.trim();
+		String detail2 = detailLine2 == null ? "" : detailLine2.trim();
+
+		if (baseName.isBlank() && detail1.isBlank() && detail2.isBlank()) {
+			return "";
+		}
+
+		StringBuilder builder = new StringBuilder();
+		if (!baseName.isBlank()) {
+			builder.append(baseName);
+		}
+
+		if (!detail1.isBlank()) {
+			if (builder.length() > 0) {
+				builder.append(" • ");
+			}
+			builder.append(detail1);
+		}
+
+		if (!detail2.isBlank()) {
+			if (builder.length() > 0) {
+				builder.append(" | ");
+			}
+			builder.append(detail2);
+		}
+
+		return builder.toString().trim();
+	}
+
+	private Activity createActivityByType(String normalizedType, String activityText, String streamUrl) {
+		String text = activityText == null ? "" : activityText.trim();
+		if (text.isEmpty()) {
+			return null;
+		}
+
+		return switch (normalizedType) {
+			case "", "playing" -> Activity.playing(text);
+			case "listening" -> Activity.listening(text);
+			case "watching" -> Activity.watching(text);
+			case "competing", "competing_in", "competing in" -> Activity.competing(text);
+			case "streaming" -> {
+				String url = streamUrl == null ? "" : streamUrl.trim();
+				if (url.isBlank()) {
+					yield Activity.playing(text);
+				}
+				yield Activity.streaming(text, url);
+			}
+			default -> Activity.playing(text);
+		};
+	}
+
+	private record PresenceActivityResolution(Activity activity, String displayText) {
+	}
+
+	private OnlineStatus parseOnlineStatus(String rawStatus) {
+		if (rawStatus == null || rawStatus.isBlank()) {
+			return OnlineStatus.ONLINE;
+		}
+
+		String normalized = rawStatus.trim().toLowerCase(Locale.ROOT);
+		return switch (normalized) {
+			case "idle" -> OnlineStatus.IDLE;
+			case "do_not_disturb", "dnd" -> OnlineStatus.DO_NOT_DISTURB;
+			case "invisible", "offline" -> OnlineStatus.INVISIBLE;
+			default -> OnlineStatus.ONLINE;
+		};
+	}
+
+	private String applyPlaceholders(String text, Map<String, String> placeholders) {
+		String output = text == null ? "" : text;
+		if (placeholders == null || placeholders.isEmpty()) {
+			return output;
+		}
+
+		for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+			String key = entry.getKey();
+			if (key == null || key.isBlank()) {
+				continue;
+			}
+
+			String value = entry.getValue() == null ? "" : entry.getValue();
+			output = output.replace("%" + key + "%", value);
+		}
+
+		return output;
 	}
 
 	@Override
@@ -589,6 +780,8 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 
 	@Override
 	public void close() {
+		presenceExecutor.shutdownNow();
+		applyStoppingPresence();
 		try {
 			jda.shutdownNow();
 		} catch (Exception ignored) {

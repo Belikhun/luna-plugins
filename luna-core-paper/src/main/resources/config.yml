@@ -16,6 +16,14 @@ http:
   port: 8080
   pathPrefix: "/api"
 
+heartbeat:
+  enabled: false
+  endpoint: "http://127.0.0.1:32452/api/heartbeat"
+  serverName: ""
+  intervalSeconds: 5
+  connectTimeoutMillis: 3000
+  readTimeoutMillis: 3000
+
 help:
   gui:
     title: "<gold>Hướng Dẫn Lệnh"

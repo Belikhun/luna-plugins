@@ -155,6 +155,7 @@ public final class VelocityMessengerConfig {
 	private static DiscordConfig parseDiscordConfig(Map<String, Object> discord) {
 		Map<String, Object> webhook = map(discord.get("webhook"));
 		Map<String, Object> bot = map(discord.get("bot"));
+		Map<String, Object> presenceUpdater = map(bot.get("presence-updater"));
 		Map<String, Object> retry = map(discord.get("retry"));
 		Map<String, Object> outbound = map(discord.get("outbound"));
 		Map<String, Object> network = map(outbound.get("network"));
@@ -171,7 +172,8 @@ public final class VelocityMessengerConfig {
 				str(bot.get("token"), ""),
 				List.copyOf(parseChannelIds(bot)),
 				bool(bot.get("ignore-bot-messages"), true),
-				str(bot.get("source-id"), "discord-bot-jda")
+				str(bot.get("source-id"), "discord-bot-jda"),
+				parsePresenceUpdaterConfig(presenceUpdater)
 			),
 			List.copyOf(parseWebhookUrls(webhook)),
 			str(webhook.get("username-format"), "%luckperms_prefix% %sender_name%"),
@@ -180,6 +182,57 @@ public final class VelocityMessengerConfig {
 			parseMessageRoute(map(joinLeave.get("join")), defaultJoinRoute()),
 			parseMessageRoute(map(joinLeave.get("leave")), defaultLeaveRoute()),
 			parseMessageRoute(map(joinLeave.get("switch")), defaultSwitchRoute())
+		);
+	}
+
+	private static DiscordPresenceUpdaterConfig parsePresenceUpdaterConfig(Map<String, Object> section) {
+		Map<String, Object> startingPresence = map(section.get("starting-presence"));
+		Map<String, Object> stoppingPresence = map(section.get("stopping-presence"));
+		List<DiscordPresenceEntry> presences = new ArrayList<>();
+
+		Object rawPresences = section.get("presences");
+		if (rawPresences instanceof Iterable<?> iterable) {
+			for (Object item : iterable) {
+				Map<String, Object> presence = map(item);
+				presences.add(new DiscordPresenceEntry(
+					str(presence.get("status"), "online"),
+					str(presence.get("activity"), "playing Minecraft"),
+					str(presence.get("activity-type"), ""),
+					str(presence.get("stream-url"), ""),
+					str(presence.get("activity-name"), ""),
+					str(presence.get("detail-line-1"), ""),
+					str(presence.get("detail-line-2"), "")
+				));
+			}
+		}
+
+		if (presences.isEmpty()) {
+			presences.add(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""));
+		}
+
+		return new DiscordPresenceUpdaterConfig(
+			bool(section.get("use-starting-presence"), true),
+			new DiscordPresenceEntry(
+				str(startingPresence.get("status"), "do_not_disturb"),
+				str(startingPresence.get("activity"), "Đang khởi động..."),
+				str(startingPresence.get("activity-type"), ""),
+				str(startingPresence.get("stream-url"), ""),
+				str(startingPresence.get("activity-name"), ""),
+				str(startingPresence.get("detail-line-1"), ""),
+				str(startingPresence.get("detail-line-2"), "")
+			),
+			bool(section.get("use-stopping-presence"), true),
+			new DiscordPresenceEntry(
+				str(stoppingPresence.get("status"), "idle"),
+				str(stoppingPresence.get("activity"), "Đang dừng..."),
+				str(stoppingPresence.get("activity-type"), ""),
+				str(stoppingPresence.get("stream-url"), ""),
+				str(stoppingPresence.get("activity-name"), ""),
+				str(stoppingPresence.get("detail-line-1"), ""),
+				str(stoppingPresence.get("detail-line-2"), "")
+			),
+			Math.max(30, integer(section.get("updater-rate-in-seconds"), 90)),
+			List.copyOf(presences)
 		);
 	}
 
@@ -496,10 +549,65 @@ public final class VelocityMessengerConfig {
 		String token,
 		List<String> channelIds,
 		boolean ignoreBotMessages,
-		String sourceId
+		String sourceId,
+		DiscordPresenceUpdaterConfig presenceUpdater
 	) {
 		public DiscordBotConfig {
 			channelIds = channelIds == null ? List.of() : List.copyOf(channelIds);
+			presenceUpdater = presenceUpdater == null ? new DiscordPresenceUpdaterConfig(
+				true,
+				new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "", "", "", "", ""),
+				true,
+				new DiscordPresenceEntry("idle", "Đang dừng...", "", "", "", "", ""),
+				90,
+				List.of(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""))
+			) : presenceUpdater;
+		}
+	}
+
+	public record DiscordPresenceUpdaterConfig(
+		boolean useStartingPresence,
+		DiscordPresenceEntry startingPresence,
+		boolean useStoppingPresence,
+		DiscordPresenceEntry stoppingPresence,
+		int updaterRateInSeconds,
+		List<DiscordPresenceEntry> presences
+	) {
+		public DiscordPresenceUpdaterConfig {
+			startingPresence = startingPresence == null ? new DiscordPresenceEntry("do_not_disturb", "Đang khởi động...", "", "", "", "", "") : startingPresence;
+			stoppingPresence = stoppingPresence == null ? new DiscordPresenceEntry("idle", "Đang dừng...", "", "", "", "", "") : stoppingPresence;
+			updaterRateInSeconds = Math.max(30, updaterRateInSeconds);
+			presences = presences == null || presences.isEmpty()
+				? List.of(new DiscordPresenceEntry("online", "playing Minecraft", "", "", "", "", ""))
+				: List.copyOf(presences);
+		}
+	}
+
+	public record DiscordPresenceEntry(
+		String status,
+		String activity,
+		String activityType,
+		String streamUrl,
+		String activityName,
+		String detailLine1,
+		String detailLine2
+	) {
+		public DiscordPresenceEntry(String status, String activity) {
+			this(status, activity, "", "", "", "", "");
+		}
+
+		public DiscordPresenceEntry(String status, String activity, String activityType, String streamUrl) {
+			this(status, activity, activityType, streamUrl, "", "", "");
+		}
+
+		public DiscordPresenceEntry {
+			status = (status == null || status.isBlank()) ? "online" : status;
+			activity = activity == null ? "" : activity;
+			activityType = activityType == null ? "" : activityType;
+			streamUrl = streamUrl == null ? "" : streamUrl;
+			activityName = activityName == null ? "" : activityName;
+			detailLine1 = detailLine1 == null ? "" : detailLine1;
+			detailLine2 = detailLine2 == null ? "" : detailLine2;
 		}
 	}
 

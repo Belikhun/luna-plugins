@@ -1,0 +1,240 @@
+package dev.belikhun.luna.core.api.heartbeat;
+
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public final class HeartbeatFormCodec {
+	private HeartbeatFormCodec() {
+	}
+
+	public static Map<String, String> decode(byte[] body) {
+		String raw = new String(body == null ? new byte[0] : body, StandardCharsets.UTF_8);
+		return decode(raw);
+	}
+
+	public static Map<String, String> decode(String raw) {
+		Map<String, String> out = new LinkedHashMap<>();
+		if (raw == null || raw.isBlank()) {
+			return out;
+		}
+
+		String[] pairs = raw.split("&");
+		for (String pair : pairs) {
+			if (pair == null || pair.isBlank()) {
+				continue;
+			}
+
+			String[] entry = pair.split("=", 2);
+			String key = decodePart(entry[0]);
+			if (key.isBlank()) {
+				continue;
+			}
+
+			String value = entry.length > 1 ? decodePart(entry[1]) : "";
+			out.put(key, value);
+		}
+
+		return out;
+	}
+
+	public static byte[] encode(Map<String, String> values) {
+		return encodeToString(values).getBytes(StandardCharsets.UTF_8);
+	}
+
+	public static String encodeToString(Map<String, String> values) {
+		if (values == null || values.isEmpty()) {
+			return "";
+		}
+
+		StringBuilder out = new StringBuilder();
+		for (Map.Entry<String, String> entry : values.entrySet()) {
+			if (entry.getKey() == null || entry.getKey().isBlank()) {
+				continue;
+			}
+
+			if (out.length() > 0) {
+				out.append('&');
+			}
+
+			out.append(encodePart(entry.getKey()));
+			out.append('=');
+			out.append(encodePart(entry.getValue() == null ? "" : entry.getValue()));
+		}
+
+		return out.toString();
+	}
+
+	public static BackendHeartbeatStats decodeStats(Map<String, String> fields) {
+		return new BackendHeartbeatStats(
+			string(fields, "software", "unknown"),
+			string(fields, "version", "unknown"),
+			intValue(fields, "serverPort", 0),
+			longValue(fields, "uptimeMillis", 0L),
+			doubleValue(fields, "tps", 0D),
+			intValue(fields, "onlinePlayers", 0),
+			intValue(fields, "maxPlayers", 0),
+			string(fields, "motd", ""),
+			boolValue(fields, "whitelistEnabled", false),
+			longValue(fields, "ramUsedBytes", 0L),
+			longValue(fields, "ramFreeBytes", 0L),
+			longValue(fields, "ramMaxBytes", 0L)
+		);
+	}
+
+	public static Map<String, String> encodeStats(BackendHeartbeatStats stats) {
+		Map<String, String> out = new LinkedHashMap<>();
+		if (stats == null) {
+			return out;
+		}
+
+		out.put("software", emptySafe(stats.software()));
+		out.put("version", emptySafe(stats.version()));
+		out.put("serverPort", String.valueOf(stats.serverPort()));
+		out.put("uptimeMillis", String.valueOf(stats.uptimeMillis()));
+		out.put("tps", String.valueOf(stats.tps()));
+		out.put("onlinePlayers", String.valueOf(stats.onlinePlayers()));
+		out.put("maxPlayers", String.valueOf(stats.maxPlayers()));
+		out.put("motd", emptySafe(stats.motd()));
+		out.put("whitelistEnabled", String.valueOf(stats.whitelistEnabled()));
+		out.put("ramUsedBytes", String.valueOf(stats.ramUsedBytes()));
+		out.put("ramFreeBytes", String.valueOf(stats.ramFreeBytes()));
+		out.put("ramMaxBytes", String.valueOf(stats.ramMaxBytes()));
+		return out;
+	}
+
+	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot) {
+		Map<String, String> out = new LinkedHashMap<>();
+		out.put("serverCount", String.valueOf(snapshot == null ? 0 : snapshot.size()));
+		if (snapshot == null || snapshot.isEmpty()) {
+			return encode(out);
+		}
+
+		int index = 0;
+		for (BackendServerStatus status : snapshot.values()) {
+			String prefix = "server." + index + ".";
+			out.put(prefix + "name", emptySafe(status.serverName()));
+			out.put(prefix + "online", String.valueOf(status.online()));
+			out.put(prefix + "lastHeartbeatEpochMillis", String.valueOf(status.lastHeartbeatEpochMillis()));
+			Map<String, String> stats = encodeStats(status.stats());
+			for (Map.Entry<String, String> entry : stats.entrySet()) {
+				out.put(prefix + entry.getKey(), entry.getValue());
+			}
+			index++;
+		}
+
+		return encode(out);
+	}
+
+	public static Map<String, BackendServerStatus> decodeSnapshot(byte[] body) {
+		Map<String, String> fields = decode(body);
+		Map<String, BackendServerStatus> out = new LinkedHashMap<>();
+		int count = intValue(fields, "serverCount", 0);
+		for (int index = 0; index < count; index++) {
+			String prefix = "server." + index + ".";
+			String name = string(fields, prefix + "name", "").trim();
+			if (name.isBlank()) {
+				continue;
+			}
+
+			BackendHeartbeatStats stats = decodeStats(withPrefix(fields, prefix));
+			BackendServerStatus status = new BackendServerStatus(
+				name,
+				boolValue(fields, prefix + "online", false),
+				longValue(fields, prefix + "lastHeartbeatEpochMillis", 0L),
+				stats
+			);
+			out.put(name.toLowerCase(), status);
+		}
+
+		return out;
+	}
+
+	private static Map<String, String> withPrefix(Map<String, String> fields, String prefix) {
+		Map<String, String> out = new LinkedHashMap<>();
+		for (Map.Entry<String, String> entry : fields.entrySet()) {
+			if (!entry.getKey().startsWith(prefix)) {
+				continue;
+			}
+			out.put(entry.getKey().substring(prefix.length()), entry.getValue());
+		}
+		return out;
+	}
+
+	private static String string(Map<String, String> fields, String key, String fallback) {
+		String value = fields.get(key);
+		if (value == null) {
+			return fallback;
+		}
+		return value;
+	}
+
+	private static int intValue(Map<String, String> fields, String key, int fallback) {
+		String value = fields.get(key);
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		try {
+			return Integer.parseInt(value.trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private static long longValue(Map<String, String> fields, String key, long fallback) {
+		String value = fields.get(key);
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		try {
+			return Long.parseLong(value.trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private static double doubleValue(Map<String, String> fields, String key, double fallback) {
+		String value = fields.get(key);
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		try {
+			return Double.parseDouble(value.trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private static boolean boolValue(Map<String, String> fields, String key, boolean fallback) {
+		String value = fields.get(key);
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		String normalized = value.trim().toLowerCase();
+		if (normalized.equals("true") || normalized.equals("1") || normalized.equals("yes")) {
+			return true;
+		}
+		if (normalized.equals("false") || normalized.equals("0") || normalized.equals("no")) {
+			return false;
+		}
+		return fallback;
+	}
+
+	private static String encodePart(String value) {
+		return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+	}
+
+	private static String decodePart(String value) {
+		return URLDecoder.decode(value == null ? "" : value, StandardCharsets.UTF_8);
+	}
+
+	private static String emptySafe(String value) {
+		return value == null ? "" : value;
+	}
+}

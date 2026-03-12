@@ -32,6 +32,10 @@ public final class VelocityHttpServerManager {
 		registerDefaultRoutes();
 	}
 
+	public Router router() {
+		return router;
+	}
+
 	public void startIfEnabled(Path configPath) {
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
 		Map<String, Object> http = readMap(root, "http");
@@ -43,7 +47,7 @@ public final class VelocityHttpServerManager {
 		}
 
 		String host = readString(http, "host", "0.0.0.0");
-		int port = readInt(http, "port", 8080);
+		int port = readInt(http, "port", 32452);
 		pathPrefix = normalizePathPrefix(readString(http, "pathPrefix", "/api"));
 
 		try {
@@ -102,6 +106,11 @@ public final class VelocityHttpServerManager {
 		URI uri = exchange.getRequestURI();
 		Map<String, List<String>> headers = new LinkedHashMap<>();
 		exchange.getRequestHeaders().forEach((key, value) -> headers.put(key, new ArrayList<>(value)));
+		InetSocketAddress remote = exchange.getRemoteAddress();
+		if (remote != null) {
+			headers.computeIfAbsent("X-Luna-Remote-Ip", key -> new ArrayList<>()).add(remote.getAddress() != null ? remote.getAddress().getHostAddress() : remote.getHostString());
+			headers.computeIfAbsent("X-Luna-Remote-Port", key -> new ArrayList<>()).add(String.valueOf(remote.getPort()));
+		}
 		byte[] body = exchange.getRequestBody().readAllBytes();
 		return new HttpRequest(
 			exchange.getRequestMethod(),

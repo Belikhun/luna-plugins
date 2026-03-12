@@ -34,6 +34,12 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "http.host", "0.0.0.0");
 				ensureDefault(store, "http.port", 8080);
 				ensureDefault(store, "http.pathPrefix", "/api");
+				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
+				ensureDefault(store, "heartbeat.serverName", "");
+				ensureDefault(store, "heartbeat.intervalSeconds", 5);
+				ensureDefault(store, "heartbeat.connectTimeoutMillis", 3000);
+				ensureDefault(store, "heartbeat.readTimeoutMillis", 3000);
 				ensureDefault(store, "help.gui.title", "<gold>Hướng Dẫn Lệnh");
 				ensureDefault(store, "help.gui.size", 54);
 				ensureDefault(store, "help.gui.pageSize", 45);
@@ -67,6 +73,12 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "logging.level", "INFO");
 				ensureDefault(store, "logging.pluginMessaging.enabled", false);
 				ensureDefault(store, "strings.money.format", "{amount}{symbol}");
+				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
+				ensureDefault(store, "heartbeat.serverName", "");
+				ensureDefault(store, "heartbeat.intervalSeconds", 5);
+				ensureDefault(store, "heartbeat.connectTimeoutMillis", 3000);
+				ensureDefault(store, "heartbeat.readTimeoutMillis", 3000);
 			}
 		});
 
@@ -84,6 +96,12 @@ public final class CoreConfigMigrations {
 			@Override
 			public void migrate(dev.belikhun.luna.core.api.config.ConfigStore store) {
 				ensureDefault(store, "logging.pluginMessaging.enabled", false);
+				ensureDefault(store, "heartbeat.enabled", false);
+				ensureDefault(store, "heartbeat.endpoint", "http://127.0.0.1:32452/api/heartbeat");
+				ensureDefault(store, "heartbeat.serverName", "");
+				ensureDefault(store, "heartbeat.intervalSeconds", 5);
+				ensureDefault(store, "heartbeat.connectTimeoutMillis", 3000);
+				ensureDefault(store, "heartbeat.readTimeoutMillis", 3000);
 			}
 		});
 	}
