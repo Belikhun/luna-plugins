@@ -66,7 +66,7 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 			emit(BackendHeartbeatEventType.SERVER_OFFLINE, stored, previous, nowEpochMillis);
 		}
 
-		logger.audit("Heartbeat nhận từ backend=" + stored.serverName() + " online=" + stored.online() + " players=" + stored.stats().onlinePlayers() + "/" + stored.stats().maxPlayers() + " tps=" + stored.stats().tps());
+		logger.debug("Heartbeat nhận từ backend=" + stored.serverName() + " online=" + stored.online() + " players=" + stored.stats().onlinePlayers() + "/" + stored.stats().maxPlayers() + " tps=" + stored.stats().tps());
 		emit(BackendHeartbeatEventType.HEARTBEAT_RECEIVED, stored, previous, nowEpochMillis);
 		return stored;
 	}

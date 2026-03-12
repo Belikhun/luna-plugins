@@ -52,7 +52,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 			BackendServerStatus status = online
 				? statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis())
 				: statusRegistry.markOffline(resolvedServerName, stats, System.currentTimeMillis());
-			logger.audit("Heartbeat endpoint: source=" + serverName
+			logger.debug("Heartbeat endpoint: source=" + serverName
 				+ " resolved=" + resolvedServerName
 				+ " online=" + status.online()
 				+ " players=" + stats.onlinePlayers() + "/" + stats.maxPlayers()
