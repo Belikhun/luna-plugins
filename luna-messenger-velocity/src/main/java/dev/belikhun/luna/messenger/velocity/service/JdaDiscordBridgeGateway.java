@@ -475,6 +475,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	}
 
 	@Override
+	@SuppressWarnings("null")
 	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
 		if (!event.isFromGuild()) {
 			return;

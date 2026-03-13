@@ -7,6 +7,23 @@ discord-link:
   # Thời gian hết hạn mã /discord link (giây)
   code-expiration-seconds: 300
 
+  groups:
+    # Nhóm LuckPerms sẽ set khi link thành công (nếu có previous_group thì previous_group được ưu tiên khôi phục).
+    on-link: ""
+
+    # Nhóm LuckPerms sẽ set khi unlink.
+    # Để rỗng: plugin sẽ clear parent để user về nhóm mặc định của LuckPerms.
+    on-unlink: ""
+
+  actions:
+    # Các lệnh console chạy sau khi link thành công.
+    # Placeholder hỗ trợ: %player_uuid%, %player_name%, %discord_id%, %discord_username%, %group%, %previous_group%
+    on-link: []
+
+    # Các lệnh console chạy sau khi unlink thành công.
+    # Placeholder hỗ trợ: %player_uuid%, %player_name%, %discord_id%, %discord_username%, %group%, %previous_group%
+    on-unlink: []
+
 # ================================================
 # Placeholder Reference (LunaMessenger Velocity)
 # ================================================

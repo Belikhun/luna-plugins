@@ -11,6 +11,7 @@ import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 
 import java.util.List;
+import java.util.Objects;
 
 public final class UnlinkDiscordCommandHandler implements DiscordCommandHandler {
 	private final LunaLogger logger;
@@ -35,13 +36,13 @@ public final class UnlinkDiscordCommandHandler implements DiscordCommandHandler 
 
 	@Override
 	public boolean handleMessage(MessageReceivedEvent event, List<String> args) {
-		processUnlink(event.getAuthor(), message -> event.getMessage().reply(message).queue());
+		processUnlink(event.getAuthor(), message -> event.getMessage().reply(Objects.requireNonNull(message)).queue());
 		return true;
 	}
 
 	@Override
 	public boolean handleSlash(SlashCommandInteractionEvent event) {
-		processUnlink(event.getUser(), message -> event.reply(message).setEphemeral(true).queue());
+		processUnlink(event.getUser(), message -> event.reply(Objects.requireNonNull(message)).setEphemeral(true).queue());
 		return true;
 	}
 

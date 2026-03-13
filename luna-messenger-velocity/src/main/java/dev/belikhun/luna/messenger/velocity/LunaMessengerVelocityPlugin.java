@@ -78,13 +78,13 @@ public final class LunaMessengerVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
-		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), logger);
+		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		discordBridge = createDiscordGateway(config, discordCommandRegistry);
-		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, discordBridge);
 		stateStore = new VelocityMessengerStateStore(dataDirectory.resolve("state.bin"), logger);
 		router.restorePersistentState(stateStore.load());
@@ -166,8 +166,9 @@ public final class LunaMessengerVelocityPlugin {
 	private synchronized void reloadRuntimeConfig() {
 		ensureDefaults();
 		VelocityMessengerConfig newConfig = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
+		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
-		DiscordAccountLinkService newLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), logger);
+		DiscordAccountLinkService newLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
 		DiscordCommandRegistry newCommandRegistry = createDiscordCommandRegistry(newLinkService);
 		DiscordBridgeGateway newBridge = createDiscordGateway(newConfig, newCommandRegistry);
 		DiscordBridgeGateway oldBridge = this.discordBridge;

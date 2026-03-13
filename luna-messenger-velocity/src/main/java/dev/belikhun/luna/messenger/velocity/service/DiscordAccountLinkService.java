@@ -6,8 +6,12 @@ import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.profile.LuckPermsService;
+
+import com.velocitypowered.api.proxy.ProxyServer;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -18,31 +22,79 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class DiscordAccountLinkService {
 	private static final String LINKS_TABLE = "messenger_discord_links";
+	private static final String GROUP_HISTORY_TABLE = "messenger_discord_link_group_history";
 	private static final String USER_PROFILES_TABLE = "user_profiles";
 
 	private final LunaLogger logger;
 	private final Database database;
 	private final boolean databaseEnabled;
 	private final long codeTtlMs;
+	private final ProxyServer proxyServer;
+	private final LuckPermsService luckPermsService;
+	private final String linkGroup;
+	private final String unlinkGroup;
+	private final List<String> linkActions;
+	private final List<String> unlinkActions;
 	private final ConcurrentMap<String, PendingLinkCode> pendingByCode;
 	private final ConcurrentMap<UUID, PendingLinkCode> pendingByPlayer;
 
-	private DiscordAccountLinkService(LunaLogger logger, Database database, boolean databaseEnabled, long codeTtlMs) {
+	private DiscordAccountLinkService(
+		LunaLogger logger,
+		Database database,
+		boolean databaseEnabled,
+		long codeTtlMs,
+		ProxyServer proxyServer,
+		LuckPermsService luckPermsService,
+		String linkGroup,
+		String unlinkGroup,
+		List<String> linkActions,
+		List<String> unlinkActions
+	) {
 		this.logger = logger.scope("DiscordLinkService");
 		this.database = database;
 		this.databaseEnabled = databaseEnabled;
 		this.codeTtlMs = Math.max(30_000L, codeTtlMs);
+		this.proxyServer = proxyServer;
+		this.luckPermsService = luckPermsService == null ? new LuckPermsService() : luckPermsService;
+		this.linkGroup = normalizeGroupName(linkGroup);
+		this.unlinkGroup = normalizeGroupName(unlinkGroup);
+		this.linkActions = List.copyOf(linkActions);
+		this.unlinkActions = List.copyOf(unlinkActions);
 		this.pendingByCode = new ConcurrentHashMap<>();
 		this.pendingByPlayer = new ConcurrentHashMap<>();
 	}
 
-	public static DiscordAccountLinkService create(Database sharedDatabase, java.nio.file.Path configPath, LunaLogger logger) {
+	public static DiscordAccountLinkService create(
+		Database sharedDatabase,
+		java.nio.file.Path configPath,
+		ProxyServer proxyServer,
+		LuckPermsService luckPermsService,
+		LunaLogger logger
+	) {
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
-		long codeTtlMs = ConfigValues.intValue(ConfigValues.map(root, "discord-link"), "code-expiration-seconds", 300) * 1000L;
+		Map<String, Object> discordLink = ConfigValues.map(root, "discord-link");
+		long codeTtlMs = ConfigValues.intValue(discordLink, "code-expiration-seconds", 300) * 1000L;
+		Map<String, Object> groups = ConfigValues.map(discordLink, "groups");
+		String linkGroup = ConfigValues.string(groups, "on-link", "");
+		String unlinkGroup = ConfigValues.string(groups, "on-unlink", "");
+		Map<String, Object> actions = ConfigValues.map(discordLink, "actions");
+		List<String> linkActions = stringList(actions.get("on-link"));
+		List<String> unlinkActions = stringList(actions.get("on-unlink"));
 
 		if (sharedDatabase == null || sharedDatabase instanceof NoopDatabase) {
 			logger.warn("LunaCore database đang tắt hoặc chưa sẵn sàng. Link Discord sẽ không hoạt động.");
-			return new DiscordAccountLinkService(logger, new NoopDatabase(), false, codeTtlMs);
+			return new DiscordAccountLinkService(
+				logger,
+				new NoopDatabase(),
+				false,
+				codeTtlMs,
+				proxyServer,
+				luckPermsService,
+				linkGroup,
+				unlinkGroup,
+				linkActions,
+				unlinkActions
+			);
 		}
 
 		try {
@@ -50,10 +102,32 @@ public final class DiscordAccountLinkService {
 			DiscordLinkDatabaseMigrations.register(migrator);
 			migrator.migrateNamespace("lunamessenger");
 			logger.success("Đã gắn Discord link vào database instance của LunaCore.");
-			return new DiscordAccountLinkService(logger, sharedDatabase, true, codeTtlMs);
+			return new DiscordAccountLinkService(
+				logger,
+				sharedDatabase,
+				true,
+				codeTtlMs,
+				proxyServer,
+				luckPermsService,
+				linkGroup,
+				unlinkGroup,
+				linkActions,
+				unlinkActions
+			);
 		} catch (Exception exception) {
 			logger.error("Không thể khởi tạo bảng/migration cho Discord link trên LunaCore database.", exception);
-			return new DiscordAccountLinkService(logger, new NoopDatabase(), false, codeTtlMs);
+			return new DiscordAccountLinkService(
+				logger,
+				new NoopDatabase(),
+				false,
+				codeTtlMs,
+				proxyServer,
+				luckPermsService,
+				linkGroup,
+				unlinkGroup,
+				linkActions,
+				unlinkActions
+			);
 		}
 	}
 
@@ -134,6 +208,11 @@ public final class DiscordAccountLinkService {
 			now,
 			now
 		);
+
+		String storedGroup = consumeStoredPreviousGroup(account.playerId());
+		String appliedGroup = storedGroup.isBlank() ? linkGroup : storedGroup;
+		applyLinkGroup(account, appliedGroup, storedGroup);
+		runConfiguredActions(linkActions, account, appliedGroup, storedGroup);
 		return LinkByCodeResult.success(account);
 	}
 
@@ -148,8 +227,13 @@ public final class DiscordAccountLinkService {
 			return UnlinkResult.ofNotLinked();
 		}
 
+		String previousGroup = resolvePrimaryGroupName(existing.get().playerId());
+		storePreviousGroup(existing.get().playerId(), previousGroup);
+
 		database.update("DELETE FROM " + LINKS_TABLE + " WHERE minecraft_uuid = ?", List.of(playerId.toString()));
 		clearPendingByPlayer(playerId);
+		applyUnlinkGroup(existing.get());
+		runConfiguredActions(unlinkActions, existing.get(), unlinkGroup, previousGroup);
 		return UnlinkResult.success(existing.get());
 	}
 
@@ -163,8 +247,13 @@ public final class DiscordAccountLinkService {
 			return UnlinkResult.ofNotLinked();
 		}
 
+		String previousGroup = resolvePrimaryGroupName(existing.get().playerId());
+		storePreviousGroup(existing.get().playerId(), previousGroup);
+
 		database.update("DELETE FROM " + LINKS_TABLE + " WHERE discord_user_id = ?", List.of(discordUserId));
 		clearPendingByPlayer(existing.get().playerId());
+		applyUnlinkGroup(existing.get());
+		runConfiguredActions(unlinkActions, existing.get(), unlinkGroup, previousGroup);
 		return UnlinkResult.success(existing.get());
 	}
 
@@ -320,6 +409,150 @@ public final class DiscordAccountLinkService {
 		} catch (NumberFormatException ignored) {
 			return 0L;
 		}
+	}
+
+	private void applyLinkGroup(LinkedAccount account, String groupName, String previousGroup) {
+		if (groupName.isBlank()) {
+			return;
+		}
+
+		boolean applied = luckPermsService.setUserPrimaryGroup(account.playerId(), groupName);
+		if (!applied) {
+			logger.warn("Không thể đặt nhóm LuckPerms khi link cho " + account.playerName() + " -> " + groupName);
+		}
+		if (!previousGroup.isBlank()) {
+			logger.audit("Khôi phục nhóm LuckPerms trước đó cho " + account.playerName() + ": " + previousGroup);
+		}
+	}
+
+	private void applyUnlinkGroup(LinkedAccount account) {
+		if (unlinkGroup.isBlank()) {
+			boolean cleared = luckPermsService.clearUserPrimaryGroup(account.playerId());
+			if (!cleared) {
+				logger.warn("Không thể xóa nhóm LuckPerms khi unlink cho " + account.playerName());
+			}
+			return;
+		}
+
+		boolean applied = luckPermsService.setUserPrimaryGroup(account.playerId(), unlinkGroup);
+		if (!applied) {
+			logger.warn("Không thể đặt nhóm LuckPerms khi unlink cho " + account.playerName() + " -> " + unlinkGroup);
+		}
+	}
+
+	private String resolvePrimaryGroupName(UUID playerId) {
+		if (playerId == null) {
+			return "";
+		}
+		return normalizeGroupName(luckPermsService.getGroupName(playerId));
+	}
+
+	private void storePreviousGroup(UUID playerId, String previousGroup) {
+		if (!databaseEnabled || playerId == null) {
+			return;
+		}
+
+		String normalized = normalizeGroupName(previousGroup);
+		long now = System.currentTimeMillis();
+		int updated = database.update(
+			"UPDATE " + GROUP_HISTORY_TABLE + " SET previous_group = ?, updated_at = ? WHERE minecraft_uuid = ?",
+			List.of(normalized, now, playerId.toString())
+		);
+		if (updated == 0) {
+			database.update(
+				"INSERT INTO " + GROUP_HISTORY_TABLE + " (minecraft_uuid, previous_group, updated_at) VALUES (?, ?, ?)",
+				List.of(playerId.toString(), normalized, now)
+			);
+		}
+	}
+
+	private String consumeStoredPreviousGroup(UUID playerId) {
+		if (!databaseEnabled || playerId == null) {
+			return "";
+		}
+
+		String group = database.first(
+			"SELECT previous_group FROM " + GROUP_HISTORY_TABLE + " WHERE minecraft_uuid = ?",
+			List.of(playerId.toString())
+		).map(row -> normalizeGroupName(row.get("previous_group"))).orElse("");
+		database.update(
+			"DELETE FROM " + GROUP_HISTORY_TABLE + " WHERE minecraft_uuid = ?",
+			List.of(playerId.toString())
+		);
+		return group;
+	}
+
+	private void runConfiguredActions(List<String> commands, LinkedAccount account, String group, String previousGroup) {
+		if (commands == null || commands.isEmpty()) {
+			return;
+		}
+
+		Map<String, String> placeholders = Map.of(
+			"%player_uuid%", account.playerId().toString(),
+			"%player_name%", account.playerName(),
+			"%discord_id%", account.discordUserId(),
+			"%discord_username%", account.discordUsername(),
+			"%group%", group == null ? "" : group,
+			"%previous_group%", previousGroup == null ? "" : previousGroup
+		);
+
+		for (String commandTemplate : commands) {
+			String command = applyPlaceholders(commandTemplate, placeholders).trim();
+			if (command.isEmpty()) {
+				continue;
+			}
+			runConsoleCommand(command, "Không thể chạy action command: " + command);
+		}
+	}
+
+	private String applyPlaceholders(String template, Map<String, String> placeholders) {
+		if (template == null || template.isBlank()) {
+			return "";
+		}
+
+		String output = template;
+		for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+			output = output.replace(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+		}
+		return output;
+	}
+
+	private void runConsoleCommand(String command, String failureMessage) {
+		if (proxyServer == null || command == null || command.isBlank()) {
+			return;
+		}
+
+		proxyServer.getCommandManager()
+			.executeAsync(proxyServer.getConsoleCommandSource(), command)
+			.exceptionally(throwable -> {
+				logger.warn(failureMessage + ": " + throwable.getMessage());
+				return null;
+			});
+	}
+
+	private static List<String> stringList(Object value) {
+		if (!(value instanceof List<?> source)) {
+			return List.of();
+		}
+
+		List<String> output = new ArrayList<>();
+		for (Object item : source) {
+			if (item == null) {
+				continue;
+			}
+			String text = String.valueOf(item).trim();
+			if (!text.isEmpty()) {
+				output.add(text);
+			}
+		}
+		return output;
+	}
+
+	private String normalizeGroupName(Object value) {
+		if (value == null) {
+			return "";
+		}
+		return String.valueOf(value).trim().toLowerCase();
 	}
 
 	private record PendingLinkCode(String code, UUID playerId, String playerName, long expiresAtEpochMs) {

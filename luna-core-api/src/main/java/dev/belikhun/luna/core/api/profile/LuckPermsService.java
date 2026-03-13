@@ -5,7 +5,9 @@ import net.luckperms.api.LuckPermsProvider;
 import net.luckperms.api.cacheddata.CachedMetaData;
 import net.luckperms.api.model.group.Group;
 import net.luckperms.api.model.user.User;
+import net.luckperms.api.node.types.InheritanceNode;
 
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -114,6 +116,60 @@ public final class LuckPermsService {
 		return getUser(username).map(this::toUserInfo);
 	}
 
+	public boolean setUserPrimaryGroup(UUID uniqueId, String groupName) {
+		if (uniqueId == null) {
+			return false;
+		}
+
+		String normalizedGroup = normalizeGroupName(groupName);
+		if (normalizedGroup.isBlank()) {
+			return false;
+		}
+
+		Optional<LuckPerms> apiOptional = luckPerms();
+		if (apiOptional.isEmpty()) {
+			return false;
+		}
+
+		LuckPerms api = apiOptional.get();
+		if (api.getGroupManager().getGroup(normalizedGroup) == null) {
+			return false;
+		}
+
+		Optional<User> userOptional = resolveUser(api, uniqueId);
+		if (userOptional.isEmpty()) {
+			return false;
+		}
+
+		User user = userOptional.get();
+		user.data().clear(node -> node instanceof InheritanceNode);
+		user.data().add(InheritanceNode.builder(normalizedGroup).build());
+		api.getUserManager().saveUser(user).join();
+		return true;
+	}
+
+	public boolean clearUserPrimaryGroup(UUID uniqueId) {
+		if (uniqueId == null) {
+			return false;
+		}
+
+		Optional<LuckPerms> apiOptional = luckPerms();
+		if (apiOptional.isEmpty()) {
+			return false;
+		}
+
+		LuckPerms api = apiOptional.get();
+		Optional<User> userOptional = resolveUser(api, uniqueId);
+		if (userOptional.isEmpty()) {
+			return false;
+		}
+
+		User user = userOptional.get();
+		user.data().clear(node -> node instanceof InheritanceNode);
+		api.getUserManager().saveUser(user).join();
+		return true;
+	}
+
 	private LuckPermsUserInfo toUserInfo(User user) {
 		LuckPermsGroupInfo groupInfo = getPrimaryGroupInfo(user)
 			.orElse(new LuckPermsGroupInfo("", ""));
@@ -169,6 +225,28 @@ public final class LuckPermsService {
 		} catch (IllegalStateException | NoClassDefFoundError ignored) {
 			return Optional.empty();
 		}
+	}
+
+	private Optional<User> resolveUser(LuckPerms api, UUID uniqueId) {
+		if (api == null || uniqueId == null) {
+			return Optional.empty();
+		}
+
+		User loaded = api.getUserManager().getUser(uniqueId);
+		if (loaded != null) {
+			return Optional.of(loaded);
+		}
+
+		try {
+			return Optional.ofNullable(api.getUserManager().loadUser(uniqueId).join());
+		} catch (Exception ignored) {
+			return Optional.empty();
+		}
+	}
+
+	private String normalizeGroupName(String groupName) {
+		String value = normalize(groupName).trim();
+		return value.toLowerCase(Locale.ROOT);
 	}
 
 	private String normalize(String value) {

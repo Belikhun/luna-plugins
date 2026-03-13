@@ -8,10 +8,12 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 
 import java.util.List;
+import java.util.Objects;
 
 public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 	private final LunaLogger logger;
@@ -50,13 +52,14 @@ public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 
 	@Override
 	public boolean handleSlash(SlashCommandInteractionEvent event) {
-		if (event.getOption("code") == null) {
+		OptionMapping codeOption = event.getOption("code");
+		if (codeOption == null) {
 			event.reply("❌ Thiếu mã liên kết. Vui lòng dùng /link code:<mã_4_số>").setEphemeral(true).queue();
 			return true;
 		}
 
-		String code = event.getOption("code").getAsString();
-		processLink(event.getUser(), code, message -> event.reply(message).setEphemeral(true).queue());
+		String code = codeOption.getAsString();
+		processLink(event.getUser(), code, message -> event.reply(Objects.requireNonNull(message)).setEphemeral(true).queue());
 		return true;
 	}
 
@@ -95,7 +98,7 @@ public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 	}
 
 	private void replyMessage(MessageReceivedEvent event, String message) {
-		event.getMessage().reply(message).queue();
+		event.getMessage().reply(Objects.requireNonNull(message)).queue();
 	}
 
 	private String escape(String value) {
