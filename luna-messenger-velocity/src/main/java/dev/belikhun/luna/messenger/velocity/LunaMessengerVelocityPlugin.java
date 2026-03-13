@@ -25,6 +25,7 @@ import dev.belikhun.luna.messenger.velocity.command.MessengerModerationCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerSpyCommand;
 import dev.belikhun.luna.messenger.velocity.service.DiscordAccountLinkService;
 import dev.belikhun.luna.messenger.velocity.service.DiscordBridgeGateway;
+import dev.belikhun.luna.messenger.velocity.service.DiscordLinkServerProtectionListener;
 import dev.belikhun.luna.messenger.velocity.service.JdaDiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.MessengerPresenceListener;
 import dev.belikhun.luna.messenger.velocity.service.NoopDiscordBridgeGateway;
@@ -62,6 +63,7 @@ public final class LunaMessengerVelocityPlugin {
 	private final long startedAtEpochMs;
 	private PluginMessageBus<Object, Object> bus;
 	private VelocityMessengerRouter router;
+	private VelocityMessengerConfig currentConfig;
 	private DiscordBridgeGateway discordBridge;
 	private VelocityMessengerStateStore stateStore;
 	private DiscordAccountLinkService discordAccountLinkService;
@@ -83,6 +85,7 @@ public final class LunaMessengerVelocityPlugin {
 		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
+		currentConfig = config;
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		discordBridge = createDiscordGateway(config, discordCommandRegistry);
 		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, discordBridge);
@@ -91,6 +94,7 @@ public final class LunaMessengerVelocityPlugin {
 		router.registerChannels();
 		registerCommand();
 		proxyServer.getEventManager().register(this, new MessengerPresenceListener(router));
+		proxyServer.getEventManager().register(this, new DiscordLinkServerProtectionListener(logger, () -> currentConfig, () -> discordAccountLinkService));
 		router.publishPresenceSnapshot();
 		logger.audit("Thư mục dữ liệu messenger: " + dataDirectory.toAbsolutePath());
 		logger.audit("Discord bridge enabled: " + config.discord().enabled());
@@ -177,6 +181,7 @@ public final class LunaMessengerVelocityPlugin {
 		this.discordAccountLinkService = newLinkService;
 		this.discordCommandRegistry = newCommandRegistry;
 		this.discordBridge = newBridge;
+		this.currentConfig = newConfig;
 		if (router != null) {
 			router.reloadRuntime(newConfig, newBridge);
 		}

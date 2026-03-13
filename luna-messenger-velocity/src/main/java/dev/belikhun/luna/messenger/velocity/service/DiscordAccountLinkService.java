@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class DiscordAccountLinkService {
 	private static final String LINKS_TABLE = "messenger_discord_links";
 	private static final String GROUP_HISTORY_TABLE = "messenger_discord_link_group_history";
+	private static final String BYPASS_TABLE = "messenger_discord_link_bypass";
 	private static final String USER_PROFILES_TABLE = "user_profiles";
 
 	private final LunaLogger logger;
@@ -35,6 +36,7 @@ public final class DiscordAccountLinkService {
 	private final String unlinkGroup;
 	private final List<String> linkActions;
 	private final List<String> unlinkActions;
+	private final java.util.Set<UUID> serverProtectionBypassPlayers;
 	private final ConcurrentMap<String, PendingLinkCode> pendingByCode;
 	private final ConcurrentMap<UUID, PendingLinkCode> pendingByPlayer;
 
@@ -60,6 +62,7 @@ public final class DiscordAccountLinkService {
 		this.unlinkGroup = normalizeGroupName(unlinkGroup);
 		this.linkActions = List.copyOf(linkActions);
 		this.unlinkActions = List.copyOf(unlinkActions);
+		this.serverProtectionBypassPlayers = ConcurrentHashMap.newKeySet();
 		this.pendingByCode = new ConcurrentHashMap<>();
 		this.pendingByPlayer = new ConcurrentHashMap<>();
 	}
@@ -102,7 +105,7 @@ public final class DiscordAccountLinkService {
 			DiscordLinkDatabaseMigrations.register(migrator);
 			migrator.migrateNamespace("lunamessenger");
 			logger.success("Đã gắn Discord link vào database instance của LunaCore.");
-			return new DiscordAccountLinkService(
+			DiscordAccountLinkService service = new DiscordAccountLinkService(
 				logger,
 				sharedDatabase,
 				true,
@@ -114,6 +117,8 @@ public final class DiscordAccountLinkService {
 				linkActions,
 				unlinkActions
 			);
+			service.loadPersistentBypasses();
+			return service;
 		} catch (Exception exception) {
 			logger.error("Không thể khởi tạo bảng/migration cho Discord link trên LunaCore database.", exception);
 			return new DiscordAccountLinkService(
@@ -305,9 +310,152 @@ public final class DiscordAccountLinkService {
 		return databaseEnabled;
 	}
 
+	public boolean grantServerProtectionBypass(UUID playerId) {
+		if (playerId == null) {
+			return false;
+		}
+		return grantServerProtectionBypass(new PlayerIdentity(playerId, "Unknown"));
+	}
+
+	public boolean grantServerProtectionBypass(PlayerIdentity identity) {
+		if (identity == null || identity.playerId() == null) {
+			return false;
+		}
+
+		UUID playerId = identity.playerId();
+		String playerName = normalizePlayerName(identity.playerName());
+		boolean added = serverProtectionBypassPlayers.add(playerId);
+		if (databaseEnabled) {
+			long now = System.currentTimeMillis();
+			int updated = database.update(
+				"UPDATE " + BYPASS_TABLE + " SET minecraft_name = ?, updated_at = ? WHERE minecraft_uuid = ?",
+				List.of(playerName, now, playerId.toString())
+			);
+			if (updated == 0) {
+				database.update(
+					"INSERT INTO " + BYPASS_TABLE + " (minecraft_uuid, minecraft_name, updated_at) VALUES (?, ?, ?)",
+					List.of(playerId.toString(), playerName, now)
+				);
+			}
+		}
+		return added;
+	}
+
+	public boolean revokeServerProtectionBypass(UUID playerId) {
+		if (playerId == null) {
+			return false;
+		}
+
+		boolean removed = serverProtectionBypassPlayers.remove(playerId);
+		if (databaseEnabled) {
+			int deleted = database.update(
+				"DELETE FROM " + BYPASS_TABLE + " WHERE minecraft_uuid = ?",
+				List.of(playerId.toString())
+			);
+			removed = removed || deleted > 0;
+		}
+		return removed;
+	}
+
+	public boolean isServerProtectionBypassed(UUID playerId) {
+		if (playerId == null) {
+			return false;
+		}
+		return serverProtectionBypassPlayers.contains(playerId);
+	}
+
+	public Optional<PlayerIdentity> resolvePlayerIdentity(String minecraftName) {
+		if (minecraftName == null || minecraftName.isBlank()) {
+			return Optional.empty();
+		}
+
+		String queryName = minecraftName.trim();
+		if (proxyServer != null) {
+			Optional<PlayerIdentity> online = proxyServer.getAllPlayers().stream()
+				.filter(player -> player.getUsername().equalsIgnoreCase(queryName))
+				.findFirst()
+				.map(player -> new PlayerIdentity(player.getUniqueId(), player.getUsername()));
+			if (online.isPresent()) {
+				return online;
+			}
+		}
+
+		if (!databaseEnabled) {
+			return Optional.empty();
+		}
+
+		Optional<PlayerIdentity> profileIdentity = database.first(
+			"SELECT uuid, name FROM " + USER_PROFILES_TABLE + " WHERE LOWER(name) = LOWER(?) LIMIT 1",
+			List.of(queryName)
+		).flatMap(row -> toPlayerIdentity(row.get("uuid"), row.get("name")));
+		if (profileIdentity.isPresent()) {
+			return profileIdentity;
+		}
+
+		return database.first(
+			"SELECT minecraft_uuid, minecraft_name FROM " + LINKS_TABLE + " WHERE LOWER(minecraft_name) = LOWER(?) LIMIT 1",
+			List.of(queryName)
+		).flatMap(row -> toPlayerIdentity(row.get("minecraft_uuid"), row.get("minecraft_name")));
+	}
+
+	public List<PlayerIdentity> listServerProtectionBypasses() {
+		if (!databaseEnabled) {
+			return serverProtectionBypassPlayers.stream()
+				.map(uuid -> new PlayerIdentity(uuid, "Unknown"))
+				.sorted((a, b) -> a.playerId().toString().compareToIgnoreCase(b.playerId().toString()))
+				.toList();
+		}
+
+		List<PlayerIdentity> output = new ArrayList<>();
+		for (Map<String, Object> row : database.query(
+			"SELECT minecraft_uuid, minecraft_name FROM " + BYPASS_TABLE + " ORDER BY updated_at DESC",
+			List.of()
+		)) {
+			toPlayerIdentity(row.get("minecraft_uuid"), row.get("minecraft_name")).ifPresent(output::add);
+		}
+		return output;
+	}
+
 	public void close() {
+		serverProtectionBypassPlayers.clear();
 		pendingByCode.clear();
 		pendingByPlayer.clear();
+	}
+
+	private Optional<PlayerIdentity> toPlayerIdentity(Object uuidValue, Object nameValue) {
+		String rawUuid = uuidValue == null ? "" : String.valueOf(uuidValue).trim();
+		if (rawUuid.isBlank()) {
+			return Optional.empty();
+		}
+
+		try {
+			UUID uuid = UUID.fromString(rawUuid);
+			String name = normalizePlayerName(nameValue);
+			return Optional.of(new PlayerIdentity(uuid, name));
+		} catch (IllegalArgumentException ignored) {
+			return Optional.empty();
+		}
+	}
+
+	private void loadPersistentBypasses() {
+		if (!databaseEnabled) {
+			return;
+		}
+
+		serverProtectionBypassPlayers.clear();
+		for (Map<String, Object> row : database.query(
+			"SELECT minecraft_uuid FROM " + BYPASS_TABLE,
+			List.of()
+		)) {
+			Object value = row.get("minecraft_uuid");
+			if (value == null) {
+				continue;
+			}
+			try {
+				serverProtectionBypassPlayers.add(UUID.fromString(String.valueOf(value).trim()));
+			} catch (IllegalArgumentException ignored) {
+			}
+		}
 	}
 
 	private Optional<LinkedAccount> mapLinkedAccount(Map<String, Object> row) {
@@ -565,6 +713,12 @@ public final class DiscordAccountLinkService {
 		String discordUsername,
 		long linkedAtEpochMs,
 		long updatedAtEpochMs
+	) {
+	}
+
+	public record PlayerIdentity(
+		UUID playerId,
+		String playerName
 	) {
 	}
 

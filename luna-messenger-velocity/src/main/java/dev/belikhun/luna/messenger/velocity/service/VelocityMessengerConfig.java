@@ -22,6 +22,7 @@ public final class VelocityMessengerConfig {
 	private final MentionConfig mentions;
 	private final SilentBroadcastConfig silentBroadcast;
 	private final DiscordConfig discord;
+	private final ServerProtectionConfig serverProtection;
 	private final RateLimitConfig rateLimit;
 
 	private VelocityMessengerConfig(
@@ -34,6 +35,7 @@ public final class VelocityMessengerConfig {
 		MentionConfig mentions,
 		SilentBroadcastConfig silentBroadcast,
 		DiscordConfig discord,
+		ServerProtectionConfig serverProtection,
 		RateLimitConfig rateLimit
 	) {
 		this.defaults = defaults;
@@ -45,6 +47,7 @@ public final class VelocityMessengerConfig {
 		this.mentions = mentions;
 		this.silentBroadcast = silentBroadcast;
 		this.discord = discord;
+		this.serverProtection = serverProtection;
 		this.rateLimit = rateLimit;
 	}
 
@@ -80,6 +83,7 @@ public final class VelocityMessengerConfig {
 		MentionConfig mentions = parseMentionConfig(map(root.get("mentions")));
 		SilentBroadcastConfig silentBroadcast = parseSilentBroadcastConfig(map(root.get("silent-broadcast")));
 		DiscordConfig discord = parseDiscordConfig(map(root.get("discord")));
+		ServerProtectionConfig serverProtection = parseServerProtectionConfig(map(root.get("server-protection")));
 		RateLimitConfig rateLimit = parseRateLimitConfig(map(root.get("rate-limit")));
 		return new VelocityMessengerConfig(
 			defaults,
@@ -91,6 +95,7 @@ public final class VelocityMessengerConfig {
 			mentions,
 			silentBroadcast,
 			discord,
+			serverProtection,
 			rateLimit
 		);
 	}
@@ -120,6 +125,10 @@ public final class VelocityMessengerConfig {
 
 	public RateLimitConfig rateLimit() {
 		return rateLimit;
+	}
+
+	public ServerProtectionConfig serverProtection() {
+		return serverProtection;
 	}
 
 	public String serverDisplay(String serverName) {
@@ -243,6 +252,21 @@ public final class VelocityMessengerConfig {
 			integer(rateLimit.get("window-ms"), 5000),
 			integer(rateLimit.get("max-messages"), 6),
 			str(rateLimit.get("bypass-permission"), "lunamessenger.bypass.ratelimit")
+		);
+	}
+
+	private static ServerProtectionConfig parseServerProtectionConfig(Map<String, Object> serverProtection) {
+		List<String> protectedServers = new ArrayList<>();
+		for (String value : stringList(serverProtection.get("require-discord-link-servers"))) {
+			String normalized = value.trim().toLowerCase(Locale.ROOT);
+			if (!normalized.isEmpty()) {
+				protectedServers.add(normalized);
+			}
+		}
+
+		return new ServerProtectionConfig(
+			bool(serverProtection.get("enabled"), false),
+			List.copyOf(protectedServers)
 		);
 	}
 
@@ -462,6 +486,24 @@ public final class VelocityMessengerConfig {
 		return ConfigValues.integerValue(value, fallback);
 	}
 
+	private static List<String> stringList(Object value) {
+		if (!(value instanceof Iterable<?> iterable)) {
+			return List.of();
+		}
+
+		List<String> output = new ArrayList<>();
+		for (Object item : iterable) {
+			if (item == null) {
+				continue;
+			}
+			String text = String.valueOf(item).trim();
+			if (!text.isEmpty()) {
+				output.add(text);
+			}
+		}
+		return output;
+	}
+
 	public record FormatProfile(
 		String networkFormat,
 		String serverFormat,
@@ -605,6 +647,22 @@ public final class VelocityMessengerConfig {
 		Integer maxMessages,
 		String bypassPermission
 	) {
+	}
+
+	public record ServerProtectionConfig(
+		boolean enabled,
+		List<String> requireDiscordLinkServers
+	) {
+		public ServerProtectionConfig {
+			requireDiscordLinkServers = requireDiscordLinkServers == null ? List.of() : List.copyOf(requireDiscordLinkServers);
+		}
+
+		public boolean requiresDiscordLink(String serverName) {
+			if (!enabled || serverName == null || serverName.isBlank()) {
+				return false;
+			}
+			return requireDiscordLinkServers.contains(serverName.trim().toLowerCase(Locale.ROOT));
+		}
 	}
 
 	public enum PayloadType {

@@ -75,5 +75,38 @@ public final class DiscordLinkDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return "lunamessenger";
+			}
+
+			@Override
+			public int version() {
+				return 3;
+			}
+
+			@Override
+			public String name() {
+				return "create_discord_link_bypass_table";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				database.update(
+					"CREATE TABLE IF NOT EXISTS messenger_discord_link_bypass ("
+						+ "minecraft_uuid VARCHAR(36) NOT NULL PRIMARY KEY, "
+						+ "minecraft_name VARCHAR(32) NOT NULL, "
+						+ "updated_at BIGINT NOT NULL"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE INDEX IF NOT EXISTS idx_messenger_discord_link_bypass_minecraft_name ON messenger_discord_link_bypass (minecraft_name)",
+					List.of()
+				);
+			}
+		});
 	}
 }

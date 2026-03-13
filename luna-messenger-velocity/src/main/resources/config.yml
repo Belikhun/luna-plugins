@@ -24,6 +24,14 @@ discord-link:
     # Placeholder hỗ trợ: %player_uuid%, %player_name%, %discord_id%, %discord_username%, %group%, %previous_group%
     on-unlink: []
 
+server-protection:
+  # Bật/tắt chặn vào backend server khi chưa liên kết Discord.
+  enabled: false
+
+  # Danh sách backend server yêu cầu Discord link để được vào.
+  # So khớp theo server name thực tế trên Velocity (không phân biệt hoa/thường).
+  require-discord-link-servers: []
+
 # ================================================
 # Placeholder Reference (LunaMessenger Velocity)
 # ================================================
