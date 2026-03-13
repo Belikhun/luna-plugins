@@ -3,6 +3,10 @@ chat:
   network-channel-aliases: [nw]
   server-channel-aliases: [sv]
 
+discord-link:
+  # Thời gian hết hạn mã /discord link (giây)
+  code-expiration-seconds: 300
+
 # ================================================
 # Placeholder Reference (LunaMessenger Velocity)
 # ================================================

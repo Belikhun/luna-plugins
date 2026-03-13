@@ -4,6 +4,7 @@ import org.gradle.api.tasks.Copy
 dependencies {
 	implementation(project(":luna-core-api"))
 	implementation("org.yaml:snakeyaml:2.2")
+	implementation(libs.mariadb.jdbc)
 	compileOnly(libs.velocity.api)
 	annotationProcessor(libs.velocity.api)
 }

@@ -11,6 +11,7 @@ import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
+import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
@@ -19,8 +20,10 @@ import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerBroadcastCommand;
+import dev.belikhun.luna.messenger.velocity.command.DiscordLinkCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerModerationCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerSpyCommand;
+import dev.belikhun.luna.messenger.velocity.service.DiscordAccountLinkService;
 import dev.belikhun.luna.messenger.velocity.service.DiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.JdaDiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.MessengerPresenceListener;
@@ -31,6 +34,9 @@ import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerConfig;
 import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerRouter;
 import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerStateStore;
 import dev.belikhun.luna.messenger.velocity.service.WebhookDiscordBridgeGateway;
+import dev.belikhun.luna.messenger.velocity.service.discord.DiscordCommandRegistry;
+import dev.belikhun.luna.messenger.velocity.service.discord.LinkDiscordCommandHandler;
+import dev.belikhun.luna.messenger.velocity.service.discord.UnlinkDiscordCommandHandler;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -58,6 +64,8 @@ public final class LunaMessengerVelocityPlugin {
 	private VelocityMessengerRouter router;
 	private DiscordBridgeGateway discordBridge;
 	private VelocityMessengerStateStore stateStore;
+	private DiscordAccountLinkService discordAccountLinkService;
+	private DiscordCommandRegistry discordCommandRegistry;
 
 	@Inject
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -70,9 +78,12 @@ public final class LunaMessengerVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
+		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), logger);
+		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
-		discordBridge = createDiscordGateway(config);
+		discordBridge = createDiscordGateway(config, discordCommandRegistry);
 		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, discordBridge);
 		stateStore = new VelocityMessengerStateStore(dataDirectory.resolve("state.bin"), logger);
@@ -96,6 +107,9 @@ public final class LunaMessengerVelocityPlugin {
 		}
 		if (discordBridge != null) {
 			discordBridge.close();
+		}
+		if (discordAccountLinkService != null) {
+			discordAccountLinkService.close();
 		}
 		logger.audit("LunaMessenger (Velocity) đã tắt.");
 	}
@@ -142,14 +156,25 @@ public final class LunaMessengerVelocityPlugin {
 			.plugin(this)
 			.build();
 		manager.register(spyMeta, new MessengerSpyCommand(proxyServer, router));
+
+		CommandMeta discordMeta = manager.metaBuilder("discord")
+			.plugin(this)
+			.build();
+		manager.register(discordMeta, new DiscordLinkCommand(proxyServer, () -> discordAccountLinkService));
 	}
 
 	private synchronized void reloadRuntimeConfig() {
 		ensureDefaults();
 		VelocityMessengerConfig newConfig = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
-		DiscordBridgeGateway newBridge = createDiscordGateway(newConfig);
+		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
+		DiscordAccountLinkService newLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), logger);
+		DiscordCommandRegistry newCommandRegistry = createDiscordCommandRegistry(newLinkService);
+		DiscordBridgeGateway newBridge = createDiscordGateway(newConfig, newCommandRegistry);
 		DiscordBridgeGateway oldBridge = this.discordBridge;
+		DiscordAccountLinkService oldLinkService = this.discordAccountLinkService;
 
+		this.discordAccountLinkService = newLinkService;
+		this.discordCommandRegistry = newCommandRegistry;
 		this.discordBridge = newBridge;
 		if (router != null) {
 			router.reloadRuntime(newConfig, newBridge);
@@ -158,11 +183,14 @@ public final class LunaMessengerVelocityPlugin {
 		if (oldBridge != null) {
 			oldBridge.close();
 		}
+		if (oldLinkService != null) {
+			oldLinkService.close();
+		}
 
 		logger.audit("Đã tải lại cấu hình LunaMessenger từ config.yml.");
 	}
 
-	private DiscordBridgeGateway createDiscordGateway(VelocityMessengerConfig config) {
+	private DiscordBridgeGateway createDiscordGateway(VelocityMessengerConfig config, DiscordCommandRegistry commandRegistry) {
 		VelocityMessengerConfig.DiscordConfig discord = config.discord();
 		if (!discord.enabled()) {
 			return new NoopDiscordBridgeGateway(logger);
@@ -188,7 +216,7 @@ public final class LunaMessengerVelocityPlugin {
 					if (router != null) {
 						router.routeInboundDiscordMessage(message);
 					}
-				}, discord.webhookUrls(), this::presencePlaceholders);
+				}, discord.webhookUrls(), this::presencePlaceholders, commandRegistry);
 				return new RoutingDiscordBridgeGateway(logger, webhookGateway, botGateway);
 			} catch (Exception exception) {
 				logger.warn("Không thể khởi tạo Discord bot gateway: " + exception.getMessage());
@@ -204,6 +232,13 @@ public final class LunaMessengerVelocityPlugin {
 			return new NoopDiscordBridgeGateway(logger);
 		}
 		return new RoutingDiscordBridgeGateway(logger, webhookGateway, null);
+	}
+
+	private DiscordCommandRegistry createDiscordCommandRegistry(DiscordAccountLinkService linkService) {
+		DiscordCommandRegistry registry = new DiscordCommandRegistry(logger);
+		registry.register(new LinkDiscordCommandHandler(logger, proxyServer, linkService));
+		registry.register(new UnlinkDiscordCommandHandler(logger, proxyServer, linkService));
+		return registry;
 	}
 
 	private Map<String, String> presencePlaceholders() {

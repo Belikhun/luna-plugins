@@ -12,6 +12,11 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
+import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.database.DatabaseConfig;
+import dev.belikhun.luna.core.api.database.DatabaseType;
+import dev.belikhun.luna.core.api.database.JdbcDatabase;
+import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -46,6 +51,7 @@ public final class LunaCoreVelocityPlugin {
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private VelocityBackendStatusRegistry backendStatusRegistry;
 	private ScheduledExecutorService heartbeatSweepExecutor;
+	private Database sharedDatabase;
 
 	@Inject
 	public LunaCoreVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -64,9 +70,11 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> loggingConfig = ConfigValues.map(rootConfig, "logging");
 		Map<String, Object> pluginMessagingConfig = ConfigValues.map(loggingConfig, "pluginMessaging");
 		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
+		Map<String, Object> databaseConfig = ConfigValues.map(rootConfig, "database");
 		boolean pluginMessagingLogsEnabled = ConfigValues.booleanValue(pluginMessagingConfig, "enabled", false);
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
+		sharedDatabase = createSharedDatabase(databaseConfig);
 		backendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis, logger);
 		heartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-heartbeat-timeout-sweep");
@@ -94,6 +102,7 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
+		dependencyManager.registerSingleton(Database.class, sharedDatabase);
 		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
@@ -104,6 +113,10 @@ public final class LunaCoreVelocityPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		if (sharedDatabase != null) {
+			sharedDatabase.close();
+			sharedDatabase = null;
+		}
 		dependencyManager.clear();
 		LunaCoreVelocity.clear();
 		if (pluginMessagingBus != null) {
@@ -132,6 +145,46 @@ public final class LunaCoreVelocityPlugin {
 			.aliases("lcv", "luna")
 			.build();
 		manager.register(meta, new LunaCoreVelocityStatusCommand(backendStatusRegistry));
+	}
+
+	private Database createSharedDatabase(Map<String, Object> databaseConfig) {
+		boolean enabled = ConfigValues.booleanValue(databaseConfig, "enabled", false);
+		if (!enabled) {
+			logger.warn("Database đang tắt trong LunaCore Velocity config. Các plugin phụ thuộc DB sẽ dùng chế độ giới hạn.");
+			return new NoopDatabase();
+		}
+
+		try {
+			String configuredType = ConfigValues.string(databaseConfig, "type", "mariadb").trim().toLowerCase();
+			if (!"mariadb".equals(configuredType)) {
+				logger.warn("LunaCore Velocity chỉ hỗ trợ database.type=mariadb. Giá trị hiện tại: " + configuredType + ".");
+				return new NoopDatabase();
+			}
+
+			DatabaseType type = DatabaseType.MARIADB;
+			pinMariadbDriver();
+			DatabaseConfig config = new DatabaseConfig(
+				true,
+				type,
+				ConfigValues.string(databaseConfig, "host", "127.0.0.1"),
+				ConfigValues.intValue(databaseConfig, "port", 3306),
+				ConfigValues.string(databaseConfig, "name", "luna.db"),
+				ConfigValues.string(databaseConfig, "username", "root"),
+				ConfigValues.stringPreserveWhitespace(databaseConfig.get("password"), ""),
+				ConfigValues.map(databaseConfig, "options")
+			);
+			Database database = new JdbcDatabase(config);
+			logger.success("LunaCore Velocity đã kết nối database bằng driver " + type.name() + ".");
+			return database;
+		} catch (Exception exception) {
+			logger.error("Không thể kết nối database cho LunaCore Velocity.", exception);
+			return new NoopDatabase();
+		}
+	}
+
+	private void pinMariadbDriver() {
+		// Keep explicit reference so shadow minimize retains MariaDB JDBC driver.
+		org.mariadb.jdbc.Driver.class.getName();
 	}
 }
 

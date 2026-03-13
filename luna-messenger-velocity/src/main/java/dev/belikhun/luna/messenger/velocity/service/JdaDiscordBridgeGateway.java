@@ -2,6 +2,7 @@ package dev.belikhun.luna.messenger.velocity.service;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.messenger.velocity.service.discord.DiscordCommandRegistry;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -10,6 +11,7 @@ import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -66,6 +68,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
 	private final ScheduledExecutorService presenceExecutor;
 	private final AtomicInteger rotatingPresenceCursor;
+	private final DiscordCommandRegistry commandRegistry;
 
 	public JdaDiscordBridgeGateway(
 		LunaLogger logger,
@@ -73,7 +76,8 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		VelocityMessengerConfig.DiscordRetryConfig retryConfig,
 		InboundHandler inboundHandler,
 		List<String> webhookUrls,
-		Supplier<Map<String, String>> presencePlaceholderSupplier
+		Supplier<Map<String, String>> presencePlaceholderSupplier,
+		DiscordCommandRegistry commandRegistry
 	) throws Exception {
 		this.logger = logger.scope("DiscordBridge");
 		this.config = config;
@@ -90,6 +94,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		this.presencePlaceholderSupplier = presencePlaceholderSupplier;
 		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
 		this.rotatingPresenceCursor = new AtomicInteger();
+		this.commandRegistry = commandRegistry;
 		this.presenceExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-discord-presence-updater");
 			thread.setDaemon(true);
@@ -110,6 +115,9 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			.awaitReady();
 
 		this.logger.audit("Discord bot đã kết nối thành công.");
+		if (this.commandRegistry != null) {
+			this.commandRegistry.registerSlashCommands(this.jda);
+		}
 		applyStartingPresence();
 		startPresenceUpdater();
 	}
@@ -432,6 +440,10 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			return;
 		}
 
+		if (commandRegistry != null && !message.getAuthor().isBot() && commandRegistry.handleMessageCommand(event)) {
+			return;
+		}
+
 		String content = message.getContentDisplay();
 		if ((content == null || content.isBlank()) && !message.getEmbeds().isEmpty()) {
 			content = message.getEmbeds().get(0).getDescription();
@@ -460,6 +472,25 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 			message.getId(),
 			message.getAuthor().getId()
 		));
+	}
+
+	@Override
+	public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+		if (!event.isFromGuild()) {
+			return;
+		}
+
+		String sourceChannelId = event.getChannel().getId();
+		if (!channelIds.contains(sourceChannelId)) {
+			event.reply("❌ Lệnh này chỉ hoạt động trong kênh chat Minecraft.").setEphemeral(true).queue();
+			return;
+		}
+
+		if (commandRegistry == null) {
+			return;
+		}
+
+		commandRegistry.handleSlashCommand(event);
 	}
 
 	private void relayInboundToOtherChannels(Message sourceMessage, String sourceChannelId) {
