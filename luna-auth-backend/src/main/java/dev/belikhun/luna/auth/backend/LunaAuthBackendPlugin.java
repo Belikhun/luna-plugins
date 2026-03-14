@@ -6,13 +6,16 @@ import dev.belikhun.luna.auth.backend.messaging.AuthChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.auth.backend.service.BackendAuthStateRegistry;
 import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
+import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.core.paper.LunaCore;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -23,6 +26,8 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	private BackendAuthStateRegistry stateRegistry;
 	private AuthRestrictionListener restrictionListener;
 	private BackendAuthSpawnService spawnService;
+	private LunaLogger logger;
+	private boolean authFlowLogsEnabled;
 
 	@Override
 	public void onEnable() {
@@ -31,8 +36,11 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			getServer().getPluginManager().disablePlugin(this);
 			return;
 		}
+		this.logger = LunaLogger.forPlugin(this, true).scope("AuthBackend");
 
 		saveDefaultConfig();
+		migrateConfig();
+		this.authFlowLogsEnabled = getConfig().getBoolean("logging.auth-flow", true);
 		this.stateRegistry = new BackendAuthStateRegistry();
 		this.spawnService = new BackendAuthSpawnService(this);
 		this.restrictionListener = new AuthRestrictionListener(
@@ -54,10 +62,13 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				getConfig().getString("prompt.pending.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Đang kiểm tra trạng thái tài khoản...</color>"),
 				getConfig().getString("prompt.pending.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</color>")
 			),
-			readAllowedCommands()
+			readAllowedCommands(),
+			logger.scope("Restriction"),
+			authFlowLogsEnabled
 		);
 		getServer().getPluginManager().registerEvents(restrictionListener, this);
 		restrictionListener.startPromptTask();
+		flow("Plugin enable complete, authFlowLogs=" + authFlowLogsEnabled + " allowedCommands=" + readAllowedCommands());
 		LunaCore.services().pluginMessaging().registerOutgoing(AuthChannels.COMMAND_REQUEST);
 		LunaCore.services().pluginMessaging().registerIncoming(AuthChannels.ADMIN_REQUEST, context -> {
 			if (!(context.source() instanceof Player source)) {
@@ -71,7 +82,9 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 			UUID targetUuid = reader.readUuid();
 			String actorName = reader.readUtf();
+			flow("RX admin_request action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId() + " targetUuid=" + targetUuid + " actor=" + actorName);
 			if (!source.getUniqueId().equals(targetUuid)) {
+				flow("Ignore admin_request set_spawn because sourceUuid!=targetUuid source=" + source.getUniqueId() + " target=" + targetUuid);
 				return PluginMessageDispatchResult.HANDLED;
 			}
 			boolean updated = spawnService.setSpawn(source.getLocation(), actorName);
@@ -96,16 +109,26 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			UUID playerUuid = reader.readUuid();
 			boolean authenticated = reader.readBoolean();
 			boolean needsRegister = reader.readBoolean();
-			reader.readUtf();
+			String username = reader.readUtf();
+			flow("RX auth_state action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId()
+				+ " payloadUuid=" + playerUuid + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " username=" + username);
 			if (!source.getUniqueId().equals(playerUuid)) {
+				flow("Ignore auth_state due to UUID mismatch source=" + source.getUniqueId() + " payload=" + playerUuid);
 				return PluginMessageDispatchResult.HANDLED;
 			}
+			BackendAuthStateRegistry.AuthState previous = stateRegistry.state(playerUuid);
+			boolean wasAuthenticated = stateRegistry.isAuthenticated(playerUuid);
 
 			if (authenticated) {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
+				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
+				if (!wasAuthenticated) {
+					sendAuthenticatedFeedback(source);
+				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
+				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -125,16 +148,30 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			boolean authenticated = reader.readBoolean();
 			boolean needsRegister = reader.readBoolean();
 			String message = reader.readUtf();
+			flow("RX command_response action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId()
+				+ " payloadUuid=" + playerUuid + " success=" + success + " authenticated=" + authenticated
+				+ " needsRegister=" + needsRegister + " message=" + message);
 			if (!source.getUniqueId().equals(playerUuid)) {
+				flow("Ignore command_response due to UUID mismatch source=" + source.getUniqueId() + " payload=" + playerUuid);
 				return PluginMessageDispatchResult.HANDLED;
 			}
+			BackendAuthStateRegistry.AuthState previous = stateRegistry.state(playerUuid);
+			boolean wasAuthenticated = stateRegistry.isAuthenticated(playerUuid);
 
-			source.sendRichMessage((success ? "<green>" : "<red>") + message + (success ? "</green>" : "</red>"));
+			boolean shouldSendResultChat = !success || !authenticated;
+			if (shouldSendResultChat) {
+				source.sendRichMessage((success ? "<green>" : "<red>") + message + (success ? "</green>" : "</red>"));
+			}
 			if (authenticated) {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
+				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
+				if (!wasAuthenticated) {
+					sendAuthenticatedFeedback(source);
+				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
+				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -151,7 +188,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			commands.registrar().register("logout", logoutCommand);
 			commands.registrar().register("lo", logoutCommand);
 		});
-		getLogger().info("LunaAuthBackend đã khởi động.");
+		logger.success("LunaAuthBackend đã khởi động.");
 	}
 
 	@Override
@@ -177,5 +214,47 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			allowed.add(value.toLowerCase(Locale.ROOT));
 		}
 		return allowed;
+	}
+
+	private void migrateConfig() {
+		// Copy any newly added defaults from bundled config.yml into existing server configs.
+		getConfig().options().copyDefaults(true);
+
+		List<String> configured = new ArrayList<>(getConfig().getStringList("allowedCommands"));
+		boolean commandListChanged = false;
+		commandListChanged |= addMissingCommand(configured, "logout");
+		commandListChanged |= addMissingCommand(configured, "lo");
+
+		if (commandListChanged) {
+			getConfig().set("allowedCommands", configured);
+		}
+
+		saveConfig();
+	}
+
+	private boolean addMissingCommand(List<String> configured, String command) {
+		for (String value : configured) {
+			if (command.equalsIgnoreCase(value)) {
+				return false;
+			}
+		}
+
+		configured.add(command);
+		return true;
+	}
+
+	private void sendAuthenticatedFeedback(Player player) {
+		String chat = getConfig().getString("prompt.authenticated.chat", "<green>✔ Bạn đã xác thực thành công.</green>");
+		String actionbar = getConfig().getString("prompt.authenticated.actionbar", "<green>✔ Đã xác thực</green>");
+		flow("SendAuthenticatedFeedback player=" + player.getName() + " uuid=" + player.getUniqueId());
+		player.sendRichMessage(chat);
+		player.sendActionBar(MiniMessage.miniMessage().deserialize(actionbar));
+	}
+
+	private void flow(String message) {
+		if (!authFlowLogsEnabled) {
+			return;
+		}
+		logger.audit(message);
 	}
 }

@@ -1,3 +1,6 @@
+logging:
+  auth-flow: true
+
 prompt:
   pending:
     bossbar: "<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>"
@@ -11,6 +14,9 @@ prompt:
     bossbar: "<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>"
     actionbar: "<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>"
     chat: "<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>"
+  authenticated:
+    actionbar: "<green>✔ Đã xác thực thành công</green>"
+    chat: "<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>"
 
 allowedCommands:
   - login

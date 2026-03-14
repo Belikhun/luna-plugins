@@ -17,6 +17,7 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LoginCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
@@ -40,15 +41,26 @@ import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import net.kyori.adventure.text.Component;
 
 import java.net.InetSocketAddress;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.Map;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -62,6 +74,9 @@ import java.util.logging.Logger;
 	authors = {"Belikhun"}
 )
 public final class LunaAuthVelocityPlugin {
+	private static final int BACKEND_SYNC_RETRY_MAX_ATTEMPTS = 20;
+	private static final long BACKEND_SYNC_RETRY_DELAY_MILLIS = 250L;
+
 	private final ProxyServer proxyServer;
 	private final Path dataDirectory;
 	private LunaLogger logger;
@@ -78,6 +93,8 @@ public final class LunaAuthVelocityPlugin {
 	private volatile boolean lastBackendReady;
 	private MojangPremiumCheckService mojangPremiumCheckService;
 	private final Set<InetSocketAddress> verifiedOnlineSessions;
+	private final ConcurrentMap<UUID, String> pendingBackendAuthMessages;
+	private final Set<UUID> backendSyncRetryInFlight;
 	private volatile boolean initialized;
 
 	@Inject
@@ -85,6 +102,8 @@ public final class LunaAuthVelocityPlugin {
 		this.proxyServer = proxyServer;
 		this.dataDirectory = dataDirectory;
 		this.verifiedOnlineSessions = ConcurrentHashMap.newKeySet();
+		this.pendingBackendAuthMessages = new ConcurrentHashMap<>();
+		this.backendSyncRetryInFlight = ConcurrentHashMap.newKeySet();
 		this.uuidOverrideMap = Map.of();
 		this.requiredBackendNames = Set.of();
 		this.backendNotReadyMessage = "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.";
@@ -320,8 +339,10 @@ public final class LunaAuthVelocityPlugin {
 		if (decision.authenticated()) {
 			if (decision.needsRegister()) {
 				player.sendRichMessage(decision.message());
-			} else {
-				player.sendRichMessage("<green>" + decision.message() + "</green>");
+			}
+
+			if (!sendAuthenticatedBackendNotice(player, decision.message())) {
+				pendingBackendAuthMessages.put(player.getUniqueId(), decision.message());
 			}
 			return;
 		}
@@ -343,7 +364,20 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		flow("ServerConnected player=" + event.getPlayer().getUsername() + " server=" + event.getServer().getServerInfo().getName());
-		syncAuthState(event.getPlayer());
+		UUID playerUuid = event.getPlayer().getUniqueId();
+		boolean authStateSent = syncAuthState(event.getPlayer(), event.getServer());
+		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
+		boolean authResultSent = true;
+		if (pendingMessage != null) {
+			authResultSent = sendAuthenticatedBackendNotice(event.getPlayer(), event.getServer(), pendingMessage);
+			if (authResultSent) {
+				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
+			}
+		}
+
+		if (!authStateSent || !authResultSent) {
+			scheduleBackendSyncRetry(playerUuid, 1);
+		}
 	}
 
 	@Subscribe
@@ -354,6 +388,8 @@ public final class LunaAuthVelocityPlugin {
 
 		flow("Disconnect player=" + event.getPlayer().getUsername() + " remote=" + event.getPlayer().getRemoteAddress());
 		verifiedOnlineSessions.remove(event.getPlayer().getRemoteAddress());
+		pendingBackendAuthMessages.remove(event.getPlayer().getUniqueId());
+		backendSyncRetryInFlight.remove(event.getPlayer().getUniqueId());
 		authService.onDisconnect(event.getPlayer().getUniqueId());
 	}
 
@@ -404,20 +440,51 @@ public final class LunaAuthVelocityPlugin {
 		player.getCurrentServer().ifPresent(connection -> sendAuthState(connection, player, authenticated));
 	}
 
-	private void sendAuthState(ServerConnection connection, Player player, boolean authenticated) {
+	private boolean syncAuthState(Player player, RegisteredServer server) {
 		if (!isReady()) {
-			return;
+			return false;
+		}
+
+		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
+		flow("syncAuthState player=" + player.getUsername() + " authenticated=" + authenticated + " via=ServerConnected");
+		if (authenticated) {
+			player.sendActionBar(Component.text("Bạn đã xác thực."));
+		}
+		return sendAuthState(server, player, authenticated);
+	}
+
+	private boolean sendAuthState(ServerConnection connection, Player player, boolean authenticated) {
+		if (!isReady()) {
+			return false;
 		}
 		boolean needsRegister = needsRegister(player.getUniqueId());
 
-		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " server=" + connection.getServerInfo().getName());
-		pluginMessagingBus.send(connection, AuthChannels.AUTH_STATE, writer -> {
+		boolean sent = pluginMessagingBus.send(connection, AuthChannels.AUTH_STATE, writer -> {
 			writer.writeUtf("state");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
 			writer.writeUtf(player.getUsername());
 		});
+		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+		return sent;
+	}
+
+	private boolean sendAuthState(RegisteredServer server, Player player, boolean authenticated) {
+		if (!isReady()) {
+			return false;
+		}
+		boolean needsRegister = needsRegister(player.getUniqueId());
+
+		boolean sent = pluginMessagingBus.send(server, AuthChannels.AUTH_STATE, writer -> {
+			writer.writeUtf("state");
+			writer.writeUuid(player.getUniqueId());
+			writer.writeBoolean(authenticated);
+			writer.writeBoolean(needsRegister);
+			writer.writeUtf(player.getUsername());
+		});
+		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + server.getServerInfo().getName() + " sent=" + sent);
+		return sent;
 	}
 
 	private void sendCommandResponse(Player player, boolean success, String message) {
@@ -427,15 +494,122 @@ public final class LunaAuthVelocityPlugin {
 		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
 		boolean needsRegister = needsRegister(player.getUniqueId());
 
-		flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister);
-		player.getCurrentServer().ifPresent(connection -> pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
+		player.getCurrentServer().ifPresent(connection -> {
+			boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
 			writer.writeUtf("auth_result");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(success);
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
 			writer.writeUtf(message);
-		}));
+			});
+			flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+		});
+	}
+
+	private boolean sendAuthenticatedBackendNotice(Player player, String message) {
+		if (!isReady()) {
+			return false;
+		}
+		Optional<ServerConnection> connectionOptional = player.getCurrentServer();
+		if (connectionOptional.isEmpty()) {
+			return false;
+		}
+		return sendAuthenticatedBackendNotice(player, connectionOptional.get(), message);
+ 	}
+
+	private boolean sendAuthenticatedBackendNotice(Player player, ServerConnection connection, String message) {
+		boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
+			writer.writeUtf("auth_result");
+			writer.writeUuid(player.getUniqueId());
+			writer.writeBoolean(true);
+			writer.writeBoolean(true);
+			writer.writeBoolean(false);
+			writer.writeUtf(message);
+		});
+		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+		return sent;
+	}
+
+	private boolean sendAuthenticatedBackendNotice(Player player, RegisteredServer server, String message) {
+		boolean sent = pluginMessagingBus.send(server, AuthChannels.COMMAND_RESPONSE, writer -> {
+			writer.writeUtf("auth_result");
+			writer.writeUuid(player.getUniqueId());
+			writer.writeBoolean(true);
+			writer.writeBoolean(true);
+			writer.writeBoolean(false);
+			writer.writeUtf(message);
+		});
+		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + server.getServerInfo().getName() + " sent=" + sent);
+		return sent;
+	}
+
+	private void scheduleBackendSyncRetry(UUID playerUuid, int nextAttempt) {
+		if (!backendSyncRetryInFlight.add(playerUuid)) {
+			return;
+		}
+
+		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
+			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+			.schedule();
+	}
+
+	private void runBackendSyncRetry(UUID playerUuid, int attempt) {
+		if (!isReady()) {
+			backendSyncRetryInFlight.remove(playerUuid);
+			return;
+		}
+
+		Player player = proxyServer.getPlayer(playerUuid).orElse(null);
+		if (player == null) {
+			pendingBackendAuthMessages.remove(playerUuid);
+			backendSyncRetryInFlight.remove(playerUuid);
+			return;
+		}
+
+		Optional<ServerConnection> connectionOptional = player.getCurrentServer();
+		if (connectionOptional.isEmpty()) {
+			if (attempt >= BACKEND_SYNC_RETRY_MAX_ATTEMPTS) {
+				flow("Retry backend sync give up player=" + player.getUsername() + " reason=NO_SERVER_CONNECTION attempts=" + attempt);
+				backendSyncRetryInFlight.remove(playerUuid);
+				return;
+			}
+			scheduleNextBackendSyncRetry(playerUuid, attempt + 1);
+			return;
+		}
+
+		ServerConnection connection = connectionOptional.get();
+		boolean authenticated = authService.isAuthenticated(playerUuid);
+		boolean stateSent = sendAuthState(connection, player, authenticated);
+
+		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
+		boolean authResultSent = true;
+		if (authenticated && pendingMessage != null) {
+			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage);
+			if (authResultSent) {
+				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
+			}
+		}
+
+		if (stateSent && authResultSent) {
+			flow("Retry backend sync success player=" + player.getUsername() + " attempt=" + attempt);
+			backendSyncRetryInFlight.remove(playerUuid);
+			return;
+		}
+
+		if (attempt >= BACKEND_SYNC_RETRY_MAX_ATTEMPTS) {
+			flow("Retry backend sync give up player=" + player.getUsername() + " attempt=" + attempt + " stateSent=" + stateSent + " authResultSent=" + authResultSent);
+			backendSyncRetryInFlight.remove(playerUuid);
+			return;
+		}
+
+		scheduleNextBackendSyncRetry(playerUuid, attempt + 1);
+	}
+
+	private void scheduleNextBackendSyncRetry(UUID playerUuid, int nextAttempt) {
+		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
+			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+			.schedule();
 	}
 
 	private boolean needsRegister(UUID playerUuid) {
@@ -570,6 +744,121 @@ public final class LunaAuthVelocityPlugin {
 	private void ensureDefaults() {
 		Path config = dataDirectory.resolve("config.yml");
 		LunaYamlConfig.ensureFile(config, () -> getClass().getClassLoader().getResourceAsStream("config.yml"));
+		migrateConfig(config);
+	}
+
+	private void migrateConfig(Path configPath) {
+		try (InputStream defaultsStream = getClass().getClassLoader().getResourceAsStream("config.yml")) {
+			if (defaultsStream == null) {
+				return;
+			}
+
+			Map<String, Object> defaults = loadYamlMap(defaultsStream);
+			if (defaults.isEmpty()) {
+				return;
+			}
+
+			Map<String, Object> current = new LinkedHashMap<>(LunaYamlConfig.loadMap(configPath));
+			if (mergeMissing(current, defaults)) {
+				dumpYamlMap(configPath, current);
+				initAudit("Đã migrate config.yml và bổ sung các khóa cấu hình còn thiếu.");
+			}
+		} catch (Exception exception) {
+			initWarn("Không thể migrate config.yml tự động: " + exception.getMessage());
+		}
+	}
+
+	private Map<String, Object> loadYamlMap(InputStream stream) throws Exception {
+		Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+		Object yaml = yamlClass.getConstructor().newInstance();
+		Object loaded;
+		try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+			loaded = yamlClass.getMethod("load", Reader.class).invoke(yaml, reader);
+		}
+
+		if (!(loaded instanceof Map<?, ?> map)) {
+			return Map.of();
+		}
+
+		return normalizeMap(map);
+	}
+
+	private Map<String, Object> normalizeMap(Map<?, ?> raw) {
+		Map<String, Object> normalized = new LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : raw.entrySet()) {
+			normalized.put(String.valueOf(entry.getKey()), normalizeNode(entry.getValue()));
+		}
+		return normalized;
+	}
+
+	private Object normalizeNode(Object value) {
+		if (value instanceof Map<?, ?> map) {
+			return normalizeMap(map);
+		}
+		if (value instanceof List<?> list) {
+			List<Object> copied = new ArrayList<>();
+			for (Object item : list) {
+				copied.add(normalizeNode(item));
+			}
+			return copied;
+		}
+		return value;
+	}
+
+	private boolean mergeMissing(Map<String, Object> target, Map<String, Object> defaults) {
+		boolean changed = false;
+		for (Map.Entry<String, Object> entry : defaults.entrySet()) {
+			String key = entry.getKey();
+			Object defaultValue = entry.getValue();
+			if (!target.containsKey(key)) {
+				target.put(key, deepCopy(defaultValue));
+				changed = true;
+				continue;
+			}
+
+			Object currentValue = target.get(key);
+			if (currentValue instanceof Map<?, ?> currentMapRaw && defaultValue instanceof Map<?, ?> defaultMapRaw) {
+				@SuppressWarnings("unchecked")
+				Map<String, Object> currentMap = (Map<String, Object>) currentMapRaw;
+				@SuppressWarnings("unchecked")
+				Map<String, Object> defaultMap = (Map<String, Object>) defaultMapRaw;
+				if (mergeMissing(currentMap, defaultMap)) {
+					changed = true;
+				}
+			}
+		}
+		return changed;
+	}
+
+	private Object deepCopy(Object value) {
+		if (value instanceof Map<?, ?> map) {
+			Map<String, Object> copied = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				copied.put(String.valueOf(entry.getKey()), deepCopy(entry.getValue()));
+			}
+			return copied;
+		}
+		if (value instanceof List<?> list) {
+			List<Object> copied = new ArrayList<>();
+			for (Object item : list) {
+				copied.add(deepCopy(item));
+			}
+			return copied;
+		}
+		return value;
+	}
+
+	private void dumpYamlMap(Path outputPath, Map<String, Object> data) throws Exception {
+		Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+		Object yaml = yamlClass.getConstructor().newInstance();
+		Path parent = outputPath.getParent();
+		if (parent != null) {
+			Files.createDirectories(parent);
+		}
+
+		try (Writer writer = Files.newBufferedWriter(outputPath, StandardCharsets.UTF_8)) {
+			yamlClass.getMethod("dump", Object.class, Writer.class).invoke(yaml, data, writer);
+		}
 	}
 
 	private boolean isReady() {
