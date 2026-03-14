@@ -35,21 +35,29 @@ public final class AuthRestrictionListener implements Listener {
 	private final JavaPlugin plugin;
 	private final BackendAuthStateRegistry stateRegistry;
 	private final MiniMessage miniMessage;
-	private final Component actionbarPrompt;
-	private final Component chatPrompt;
-	private final Component bossbarPrompt;
+	private final PromptSet loginPrompt;
+	private final PromptSet registerPrompt;
+	private final PromptSet pendingPrompt;
 	private final Map<UUID, BossBar> activeBossbars;
 	private final Set<String> allowedCommands;
 	private final BackendAuthSpawnService spawnService;
 
-	public AuthRestrictionListener(JavaPlugin plugin, BackendAuthStateRegistry stateRegistry, BackendAuthSpawnService spawnService, String bossbarPrompt, String actionbarPrompt, String chatPrompt, Set<String> allowedCommands) {
+	public AuthRestrictionListener(
+		JavaPlugin plugin,
+		BackendAuthStateRegistry stateRegistry,
+		BackendAuthSpawnService spawnService,
+		PromptTemplate loginPrompt,
+		PromptTemplate registerPrompt,
+		PromptTemplate pendingPrompt,
+		Set<String> allowedCommands
+	) {
 		this.plugin = plugin;
 		this.stateRegistry = stateRegistry;
 		this.spawnService = spawnService;
 		this.miniMessage = MiniMessage.miniMessage();
-		this.bossbarPrompt = miniMessage.deserialize(bossbarPrompt);
-		this.actionbarPrompt = miniMessage.deserialize(actionbarPrompt);
-		this.chatPrompt = miniMessage.deserialize(chatPrompt);
+		this.loginPrompt = toComponents(loginPrompt);
+		this.registerPrompt = toComponents(registerPrompt);
+		this.pendingPrompt = toComponents(pendingPrompt);
 		this.activeBossbars = new ConcurrentHashMap<>();
 		this.allowedCommands = allowedCommands;
 	}
@@ -76,7 +84,7 @@ public final class AuthRestrictionListener implements Listener {
 	@EventHandler
 	public void onJoin(PlayerJoinEvent event) {
 		stateRegistry.markUnauthenticated(event.getPlayer().getUniqueId());
-		event.getPlayer().sendMessage(chatPrompt);
+		event.getPlayer().sendMessage(pendingPrompt.chat());
 		if (spawnService.hasSpawn()) {
 			Bukkit.getScheduler().runTask(plugin, () -> spawnService.teleportToSpawn(event.getPlayer()));
 		}
@@ -111,13 +119,15 @@ public final class AuthRestrictionListener implements Listener {
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onCommand(PlayerCommandPreprocessEvent event) {
-		if (stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+		UUID playerUuid = event.getPlayer().getUniqueId();
+		if (stateRegistry.isAuthenticated(playerUuid)) {
 			return;
 		}
 		String message = event.getMessage();
+		PromptSet prompt = promptFor(playerUuid);
 		if (message == null || message.length() < 2) {
 			event.setCancelled(true);
-			event.getPlayer().sendMessage(chatPrompt);
+			event.getPlayer().sendMessage(prompt.chat());
 			return;
 		}
 		String command = message.substring(1).trim();
@@ -127,16 +137,17 @@ public final class AuthRestrictionListener implements Listener {
 			return;
 		}
 		event.setCancelled(true);
-		event.getPlayer().sendMessage(chatPrompt);
+		event.getPlayer().sendMessage(prompt.chat());
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onChat(AsyncChatEvent event) {
-		if (stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+		UUID playerUuid = event.getPlayer().getUniqueId();
+		if (stateRegistry.isAuthenticated(playerUuid)) {
 			return;
 		}
 		event.setCancelled(true);
-		event.getPlayer().sendMessage(chatPrompt);
+		event.getPlayer().sendMessage(promptFor(playerUuid).chat());
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -196,13 +207,41 @@ public final class AuthRestrictionListener implements Listener {
 	}
 
 	private void showPrompt(Player player) {
+		PromptSet prompt = promptFor(player.getUniqueId());
 		BossBar bar = activeBossbars.computeIfAbsent(player.getUniqueId(), ignored -> BossBar.bossBar(
-			bossbarPrompt,
+			prompt.bossbar(),
 			1f,
 			BossBar.Color.YELLOW,
 			BossBar.Overlay.PROGRESS
 		));
+		bar.name(prompt.bossbar());
 		player.showBossBar(bar);
-		player.sendActionBar(actionbarPrompt);
+		player.sendActionBar(prompt.actionbar());
+	}
+
+	private PromptSet promptFor(UUID playerUuid) {
+		BackendAuthStateRegistry.AuthState state = stateRegistry.state(playerUuid);
+		if (state.authenticated()) {
+			return pendingPrompt;
+		}
+		return switch (state.promptMode()) {
+			case REGISTER -> registerPrompt;
+			case LOGIN -> loginPrompt;
+			case PENDING -> pendingPrompt;
+		};
+	}
+
+	private PromptSet toComponents(PromptTemplate promptSet) {
+		return new PromptSet(
+			miniMessage.deserialize(promptSet.bossbar()),
+			miniMessage.deserialize(promptSet.actionbar()),
+			miniMessage.deserialize(promptSet.chat())
+		);
+	}
+
+	public record PromptTemplate(String bossbar, String actionbar, String chat) {
+	}
+
+	public record PromptSet(Component bossbar, Component actionbar, Component chat) {
 	}
 }

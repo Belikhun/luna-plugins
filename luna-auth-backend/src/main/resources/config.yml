@@ -1,7 +1,16 @@
 prompt:
-  bossbar: "<yellow><b>⚠ Xác thực tài khoản để tiếp tục</b></yellow>"
-  actionbar: "<yellow>Vui lòng dùng <white>/login</white> hoặc <white>/register</white></yellow>"
-  chat: "<yellow>ℹ Vui lòng dùng <white>/login</white> hoặc <white>/register</white> để tiếp tục.</yellow>"
+  pending:
+    bossbar: "<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>"
+    actionbar: "<yellow>Đang kiểm tra trạng thái tài khoản...</yellow>"
+    chat: "<yellow>ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</yellow>"
+  login:
+    bossbar: "<yellow><b>⚠ Vui lòng đăng nhập để tiếp tục</b></yellow>"
+    actionbar: "<yellow>Dùng <white>/login <mật_khẩu></white> để đăng nhập</yellow>"
+    chat: "<yellow>ℹ Tài khoản đã đăng ký. Dùng <white>/login <mật_khẩu></white> để tiếp tục.</yellow>"
+  register:
+    bossbar: "<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>"
+    actionbar: "<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>"
+    chat: "<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>"
 
 allowedCommands:
   - login

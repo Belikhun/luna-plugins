@@ -39,9 +39,21 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			this,
 			stateRegistry,
 			spawnService,
-			getConfig().getString("prompt.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⚠ Xác thực tài khoản để tiếp tục</b></color>"),
-			getConfig().getString("prompt.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Vui lòng dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login</color> hoặc <color:" + LunaPalette.NEUTRAL_50 + ">/register</color></color>"),
-			getConfig().getString("prompt.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Vui lòng dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login</color> hoặc <color:" + LunaPalette.NEUTRAL_50 + ">/register</color> để tiếp tục.</color>"),
+			new AuthRestrictionListener.PromptTemplate(
+				getConfig().getString("prompt.login.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⚠ Vui lòng đăng nhập để tiếp tục</b></color>"),
+				getConfig().getString("prompt.login.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login <mật_khẩu></color> để đăng nhập</color>"),
+				getConfig().getString("prompt.login.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Tài khoản đã đăng ký. Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login <mật_khẩu></color> để tiếp tục.</color>")
+			),
+			new AuthRestrictionListener.PromptTemplate(
+				getConfig().getString("prompt.register.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⚠ Tài khoản chưa đăng ký</b></color>"),
+				getConfig().getString("prompt.register.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/register <mật_khẩu> <nhập_lại></color> để tạo tài khoản</color>"),
+				getConfig().getString("prompt.register.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Tài khoản chưa đăng ký. Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/register <mật_khẩu> <nhập_lại></color> để tiếp tục.</color>")
+			),
+			new AuthRestrictionListener.PromptTemplate(
+				getConfig().getString("prompt.pending.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⏳ Đang tải trạng thái xác thực...</b></color>"),
+				getConfig().getString("prompt.pending.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Đang kiểm tra trạng thái tài khoản...</color>"),
+				getConfig().getString("prompt.pending.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</color>")
+			),
 			readAllowedCommands()
 		);
 		getServer().getPluginManager().registerEvents(restrictionListener, this);
@@ -83,6 +95,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 			UUID playerUuid = reader.readUuid();
 			boolean authenticated = reader.readBoolean();
+			boolean needsRegister = reader.readBoolean();
 			reader.readUtf();
 			if (!source.getUniqueId().equals(playerUuid)) {
 				return PluginMessageDispatchResult.HANDLED;
@@ -92,7 +105,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
 			} else {
-				stateRegistry.markUnauthenticated(playerUuid);
+				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -110,6 +123,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			UUID playerUuid = reader.readUuid();
 			boolean success = reader.readBoolean();
 			boolean authenticated = reader.readBoolean();
+			boolean needsRegister = reader.readBoolean();
 			String message = reader.readUtf();
 			if (!source.getUniqueId().equals(playerUuid)) {
 				return PluginMessageDispatchResult.HANDLED;
@@ -120,7 +134,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
 			} else {
-				stateRegistry.markUnauthenticated(playerUuid);
+				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});

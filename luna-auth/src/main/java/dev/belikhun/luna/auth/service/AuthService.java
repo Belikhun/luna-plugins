@@ -34,6 +34,12 @@ public final class AuthService {
 		Optional<AuthAccount> accountOptional = repository.find(playerUuid);
 		if (accountOptional.isEmpty() || !accountOptional.get().hasPassword()) {
 			runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
+			if (quickAuthTrustDecision.trusted()) {
+				recordAudit(playerUuid, ipAddress, "JOIN_REQUIRE_REGISTER_QUICK_AUTH", "FAILED", "Trusted quick-auth nhưng chưa có mật khẩu", "SYSTEM", now);
+				repository.recordSessionEvent(playerUuid, username, ipAddress, "JOIN_REQUIRE_REGISTER_QUICK_AUTH", "Trusted quick-auth nhưng phải đặt mật khẩu", now);
+				return JoinDecision.requireRegisterWithQuickAuthNotice();
+			}
+
 			recordAudit(playerUuid, ipAddress, "JOIN_REQUIRE_REGISTER", "FAILED", "Tài khoản chưa có mật khẩu", "SYSTEM", now);
 			repository.recordSessionEvent(playerUuid, username, ipAddress, "JOIN_REQUIRE_REGISTER", "Tài khoản chưa có mật khẩu", now);
 			return JoinDecision.requireRegister();
@@ -309,6 +315,14 @@ public final class AuthService {
 		return repository.listSessionEvents(playerUuid, limit);
 	}
 
+	public void claimOfflineUuidMapping(String username, UUID offlineUuid, UUID onlineUuid) {
+		repository.claimOfflineUuidMapping(username, offlineUuid, onlineUuid, System.currentTimeMillis());
+	}
+
+	public Optional<UUID> findClaimedOnlineUuid(UUID offlineUuid, String username) {
+		return repository.findClaimedOnlineUuid(offlineUuid, username);
+	}
+
 	public void cleanupHistoryRetention(int retentionDays) {
 		long now = System.currentTimeMillis();
 		long retentionMillis = Math.max(1L, retentionDays) * 24L * 60L * 60L * 1000L;
@@ -357,6 +371,15 @@ public final class AuthService {
 			return new JoinDecision(false, true, false, "ℹ Tài khoản chưa đăng ký. Dùng /register <mật_khẩu> <nhập_lại>.");
 		}
 
+		public static JoinDecision requireRegisterWithQuickAuthNotice() {
+			return new JoinDecision(
+				false,
+				true,
+				false,
+				"Bạn đang đăng nhập bằng phiên Mojang hợp lệ nên đã được nhận diện bởi <color:#39d98a><b>Luna Quick Auth™</b></color>. Tuy nhiên tài khoản này chưa có mật khẩu, hãy đặt mật khẩu bằng <color:#f5f7fa><b>/register <mật_khẩu> <nhập_lại></b></color> để bảo vệ tài khoản khi client ở chế độ offline."
+			);
+		}
+
 		public static JoinDecision requireLogin() {
 			return new JoinDecision(false, false, false, "ℹ Vui lòng đăng nhập bằng /login <mật_khẩu>.");
 		}
@@ -369,6 +392,7 @@ public final class AuthService {
 		public static JoinDecision quickLoginState() {
 			return new JoinDecision(true, false, false, "✔ Đăng nhập nhanh thành công.");
 		}
+
 	}
 
 	public record AuthResult(boolean success, String message) {

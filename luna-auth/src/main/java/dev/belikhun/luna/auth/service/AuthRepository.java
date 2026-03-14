@@ -65,6 +65,40 @@ public final class AuthRepository {
 				+ ")",
 			List.of()
 		);
+		database.update(
+			"CREATE TABLE IF NOT EXISTS luna_auth_uuid_claims ("
+				+ "offline_uuid VARCHAR(36) NOT NULL PRIMARY KEY, "
+				+ "online_uuid VARCHAR(36) NOT NULL, "
+				+ "username VARCHAR(32) NOT NULL, "
+				+ "updated_at BIGINT NOT NULL"
+				+ ")",
+			List.of()
+		);
+	}
+
+	public void claimOfflineUuidMapping(String username, UUID offlineUuid, UUID onlineUuid, long now) {
+		String normalized = normalizeUsername(username);
+		int updated = database.update(
+			"UPDATE luna_auth_uuid_claims SET online_uuid = ?, username = ?, updated_at = ? WHERE offline_uuid = ?",
+			List.of(onlineUuid.toString(), normalized, now, offlineUuid.toString())
+		);
+		if (updated > 0) {
+			return;
+		}
+
+		database.update(
+			"INSERT INTO luna_auth_uuid_claims (offline_uuid, online_uuid, username, updated_at) VALUES (?, ?, ?, ?)",
+			List.of(offlineUuid.toString(), onlineUuid.toString(), normalized, now)
+		);
+	}
+
+	public Optional<UUID> findClaimedOnlineUuid(UUID offlineUuid, String username) {
+		return database.first(
+			"SELECT online_uuid FROM luna_auth_uuid_claims WHERE offline_uuid = ? AND username = ?",
+			List.of(offlineUuid.toString(), normalizeUsername(username))
+		).map(row -> row.get("online_uuid"))
+			.map(Object::toString)
+			.map(UUID::fromString);
 	}
 
 	public Optional<AuthAccount> find(UUID playerUuid) {
@@ -257,6 +291,10 @@ public final class AuthRepository {
 
 	private String rawString(Object value, String fallback) {
 		return value == null ? fallback : value.toString();
+	}
+
+	private String normalizeUsername(String username) {
+		return username == null ? "" : username.trim().toLowerCase();
 	}
 
 	public record LoginHistoryEntry(String ipAddress, String eventType, String result, String reason, String actor, long createdAtEpochMillis) {

@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -236,7 +237,19 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		if (!event.isOnlineMode()) {
-			flow("GameProfileRequest username=" + event.getUsername() + " onlineMode=false, không đánh dấu verified session.");
+			UUID offlineUuid = event.getGameProfile().getId();
+			Optional<UUID> claimedOnlineUuid = premiumUuidEnabled ? authService.findClaimedOnlineUuid(offlineUuid, event.getUsername()) : Optional.empty();
+			if (claimedOnlineUuid.isPresent()) {
+				UUID mappedUuid = claimedOnlineUuid.get();
+				event.setGameProfile(event.getGameProfile().withId(mappedUuid));
+				logger.audit("UUID mapping username=" + event.getUsername()
+					+ " mode=CLAIMED_OFFLINE_MAP"
+					+ " from=" + offlineUuid
+					+ " to=" + mappedUuid
+					+ " remote=" + event.getConnection().getRemoteAddress());
+			} else {
+				flow("GameProfileRequest username=" + event.getUsername() + " onlineMode=false, không có claimed map.");
+			}
 			return;
 		}
 
@@ -261,6 +274,12 @@ public final class LunaAuthVelocityPlugin {
 			+ " from=" + verifiedUuid
 			+ " to=" + effectiveUuid
 			+ " remote=" + event.getConnection().getRemoteAddress());
+
+		if (premiumUuidEnabled) {
+			UUID offlineUuid = OfflineUuid.fromUsername(event.getUsername());
+			authService.claimOfflineUuidMapping(event.getUsername(), offlineUuid, effectiveUuid);
+			flow("Auto-claimed offline UUID mapping username=" + event.getUsername() + " offlineUuid=" + offlineUuid + " -> onlineUuid=" + effectiveUuid);
+		}
 
 		verifiedOnlineSessions.add(event.getConnection().getRemoteAddress());
 		flow("GameProfileRequest verified online session username=" + event.getUsername()
@@ -290,7 +309,11 @@ public final class LunaAuthVelocityPlugin {
 		flow("PostLogin decision player=" + player.getUsername() + " authenticated=" + decision.authenticated()
 			+ " needsRegister=" + decision.needsRegister() + " locked=" + decision.locked());
 		if (decision.authenticated()) {
-			player.sendRichMessage("<green>" + decision.message() + "</green>");
+			if (decision.needsRegister()) {
+				player.sendRichMessage(decision.message());
+			} else {
+				player.sendRichMessage("<green>" + decision.message() + "</green>");
+			}
 			return;
 		}
 		if (decision.locked()) {
@@ -375,12 +398,14 @@ public final class LunaAuthVelocityPlugin {
 		if (!isReady()) {
 			return;
 		}
+		boolean needsRegister = needsRegister(player.getUniqueId());
 
 		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " server=" + connection.getServerInfo().getName());
 		pluginMessagingBus.send(connection, AuthChannels.AUTH_STATE, writer -> {
 			writer.writeUtf("state");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(authenticated);
+			writer.writeBoolean(needsRegister);
 			writer.writeUtf(player.getUsername());
 		});
 	}
@@ -389,15 +414,24 @@ public final class LunaAuthVelocityPlugin {
 		if (!isReady()) {
 			return;
 		}
+		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
+		boolean needsRegister = needsRegister(player.getUniqueId());
 
-		flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authService.isAuthenticated(player.getUniqueId()));
+		flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister);
 		player.getCurrentServer().ifPresent(connection -> pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
 			writer.writeUtf("auth_result");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(success);
-			writer.writeBoolean(authService.isAuthenticated(player.getUniqueId()));
+			writer.writeBoolean(authenticated);
+			writer.writeBoolean(needsRegister);
 			writer.writeUtf(message);
 		}));
+	}
+
+	private boolean needsRegister(UUID playerUuid) {
+		return authService.account(playerUuid)
+			.map(account -> !account.hasPassword())
+			.orElse(true);
 	}
 
 	private AuthService.QuickAuthTrustDecision quickAuthDecision(Player player) {
