@@ -6,10 +6,14 @@
   - `:luna-core-api` → shared cross-platform APIs/utilities (library module, not a runtime plugin jar).
   - `:luna-core-paper` → Paper runtime/plugin implementation for Luna Core.
   - `:luna-core-velocity` → Velocity target for Luna Core.
+  - `:luna-pack` → Velocity plugin for server resource-pack management/loading.
   - `:luna-shop` → shop feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
   - `:luna-countdown` → countdown feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
   - `:luna-hat` → hat/cosmetic feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
   - `:luna-smp` → SMP-focused feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
+  - `:luna-messenger` → Paper-side messenger feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).
+  - `:luna-messenger-velocity` → Velocity-side messenger bridge plugin (depends on `:luna-core-api` + `:luna-core-velocity`).
+- The `luna-messenger-interactivechat/` folder currently exists in the workspace but is not included in `settings.gradle.kts`; treat it as non-participating unless explicitly added as a subproject.
 - Keep shared contracts and reusable helpers in `luna-core-api`; keep platform runtime code in `luna-core-paper` / `luna-core-velocity`.
 - Prefer adding new plugins as sibling subprojects (`luna-*`) and include them in `settings.gradle.kts`.
 
@@ -24,9 +28,10 @@
 ## Dependency wiring (must stay aligned)
 - Build-time linkage is in module Gradle files:
   - `luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
-  - `luna-countdown`, `luna-hat`, and `luna-smp` follow the same `:luna-core-api` + `:luna-core-paper` linkage.
+  - `luna-countdown`, `luna-hat`, `luna-smp`, and `luna-messenger` follow the same `:luna-core-api` + `:luna-core-paper` linkage.
+  - `luna-pack` and `luna-messenger-velocity` use `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
 - Runtime/plugin loading linkage is in descriptor files:
-  - `luna-shop` declares `dependencies.server.LunaCore` in `paper-plugin.yml`.
+  - All current Paper feature plugins (`luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`) declare `dependencies.server.LunaCore` in `paper-plugin.yml`.
 - When adding new inter-plugin dependencies, update both Gradle and `paper-plugin.yml`.
 - For external libraries resolved by Paper loader:
   - keep module dependencies as `compileOnly` for compile-time symbols.
@@ -129,11 +134,15 @@
 ## Code patterns to keep
 - Main plugin entrypoints extend `JavaPlugin` and currently keep `onEnable/onDisable` minimal:
   - `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java`
+  - `luna-messenger/src/main/java/dev/belikhun/luna/messenger/paper/LunaMessengerPaperPlugin.java`
   - `luna-shop/src/main/java/dev/belikhun/luna/shop/LunaShopPlugin.java`
 - Keep Paper loader logic in `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
 - Current supported DB drivers in `luna-core-paper`: `sqlite`, `mysql`, `mariadb`.
 - Keep Velocity bootstrap entry in `luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`.
-- Keep Velocity version constant generated from template: `luna-core-velocity/src/main/templates/dev/belikhun/luna/core/velocity/BuildConstants.java.tpl`.
+- Keep Velocity version constants generated from templates:
+  - `luna-core-velocity/src/main/templates/dev/belikhun/luna/core/velocity/BuildConstants.java.tpl`
+  - `luna-pack/src/main/templates/dev/belikhun/luna/pack/BuildConstants.java.tpl`
+  - `luna-messenger-velocity/src/main/templates/dev/belikhun/luna/messenger/velocity/BuildConstants.java.tpl`
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
 
 ## Reuse and deduplication rules
