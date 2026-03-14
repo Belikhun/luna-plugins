@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -39,12 +40,16 @@ public final class AuthAdminCommand implements SimpleCommand {
 	private final AuthService authService;
 	private final Consumer<Player> authStateSync;
 	private final BiConsumer<Player, String> adminRequestSender;
+	private final boolean premiumUuidEnabled;
+	private final int uuidOverrideRuleCount;
 
-	public AuthAdminCommand(ProxyServer proxyServer, AuthService authService, Consumer<Player> authStateSync, BiConsumer<Player, String> adminRequestSender) {
+	public AuthAdminCommand(ProxyServer proxyServer, AuthService authService, Consumer<Player> authStateSync, BiConsumer<Player, String> adminRequestSender, boolean premiumUuidEnabled, int uuidOverrideRuleCount) {
 		this.proxyServer = proxyServer;
 		this.authService = authService;
 		this.authStateSync = authStateSync;
 		this.adminRequestSender = adminRequestSender;
+		this.premiumUuidEnabled = premiumUuidEnabled;
+		this.uuidOverrideRuleCount = Math.max(0, uuidOverrideRuleCount);
 	}
 
 	@Override
@@ -103,9 +108,17 @@ public final class AuthAdminCommand implements SimpleCommand {
 			long now = System.currentTimeMillis();
 			boolean registered = account.isPresent() && account.get().hasPassword();
 			boolean locked = account.isPresent() && account.get().isLocked(now);
+			UUID effectiveUuid = target.getUniqueId();
+			UUID expectedOfflineUuid = offlineUuid(target.getUsername());
 			source.sendRichMessage(info("ℹ Trạng thái " + target.getUsername() + ":"));
 			source.sendRichMessage(muted("- Xác thực runtime: ") + accent(authenticated ? "ĐÃ XÁC THỰC" : "CHƯA XÁC THỰC"));
 			source.sendRichMessage(muted("- Đăng ký: ") + accent(registered ? "ĐÃ ĐĂNG KÝ" : "CHƯA ĐĂNG KÝ"));
+			source.sendRichMessage(muted("- UUID hiện tại: ") + accent(effectiveUuid.toString()));
+			source.sendRichMessage(muted("- UUID override map: ") + accent(uuidOverrideRuleCount > 0 ? "BẬT (" + uuidOverrideRuleCount + " rule)" : "TẮT"));
+			source.sendRichMessage(muted("- UUID fallback khi không map: ") + accent(premiumUuidEnabled ? "GIỮ PREMIUM UUID" : "OFFLINE UUID"));
+			if (!premiumUuidEnabled) {
+				source.sendRichMessage(muted("- UUID offline dự kiến: ") + accent(expectedOfflineUuid.toString()));
+			}
 			if (locked) {
 				long remainingMillis = Math.max(1000L, account.get().lockoutUntilEpochMillis() - now);
 				source.sendRichMessage(muted("- Khóa tạm thời: ") + error("ĐANG KHÓA (" + Formatters.duration(Duration.ofMillis(remainingMillis)) + ")"));
@@ -215,7 +228,7 @@ public final class AuthAdminCommand implements SimpleCommand {
 		if (args.length == 1) {
 			return CommandCompletions.filterPrefix(SUBCOMMANDS, args[0]);
 		}
-		if (args.length == 2 && !"changepassword".equalsIgnoreCase(args[0])) {
+		if (args.length == 2) {
 			if ("setspawn".equalsIgnoreCase(args[0])) {
 				return List.of();
 			}
@@ -340,6 +353,11 @@ public final class AuthAdminCommand implements SimpleCommand {
 			return player.getUsername();
 		}
 		return "CONSOLE";
+	}
+
+	private UUID offlineUuid(String username) {
+		String normalized = username == null ? "" : username;
+		return UUID.nameUUIDFromBytes(("OfflinePlayer:" + normalized).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 	}
 
 	private String info(String text) {

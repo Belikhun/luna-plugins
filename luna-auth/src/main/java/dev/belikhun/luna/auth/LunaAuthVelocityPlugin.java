@@ -36,8 +36,11 @@ import net.kyori.adventure.text.Component;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
@@ -55,19 +58,25 @@ public final class LunaAuthVelocityPlugin {
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private AuthService authService;
 	private boolean mixedModeQuickLoginEnabled;
+	private boolean premiumUuidEnabled;
+	private Map<UUID, UUID> uuidOverrideMap;
 	private boolean authFlowLogsEnabled;
 	private MojangPremiumCheckService mojangPremiumCheckService;
 	private final Set<InetSocketAddress> verifiedOnlineSessions;
+	private volatile boolean initialized;
 
 	@Inject
 	public LunaAuthVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
 		this.proxyServer = proxyServer;
 		this.dataDirectory = dataDirectory;
 		this.verifiedOnlineSessions = ConcurrentHashMap.newKeySet();
+		this.uuidOverrideMap = Map.of();
+		this.initialized = false;
 	}
 
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
+		this.initialized = false;
 		ensureDefaults();
 		Path configPath = dataDirectory.resolve("config.yml");
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
@@ -82,6 +91,8 @@ public final class LunaAuthVelocityPlugin {
 		boolean debug = ConfigValues.booleanValue(logging, "debug", false);
 		this.authFlowLogsEnabled = ConfigValues.booleanValue(logging, "auth-flow", true);
 		this.mixedModeQuickLoginEnabled = ConfigValues.booleanValue(mixedMode, "enabled", true);
+		this.premiumUuidEnabled = ConfigValues.booleanValue(mixedMode, "premium-uuid", true);
+		this.uuidOverrideMap = parseUuidOverrideMap(ConfigValues.map(mixedMode, "uuid-override-map"));
 		int maxFailures = ConfigValues.intValue(auth, "max-failures", 5);
 		long lockoutSeconds = Math.max(1, ConfigValues.intValue(auth, "lockout-seconds", 120));
 		long sessionSeconds = Math.max(60, ConfigValues.intValue(auth, "session-after-disconnect-seconds", 900));
@@ -96,6 +107,8 @@ public final class LunaAuthVelocityPlugin {
 		this.mojangPremiumCheckService = new MojangPremiumCheckService(logger, premiumCheckTimeoutMillis, premiumNameCacheMinutes, authFlowLogsEnabled);
 		logger.audit("Khởi tạo LunaAuth Velocity: onlineMode=" + proxyServer.getConfiguration().isOnlineMode()
 			+ ", mixedMode=" + mixedModeQuickLoginEnabled
+			+ ", premiumUuid=" + premiumUuidEnabled
+			+ ", uuidOverrideRules=" + uuidOverrideMap.size()
 			+ ", authFlowLogs=" + authFlowLogsEnabled
 			+ ", hashIterations=" + hashIterations
 			+ ", hashSaltBytes=" + hashSaltBytes
@@ -140,6 +153,7 @@ public final class LunaAuthVelocityPlugin {
 		this.authService.cleanupHistoryRetention(retentionDays);
 
 		registerCommands();
+		this.initialized = true;
 		logger.success("LunaAuth Velocity đã khởi động thành công.");
 		if (mixedModeQuickLoginEnabled && !proxyServer.getConfiguration().isOnlineMode()) {
 			flow("Mixed-mode quick-login bật trên proxy offline-mode: premium force-online, cracked theo offline flow.");
@@ -148,6 +162,12 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onPreLogin(PreLoginEvent event) {
+		if (!isReady()) {
+			event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text("Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.")));
+			warnNotReady("PreLogin", event.getUsername());
+			return;
+		}
+
 		if (!event.getResult().isAllowed()) {
 			flow("PreLogin bị bỏ qua vì event đã bị deny trước đó cho username=" + event.getUsername());
 			return;
@@ -179,10 +199,36 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onGameProfileRequest(GameProfileRequestEvent event) {
+		if (!isReady()) {
+			return;
+		}
+
 		if (!event.isOnlineMode()) {
 			flow("GameProfileRequest username=" + event.getUsername() + " onlineMode=false, không đánh dấu verified session.");
 			return;
 		}
+
+		UUID verifiedUuid = event.getGameProfile().getId();
+		UUID mappedUuid = uuidOverrideMap.get(verifiedUuid);
+		UUID effectiveUuid = verifiedUuid;
+		String mappingMode = "KEEP_PREMIUM_UUID";
+		if (mappedUuid != null) {
+			effectiveUuid = mappedUuid;
+			mappingMode = "CONFIG_UUID_MAP";
+		} else if (!premiumUuidEnabled) {
+			effectiveUuid = offlineUuid(event.getUsername());
+			mappingMode = "OFFLINE_UUID_FALLBACK";
+		}
+
+		if (!effectiveUuid.equals(verifiedUuid)) {
+			event.setGameProfile(event.getGameProfile().withId(effectiveUuid));
+		}
+
+		logger.audit("UUID mapping username=" + event.getUsername()
+			+ " mode=" + mappingMode
+			+ " from=" + verifiedUuid
+			+ " to=" + effectiveUuid
+			+ " remote=" + event.getConnection().getRemoteAddress());
 
 		verifiedOnlineSessions.add(event.getConnection().getRemoteAddress());
 		flow("GameProfileRequest verified online session username=" + event.getUsername()
@@ -193,6 +239,12 @@ public final class LunaAuthVelocityPlugin {
 	@Subscribe
 	public void onPostLogin(PostLoginEvent event) {
 		Player player = event.getPlayer();
+		if (!isReady()) {
+			warnNotReady("PostLogin", player.getUsername());
+			player.disconnect(Component.text("Hệ thống xác thực chưa sẵn sàng. Vui lòng vào lại sau vài giây."));
+			return;
+		}
+
 		AuthService.QuickAuthTrustDecision quickAuthTrustDecision = quickAuthDecision(player);
 		flow("PostLogin player=" + player.getUsername() + " quickLoginTrusted=" + quickAuthTrustDecision.trusted()
 			+ " reasonCode=" + quickAuthTrustDecision.reasonCode() + " remote=" + player.getRemoteAddress());
@@ -222,12 +274,20 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onServerConnected(ServerConnectedEvent event) {
+		if (!isReady()) {
+			return;
+		}
+
 		flow("ServerConnected player=" + event.getPlayer().getUsername() + " server=" + event.getServer().getServerInfo().getName());
 		syncAuthState(event.getPlayer());
 	}
 
 	@Subscribe
 	public void onDisconnect(DisconnectEvent event) {
+		if (!isReady()) {
+			return;
+		}
+
 		flow("Disconnect player=" + event.getPlayer().getUsername() + " remote=" + event.getPlayer().getRemoteAddress());
 		verifiedOnlineSessions.remove(event.getPlayer().getRemoteAddress());
 		authService.onDisconnect(event.getPlayer().getUniqueId());
@@ -249,10 +309,15 @@ public final class LunaAuthVelocityPlugin {
 		manager.register(manager.metaBuilder("login").aliases("l").build(), new LoginCommand(authService, this::syncAuthState));
 		manager.register(manager.metaBuilder("register").aliases("reg").build(), new RegisterCommand(authService, this::syncAuthState));
 		CommandMeta authMeta = manager.metaBuilder("auth").aliases("lauth").build();
-		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest));
+		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, premiumUuidEnabled, uuidOverrideMap.size()));
 	}
 
 	private void sendSetSpawnRequest(Player target, String actorName) {
+		if (!isReady()) {
+			warnNotReady("ADMIN_REQUEST:set_spawn", target.getUsername());
+			return;
+		}
+
 		target.getCurrentServer().ifPresent(connection -> pluginMessagingBus.send(connection, AuthChannels.ADMIN_REQUEST, writer -> {
 			writer.writeUtf("set_spawn");
 			writer.writeUuid(target.getUniqueId());
@@ -262,6 +327,10 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private void syncAuthState(Player player) {
+		if (!isReady()) {
+			return;
+		}
+
 		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
 		flow("syncAuthState player=" + player.getUsername() + " authenticated=" + authenticated);
 		if (authenticated) {
@@ -271,6 +340,10 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private void sendAuthState(ServerConnection connection, Player player, boolean authenticated) {
+		if (!isReady()) {
+			return;
+		}
+
 		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " server=" + connection.getServerInfo().getName());
 		pluginMessagingBus.send(connection, AuthChannels.AUTH_STATE, writer -> {
 			writer.writeUtf("state");
@@ -281,6 +354,10 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private void sendCommandResponse(Player player, boolean success, String message) {
+		if (!isReady()) {
+			return;
+		}
+
 		flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authService.isAuthenticated(player.getUniqueId()));
 		player.getCurrentServer().ifPresent(connection -> pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
 			writer.writeUtf("auth_result");
@@ -292,6 +369,10 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private AuthService.QuickAuthTrustDecision quickAuthDecision(Player player) {
+		if (!isReady()) {
+			return AuthService.QuickAuthTrustDecision.denied("AUTH_SERVICE_NOT_READY");
+		}
+
 		if (proxyServer.getConfiguration().isOnlineMode()) {
 			flow("Quick-login trusted vì proxy global online-mode=true cho player=" + player.getUsername());
 			return AuthService.QuickAuthTrustDecision.trusted("QUICK_AUTH_ONLINE_UUID");
@@ -319,9 +400,53 @@ public final class LunaAuthVelocityPlugin {
 		return "0.0.0.0";
 	}
 
+	private UUID offlineUuid(String username) {
+		String normalized = username == null ? "" : username;
+		return UUID.nameUUIDFromBytes(("OfflinePlayer:" + normalized).getBytes(StandardCharsets.UTF_8));
+	}
+
+	private Map<UUID, UUID> parseUuidOverrideMap(Map<String, Object> rawMap) {
+		Map<UUID, UUID> parsed = new HashMap<>();
+		for (Map.Entry<String, Object> entry : rawMap.entrySet()) {
+			String sourceRaw = entry.getKey();
+			Object targetRaw = entry.getValue();
+			if (!(targetRaw instanceof String targetString)) {
+				logger.warn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " (giá trị không phải chuỗi UUID)");
+				continue;
+			}
+
+			try {
+				UUID from = UUID.fromString(sourceRaw.trim());
+				UUID to = UUID.fromString(targetString.trim());
+				parsed.put(from, to);
+			} catch (IllegalArgumentException exception) {
+				logger.warn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " to=" + targetString);
+			}
+		}
+
+		if (!parsed.isEmpty()) {
+			logger.audit("Đã nạp " + parsed.size() + " UUID override rule(s) từ config.");
+		}
+
+		return Map.copyOf(parsed);
+	}
+
 	private void ensureDefaults() {
 		Path config = dataDirectory.resolve("config.yml");
 		LunaYamlConfig.ensureFile(config, () -> getClass().getClassLoader().getResourceAsStream("config.yml"));
+	}
+
+	private boolean isReady() {
+		return initialized && authService != null && pluginMessagingBus != null;
+	}
+
+	private void warnNotReady(String eventName, String subject) {
+		String suffix = (subject == null || subject.isBlank()) ? "" : " subject=" + subject;
+		if (logger != null) {
+			logger.warn("Bỏ qua " + eventName + " vì LunaAuth chưa khởi tạo xong." + suffix);
+			return;
+		}
+		Logger.getLogger("LunaAuthVelocity").warning("Bỏ qua " + eventName + " vì LunaAuth chưa khởi tạo xong." + suffix);
 	}
 
 	private void flow(String message) {
