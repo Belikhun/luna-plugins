@@ -19,6 +19,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LoginCommand;
+import dev.belikhun.luna.auth.command.LogoutCommand;
 import dev.belikhun.luna.auth.command.RegisterCommand;
 import dev.belikhun.luna.auth.messaging.AuthChannels;
 import dev.belikhun.luna.auth.service.AuthRepository;
@@ -145,15 +146,15 @@ public final class LunaAuthVelocityPlugin {
 		this.pluginMessagingBus.registerIncoming(AuthChannels.COMMAND_REQUEST, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String action = reader.readUtf();
-			if (!"login".equals(action) && !"register".equals(action)) {
+			if (!"login".equals(action) && !"register".equals(action) && !"logout".equals(action)) {
 				flow("Bỏ qua command_request action không hỗ trợ: " + action);
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
 			java.util.UUID playerUuid = reader.readUuid();
 			String username = reader.readUtf();
-			String password = reader.readUtf();
-			String confirm = "login".equals(action) ? "" : reader.readUtf();
+			String password = "logout".equals(action) ? "" : reader.readUtf();
+			String confirm = "register".equals(action) ? reader.readUtf() : "";
 			flow("RX command_request action=" + action + " player=" + username + " uuid=" + playerUuid);
 			Player player = proxyServer.getPlayer(playerUuid).orElse(null);
 			if (player == null) {
@@ -161,12 +162,20 @@ public final class LunaAuthVelocityPlugin {
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
-			AuthService.AuthResult result = "login".equals(action)
-				? authService.login(playerUuid, username, ipAddress(player), password)
-				: authService.register(playerUuid, username, ipAddress(player), password, confirm);
+			AuthService.AuthResult result;
+			if ("login".equals(action)) {
+				result = authService.login(playerUuid, username, ipAddress(player), password);
+			} else if ("register".equals(action)) {
+				result = authService.register(playerUuid, username, ipAddress(player), password, confirm);
+			} else {
+				result = authService.logout(playerUuid, username, ipAddress(player));
+			}
 			flow("Xử lý command_request xong action=" + action + " player=" + username + " success=" + result.success());
 			syncAuthState(player);
 			sendCommandResponse(player, result.success(), result.message());
+			if ("logout".equals(action) && result.success()) {
+				player.disconnect(Component.text("Bạn đã đăng xuất phiên hiện tại."));
+			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
 		this.pluginMessagingBus.registerOutgoing(AuthChannels.AUTH_STATE);
@@ -363,6 +372,7 @@ public final class LunaAuthVelocityPlugin {
 		CommandManager manager = proxyServer.getCommandManager();
 		manager.register(manager.metaBuilder("login").aliases("l").build(), new LoginCommand(authService, this::syncAuthState));
 		manager.register(manager.metaBuilder("register").aliases("reg").build(), new RegisterCommand(authService, this::syncAuthState));
+		manager.register(manager.metaBuilder("logout").aliases("lo").build(), new LogoutCommand(authService, this::syncAuthState));
 		CommandMeta authMeta = manager.metaBuilder("auth").aliases("lauth").build();
 		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, premiumUuidEnabled, uuidOverrideMap.size()));
 	}

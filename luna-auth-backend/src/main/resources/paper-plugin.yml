@@ -12,6 +12,9 @@ commands:
   register:
     description: Đăng ký tài khoản Luna Auth.
     usage: /register <mật_khẩu> <nhập_lại>
+  logout:
+    description: Đăng xuất khỏi phiên Luna Auth hiện tại.
+    usage: /logout
 dependencies:
   server:
     LunaCore:

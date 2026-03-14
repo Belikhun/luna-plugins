@@ -12,7 +12,7 @@ auth:
     deny-message: "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây."
   max-failures: 5
   lockout-seconds: 120
-  session-after-disconnect-seconds: 900
+  session-after-disconnect-seconds: 10800
   login-history-retention-days: 7
   hashing:
     pbkdf2:

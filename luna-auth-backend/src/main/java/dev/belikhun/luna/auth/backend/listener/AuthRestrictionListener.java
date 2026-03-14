@@ -83,8 +83,15 @@ public final class AuthRestrictionListener implements Listener {
 
 	@EventHandler
 	public void onJoin(PlayerJoinEvent event) {
-		stateRegistry.markUnauthenticated(event.getPlayer().getUniqueId());
-		event.getPlayer().sendMessage(pendingPrompt.chat());
+		UUID playerUuid = event.getPlayer().getUniqueId();
+		if (!stateRegistry.hasState(playerUuid)) {
+			stateRegistry.markUnauthenticated(playerUuid);
+		}
+
+		PromptSet prompt = promptFor(playerUuid);
+		if (prompt != pendingPrompt) {
+			event.getPlayer().sendMessage(prompt.chat());
+		}
 		if (spawnService.hasSpawn()) {
 			Bukkit.getScheduler().runTask(plugin, () -> spawnService.teleportToSpawn(event.getPlayer()));
 		}
@@ -208,6 +215,11 @@ public final class AuthRestrictionListener implements Listener {
 
 	private void showPrompt(Player player) {
 		PromptSet prompt = promptFor(player.getUniqueId());
+		if (prompt == pendingPrompt) {
+			hidePrompt(player);
+			return;
+		}
+
 		BossBar bar = activeBossbars.computeIfAbsent(player.getUniqueId(), ignored -> BossBar.bossBar(
 			prompt.bossbar(),
 			1f,

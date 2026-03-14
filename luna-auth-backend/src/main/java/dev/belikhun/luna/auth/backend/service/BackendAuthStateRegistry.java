@@ -31,6 +31,10 @@ public final class BackendAuthStateRegistry {
 		return states.getOrDefault(playerUuid, AuthState.pendingState());
 	}
 
+	public boolean hasState(UUID playerUuid) {
+		return states.containsKey(playerUuid);
+	}
+
 	public void clear(UUID playerUuid) {
 		states.remove(playerUuid);
 	}

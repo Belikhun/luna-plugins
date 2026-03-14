@@ -141,12 +141,15 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 		BackendAuthProxyCommand loginCommand = new BackendAuthProxyCommand("login", LunaCore.services().pluginMessaging());
 		BackendAuthProxyCommand registerCommand = new BackendAuthProxyCommand("register", LunaCore.services().pluginMessaging());
+		BackendAuthProxyCommand logoutCommand = new BackendAuthProxyCommand("logout", LunaCore.services().pluginMessaging());
 
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			commands.registrar().register("login", loginCommand);
 			commands.registrar().register("l", loginCommand);
 			commands.registrar().register("register", registerCommand);
 			commands.registrar().register("reg", registerCommand);
+			commands.registrar().register("logout", logoutCommand);
+			commands.registrar().register("lo", logoutCommand);
 		});
 		getLogger().info("LunaAuthBackend đã khởi động.");
 	}

@@ -55,23 +55,38 @@ public final class AuthService {
 		}
 
 		SessionReuseStatus sessionReuseStatus = hasReusableSession(playerUuid, ipAddress, now);
-		if (sessionReuseStatus.reusable() && quickAuthTrustDecision.trusted()) {
+		if (quickAuthTrustDecision.trusted()) {
 			Optional<AuthAccount> usernameMapped = repository.findByUsername(username);
 			if (usernameMapped.isPresent() && !usernameMapped.get().playerUuid().equals(playerUuid)) {
 				recordAudit(playerUuid, ipAddress, "UUID_CONFLICT", "FAILED", "Tên người chơi đã map sang UUID khác", "SYSTEM", now);
 				repository.recordSessionEvent(playerUuid, username, ipAddress, "UUID_CONFLICT", "Username mapping conflict", now);
 				return JoinDecision.requireLogin();
 			}
+
 			authenticateRuntime(playerUuid, ipAddress);
-			recordAudit(playerUuid, ipAddress, "QUICK_AUTH_ONLINE_UUID", "SUCCESS", "Trusted forwarding path hợp lệ", "SYSTEM", now);
-			repository.recordSessionEvent(playerUuid, username, ipAddress, "QUICK_AUTH_ONLINE_UUID", "Phiên cũ hợp lệ và trusted", now);
+			String quickAuthReason = sessionReuseStatus.reusable()
+				? "Trusted forwarding path hợp lệ, tái sử dụng session"
+				: "Trusted forwarding path hợp lệ, khởi tạo session mới";
+			recordAudit(playerUuid, ipAddress, "QUICK_AUTH_ONLINE_UUID", "SUCCESS", quickAuthReason, "SYSTEM", now);
+			repository.recordSessionEvent(playerUuid, username, ipAddress, "QUICK_AUTH_ONLINE_UUID", quickAuthReason, now);
 			logger.audit("Quick-login thành công cho " + username + " (" + playerUuid + ")");
 			return JoinDecision.quickLoginState();
 		}
-		if (sessionReuseStatus.reusable() && !quickAuthTrustDecision.trusted()) {
-			recordAudit(playerUuid, ipAddress, quickAuthTrustDecision.reasonCode(), "FAILED", "Có session nhưng trust path không hợp lệ", "SYSTEM", now);
-			repository.recordSessionEvent(playerUuid, username, ipAddress, quickAuthTrustDecision.reasonCode(), "Có session nhưng không đủ trust", now);
+
+		if (sessionReuseStatus.reusable()) {
+			Optional<AuthAccount> usernameMapped = repository.findByUsername(username);
+			if (usernameMapped.isPresent() && !usernameMapped.get().playerUuid().equals(playerUuid)) {
+				recordAudit(playerUuid, ipAddress, "UUID_CONFLICT", "FAILED", "Tên người chơi đã map sang UUID khác", "SYSTEM", now);
+				repository.recordSessionEvent(playerUuid, username, ipAddress, "UUID_CONFLICT", "Username mapping conflict", now);
+				return JoinDecision.requireLogin();
+			}
+
+			authenticateRuntime(playerUuid, ipAddress);
+			recordAudit(playerUuid, ipAddress, "SESSION_RESUME", "SUCCESS", "Khôi phục session hợp lệ theo IP và thời gian", "SYSTEM", now);
+			repository.recordSessionEvent(playerUuid, username, ipAddress, "SESSION_RESUME", "Khôi phục session hợp lệ", now);
+			return JoinDecision.sessionResumeState();
 		}
+
 		if (!sessionReuseStatus.reusable()) {
 			repository.recordSessionEvent(playerUuid, username, ipAddress, "SESSION_REUSE_REJECTED", sessionReuseStatus.reason(), now);
 		}
@@ -242,6 +257,16 @@ public final class AuthService {
 		return AuthResult.success("✔ Đã buộc đăng xuất phiên hiện tại.");
 	}
 
+	public AuthResult logout(UUID playerUuid, String username, String ipAddress) {
+		long now = System.currentTimeMillis();
+		invalidateSession(playerUuid, username, ipAddress, "USER_LOGOUT");
+		runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
+		recordAudit(playerUuid, ipAddress, "USER_LOGOUT", "SUCCESS", "Người chơi chủ động đăng xuất", username, now);
+		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "USER_LOGOUT", now);
+		repository.recordSessionEvent(playerUuid, username, ipAddress, "USER_LOGOUT", "Người chơi chủ động đăng xuất", now);
+		return AuthResult.success("✔ Đã đăng xuất phiên hiện tại.");
+	}
+
 	public AuthResult adminInvalidateSession(UUID playerUuid, String username, String ipAddress, String actor) {
 		long now = System.currentTimeMillis();
 		invalidateSession(playerUuid, username, ipAddress, "ADMIN_INVALIDATE_SESSION");
@@ -391,6 +416,10 @@ public final class AuthService {
 
 		public static JoinDecision quickLoginState() {
 			return new JoinDecision(true, false, false, "✔ Đăng nhập nhanh thành công.");
+		}
+
+		public static JoinDecision sessionResumeState() {
+			return new JoinDecision(true, false, false, "✔ Đã khôi phục phiên đăng nhập hợp lệ.");
 		}
 
 	}
