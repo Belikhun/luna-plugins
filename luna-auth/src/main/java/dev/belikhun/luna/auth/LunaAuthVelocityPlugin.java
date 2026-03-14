@@ -74,6 +74,7 @@ import java.util.logging.Logger;
 public final class LunaAuthVelocityPlugin {
 	private static final int BACKEND_SYNC_RETRY_MAX_ATTEMPTS = 20;
 	private static final long BACKEND_SYNC_RETRY_DELAY_MILLIS = 250L;
+	private static final long MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS = 90_000L;
 
 	private final ProxyServer proxyServer;
 	private final Path dataDirectory;
@@ -93,6 +94,7 @@ public final class LunaAuthVelocityPlugin {
 	private final Set<InetSocketAddress> verifiedOnlineSessions;
 	private final ConcurrentMap<UUID, String> pendingBackendAuthMessages;
 	private final Set<UUID> backendSyncRetryInFlight;
+	private final ConcurrentMap<String, Long> mixedModeProbeFallbackUntil;
 	private volatile boolean initialized;
 
 	@Inject
@@ -102,6 +104,7 @@ public final class LunaAuthVelocityPlugin {
 		this.verifiedOnlineSessions = ConcurrentHashMap.newKeySet();
 		this.pendingBackendAuthMessages = new ConcurrentHashMap<>();
 		this.backendSyncRetryInFlight = ConcurrentHashMap.newKeySet();
+		this.mixedModeProbeFallbackUntil = new ConcurrentHashMap<>();
 		this.uuidOverrideMap = Map.of();
 		this.requiredBackendNames = Set.of();
 		this.backendNotReadyMessage = "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.";
@@ -255,13 +258,28 @@ public final class LunaAuthVelocityPlugin {
 			return;
 		}
 
-		boolean premium = mojangPremiumCheckService.isPremiumUsername(username);
-		if (premium) {
-			event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
-			flow("PreLogin quyết định: premium username=" + username + " -> forceOnlineMode.");
-		} else {
-			flow("PreLogin quyết định: cracked username=" + username + " -> giữ offline-mode flow.");
+		if (!mojangPremiumCheckService.isPremiumUsername(username)) {
+			flow("PreLogin mixed-mode: username=" + username + " không phải premium name, giữ offline flow.");
+			return;
 		}
+
+		String probeKey = mixedModeProbeKey(username, event.getConnection().getRemoteAddress());
+		long now = System.currentTimeMillis();
+		Long fallbackUntil = mixedModeProbeFallbackUntil.get(probeKey);
+		if (fallbackUntil != null) {
+			if (fallbackUntil >= now) {
+				mixedModeProbeFallbackUntil.remove(probeKey, fallbackUntil);
+				flow("PreLogin mixed-mode: dùng fallback offline cho lượt thử lại username=" + username
+					+ " remote=" + event.getConnection().getRemoteAddress());
+				return;
+			}
+			mixedModeProbeFallbackUntil.remove(probeKey, fallbackUntil);
+		}
+
+		mixedModeProbeFallbackUntil.put(probeKey, now + MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS);
+		event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
+		flow("PreLogin mixed-mode: premium name -> probe online-mode username=" + username
+			+ " remote=" + event.getConnection().getRemoteAddress());
 	}
 
 	@Subscribe
@@ -271,23 +289,26 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		if (!event.isOnlineMode()) {
-			UUID offlineUuid = event.getGameProfile().getId();
-			Optional<UUID> claimedOnlineUuid = premiumUuidEnabled ? authService.findClaimedOnlineUuid(offlineUuid, event.getUsername()) : Optional.empty();
+			UUID providedUuid = event.getOriginalProfile().getId();
+			String username = event.getUsername();
+
+			Optional<UUID> claimedOnlineUuid = premiumUuidEnabled ? authService.findClaimedOnlineUuid(providedUuid, username) : Optional.empty();
 			if (claimedOnlineUuid.isPresent()) {
 				UUID mappedUuid = claimedOnlineUuid.get();
 				event.setGameProfile(event.getGameProfile().withId(mappedUuid));
-				logger.audit("UUID mapping username=" + event.getUsername()
+				logger.audit("UUID mapping username=" + username
 					+ " mode=CLAIMED_OFFLINE_MAP"
-					+ " from=" + offlineUuid
+					+ " from=" + providedUuid
 					+ " to=" + mappedUuid
 					+ " remote=" + event.getConnection().getRemoteAddress());
 			} else {
-				flow("GameProfileRequest username=" + event.getUsername() + " onlineMode=false, không có claimed map.");
+				flow("GameProfileRequest username=" + username + " onlineMode=false, giữ offline UUID=" + providedUuid);
 			}
 			return;
 		}
 
 		UUID verifiedUuid = event.getGameProfile().getId();
+		mixedModeProbeFallbackUntil.remove(mixedModeProbeKey(event.getUsername(), event.getConnection().getRemoteAddress()));
 		UUID mappedUuid = uuidOverrideMap.get(verifiedUuid);
 		UUID effectiveUuid = verifiedUuid;
 		String mappingMode = "KEEP_PREMIUM_UUID";
@@ -394,6 +415,7 @@ public final class LunaAuthVelocityPlugin {
 
 		flow("Disconnect player=" + event.getPlayer().getUsername() + " remote=" + event.getPlayer().getRemoteAddress());
 		verifiedOnlineSessions.remove(event.getPlayer().getRemoteAddress());
+		mixedModeProbeFallbackUntil.remove(mixedModeProbeKey(event.getPlayer().getUsername(), event.getPlayer().getRemoteAddress()));
 		pendingBackendAuthMessages.remove(event.getPlayer().getUniqueId());
 		backendSyncRetryInFlight.remove(event.getPlayer().getUniqueId());
 		authService.onDisconnect(event.getPlayer().getUniqueId());
@@ -882,5 +904,16 @@ public final class LunaAuthVelocityPlugin {
 		if (authFlowLogsEnabled) {
 			logger.audit(message);
 		}
+	}
+
+	private String mixedModeProbeKey(String username, java.net.SocketAddress remoteAddress) {
+		String normalizedUsername = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+		String remote = "unknown";
+		if (remoteAddress instanceof InetSocketAddress socketAddress && socketAddress.getAddress() != null) {
+			remote = socketAddress.getAddress().getHostAddress();
+		} else if (remoteAddress != null) {
+			remote = remoteAddress.toString();
+		}
+		return normalizedUsername + "@" + remote;
 	}
 }

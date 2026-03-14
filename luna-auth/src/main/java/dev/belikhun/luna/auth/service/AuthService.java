@@ -1,6 +1,7 @@
 package dev.belikhun.luna.auth.service;
 
 import dev.belikhun.luna.auth.model.AuthAccount;
+import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
 import java.util.Map;
@@ -332,6 +333,25 @@ public final class AuthService {
 
 	public Optional<UUID> findClaimedOnlineUuid(UUID offlineUuid, String username) {
 		return repository.findClaimedOnlineUuid(offlineUuid, username);
+	}
+
+	public boolean isKnownPremiumIdentity(String username) {
+		if (username == null || username.isBlank()) {
+			return false;
+		}
+
+		UUID offlineUuid = OfflineUuid.fromUsername(username);
+		Optional<UUID> claimed = repository.findClaimedOnlineUuid(offlineUuid, username);
+		if (claimed.isPresent()) {
+			return true;
+		}
+
+		Optional<AuthAccount> account = repository.findByUsername(username);
+		if (account.isEmpty()) {
+			return false;
+		}
+
+		return !offlineUuid.equals(account.get().playerUuid());
 	}
 
 	public void cleanupHistoryRetention(int retentionDays) {
