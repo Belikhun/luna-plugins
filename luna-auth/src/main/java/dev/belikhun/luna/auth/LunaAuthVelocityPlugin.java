@@ -89,6 +89,7 @@ public final class LunaAuthVelocityPlugin {
 
 		boolean ansi = ConfigValues.booleanValue(logging, "ansi", true);
 		boolean debug = ConfigValues.booleanValue(logging, "debug", false);
+		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaAuthVelocity"), ansi).withDebug(debug).scope("AuthVelocity");
 		this.authFlowLogsEnabled = ConfigValues.booleanValue(logging, "auth-flow", true);
 		this.mixedModeQuickLoginEnabled = ConfigValues.booleanValue(mixedMode, "enabled", true);
 		this.premiumUuidEnabled = ConfigValues.booleanValue(mixedMode, "premium-uuid", true);
@@ -103,7 +104,6 @@ public final class LunaAuthVelocityPlugin {
 		long premiumCheckTimeoutMillis = Math.max(500L, ConfigValues.intValue(mixedMode, "premium-check-timeout-ms", 3000));
 		long premiumNameCacheMinutes = Math.max(1L, ConfigValues.intValue(mixedMode, "premium-name-cache-minutes", 60));
 
-		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaAuthVelocity"), ansi).withDebug(debug).scope("AuthVelocity");
 		this.mojangPremiumCheckService = new MojangPremiumCheckService(logger, premiumCheckTimeoutMillis, premiumNameCacheMinutes, authFlowLogsEnabled);
 		logger.audit("Khởi tạo LunaAuth Velocity: onlineMode=" + proxyServer.getConfiguration().isOnlineMode()
 			+ ", mixedMode=" + mixedModeQuickLoginEnabled
@@ -411,7 +411,7 @@ public final class LunaAuthVelocityPlugin {
 			String sourceRaw = entry.getKey();
 			Object targetRaw = entry.getValue();
 			if (!(targetRaw instanceof String targetString)) {
-				logger.warn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " (giá trị không phải chuỗi UUID)");
+				initWarn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " (giá trị không phải chuỗi UUID)");
 				continue;
 			}
 
@@ -420,15 +420,31 @@ public final class LunaAuthVelocityPlugin {
 				UUID to = UUID.fromString(targetString.trim());
 				parsed.put(from, to);
 			} catch (IllegalArgumentException exception) {
-				logger.warn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " to=" + targetString);
+				initWarn("Bỏ qua uuid-override-map entry không hợp lệ: from=" + sourceRaw + " to=" + targetString);
 			}
 		}
 
 		if (!parsed.isEmpty()) {
-			logger.audit("Đã nạp " + parsed.size() + " UUID override rule(s) từ config.");
+			initAudit("Đã nạp " + parsed.size() + " UUID override rule(s) từ config.");
 		}
 
 		return Map.copyOf(parsed);
+	}
+
+	private void initWarn(String message) {
+		if (logger != null) {
+			logger.warn(message);
+			return;
+		}
+		Logger.getLogger("LunaAuthVelocity").warning(message);
+	}
+
+	private void initAudit(String message) {
+		if (logger != null) {
+			logger.audit(message);
+			return;
+		}
+		Logger.getLogger("LunaAuthVelocity").info(message);
 	}
 
 	private void ensureDefaults() {
