@@ -1,0 +1,20 @@
+name: LunaAuthBackend
+version: ${version}
+main: dev.belikhun.luna.auth.backend.LunaAuthBackendPlugin
+api-version: '1.21'
+description: Luna auth backend restrictions for Paper.
+authors:
+  - Belikhun
+commands:
+  login:
+    description: Đăng nhập tài khoản Luna Auth.
+    usage: /login <mật_khẩu>
+  register:
+    description: Đăng ký tài khoản Luna Auth.
+    usage: /register <mật_khẩu> <nhập_lại>
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true

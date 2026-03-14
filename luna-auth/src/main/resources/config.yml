@@ -1,0 +1,20 @@
+logging:
+  ansi: true
+  debug: false
+  auth-flow: true
+
+auth:
+  max-failures: 5
+  lockout-seconds: 120
+  session-after-disconnect-seconds: 900
+  login-history-retention-days: 7
+  hashing:
+    pbkdf2:
+      iterations: 210000
+      salt-bytes: 16
+      key-bits: 256
+  quick-login:
+    mixed-mode:
+      enabled: true
+      premium-check-timeout-ms: 3000
+      premium-name-cache-minutes: 60

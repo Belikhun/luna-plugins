@@ -1,0 +1,208 @@
+package dev.belikhun.luna.auth.backend.listener;
+
+import dev.belikhun.luna.auth.backend.service.BackendAuthStateRegistry;
+import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import io.papermc.paper.event.player.AsyncChatEvent;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+public final class AuthRestrictionListener implements Listener {
+	private final JavaPlugin plugin;
+	private final BackendAuthStateRegistry stateRegistry;
+	private final MiniMessage miniMessage;
+	private final Component actionbarPrompt;
+	private final Component chatPrompt;
+	private final Component bossbarPrompt;
+	private final Map<UUID, BossBar> activeBossbars;
+	private final Set<String> allowedCommands;
+	private final BackendAuthSpawnService spawnService;
+
+	public AuthRestrictionListener(JavaPlugin plugin, BackendAuthStateRegistry stateRegistry, BackendAuthSpawnService spawnService, String bossbarPrompt, String actionbarPrompt, String chatPrompt, Set<String> allowedCommands) {
+		this.plugin = plugin;
+		this.stateRegistry = stateRegistry;
+		this.spawnService = spawnService;
+		this.miniMessage = MiniMessage.miniMessage();
+		this.bossbarPrompt = miniMessage.deserialize(bossbarPrompt);
+		this.actionbarPrompt = miniMessage.deserialize(actionbarPrompt);
+		this.chatPrompt = miniMessage.deserialize(chatPrompt);
+		this.activeBossbars = new ConcurrentHashMap<>();
+		this.allowedCommands = allowedCommands;
+	}
+
+	public void startPromptTask() {
+		Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+			for (Player player : Bukkit.getOnlinePlayers()) {
+				if (stateRegistry.isAuthenticated(player.getUniqueId())) {
+					hidePrompt(player);
+					continue;
+				}
+				showPrompt(player);
+			}
+		}, 20L, 20L);
+	}
+
+	public void hidePrompt(Player player) {
+		BossBar bar = activeBossbars.remove(player.getUniqueId());
+		if (bar != null) {
+			player.hideBossBar(bar);
+		}
+	}
+
+	@EventHandler
+	public void onJoin(PlayerJoinEvent event) {
+		stateRegistry.markUnauthenticated(event.getPlayer().getUniqueId());
+		event.getPlayer().sendMessage(chatPrompt);
+		if (spawnService.hasSpawn()) {
+			Bukkit.getScheduler().runTask(plugin, () -> spawnService.teleportToSpawn(event.getPlayer()));
+		}
+	}
+
+	@EventHandler
+	public void onQuit(PlayerQuitEvent event) {
+		hidePrompt(event.getPlayer());
+		stateRegistry.clear(event.getPlayer().getUniqueId());
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onMove(PlayerMoveEvent event) {
+		Player player = event.getPlayer();
+		if (stateRegistry.isAuthenticated(player.getUniqueId())) {
+			return;
+		}
+		Location from = event.getFrom();
+		Location to = event.getTo();
+		if (to == null) {
+			return;
+		}
+		if (from.getX() == to.getX() && from.getY() == to.getY() && from.getZ() == to.getZ()) {
+			return;
+		}
+
+		Location corrected = from.clone();
+		corrected.setYaw(to.getYaw());
+		corrected.setPitch(to.getPitch());
+		event.setTo(corrected);
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onCommand(PlayerCommandPreprocessEvent event) {
+		if (stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			return;
+		}
+		String message = event.getMessage();
+		if (message == null || message.length() < 2) {
+			event.setCancelled(true);
+			event.getPlayer().sendMessage(chatPrompt);
+			return;
+		}
+		String command = message.substring(1).trim();
+		int split = command.indexOf(' ');
+		String root = split > -1 ? command.substring(0, split) : command;
+		if (allowedCommands.contains(root.toLowerCase())) {
+			return;
+		}
+		event.setCancelled(true);
+		event.getPlayer().sendMessage(chatPrompt);
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onChat(AsyncChatEvent event) {
+		if (stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			return;
+		}
+		event.setCancelled(true);
+		event.getPlayer().sendMessage(chatPrompt);
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onInteract(PlayerInteractEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onDrop(PlayerDropItemEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onPickup(EntityPickupItemEvent event) {
+		if (event.getEntity() instanceof Player player && !stateRegistry.isAuthenticated(player.getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onOpenInventory(InventoryOpenEvent event) {
+		if (event.getPlayer() instanceof Player player && !stateRegistry.isAuthenticated(player.getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onBlockBreak(BlockBreakEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onBlockPlace(BlockPlaceEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onDamage(EntityDamageEvent event) {
+		if (event.getEntity() instanceof Player player && !stateRegistry.isAuthenticated(player.getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onDamageOthers(EntityDamageByEntityEvent event) {
+		if (event.getDamager() instanceof Player player && !stateRegistry.isAuthenticated(player.getUniqueId())) {
+			event.setCancelled(true);
+		}
+	}
+
+	private void showPrompt(Player player) {
+		BossBar bar = activeBossbars.computeIfAbsent(player.getUniqueId(), ignored -> BossBar.bossBar(
+			bossbarPrompt,
+			1f,
+			BossBar.Color.YELLOW,
+			BossBar.Overlay.PROGRESS
+		));
+		player.showBossBar(bar);
+		player.sendActionBar(actionbarPrompt);
+	}
+}

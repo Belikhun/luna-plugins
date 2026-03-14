@@ -1,0 +1,21 @@
+prompt:
+  bossbar: "<yellow><b>⚠ Xác thực tài khoản để tiếp tục</b></yellow>"
+  actionbar: "<yellow>Vui lòng dùng <white>/login</white> hoặc <white>/register</white></yellow>"
+  chat: "<yellow>ℹ Vui lòng dùng <white>/login</white> hoặc <white>/register</white> để tiếp tục.</yellow>"
+
+allowedCommands:
+  - login
+  - register
+  - l
+  - reg
+  - help
+
+auth-spawn:
+  world: ""
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  yaw: 0.0
+  pitch: 0.0
+  set-by: ""
+  updated-at: 0

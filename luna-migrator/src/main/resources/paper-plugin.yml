@@ -1,0 +1,20 @@
+name: LunaMigrator
+version: ${version}
+main: dev.belikhun.luna.migrator.LunaMigratorPlugin
+api-version: '1.21'
+description: UUID migration helper for Luna auth stack.
+authors:
+  - Belikhun
+commands:
+  migrate:
+    description: Đánh dấu trạng thái migrate UUID một lần.
+    usage: /migrate [tên_cũ]
+  migration:
+    description: Xem trạng thái migrate UUID.
+    usage: /migration
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true

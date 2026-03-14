@@ -16,7 +16,7 @@ subprojects {
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
     val isApiModule = project.name == "luna-core-api"
-    val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack"
+    val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth"
     val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule)
     val platformTarget = when {
         isVelocityModule -> "velocity"

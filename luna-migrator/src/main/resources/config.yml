@@ -1,0 +1,3 @@
+messages:
+  done: "<green>✔ Migrate đã hoàn tất cho tài khoản này.</green>"
+  status: "<yellow>ℹ Trạng thái migrate: <white>{status}</white></yellow>"
