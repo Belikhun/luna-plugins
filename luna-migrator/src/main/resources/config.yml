@@ -1,3 +1,22 @@
+migration:
+  alert:
+    enabled: true
+    repeat-count: 3
+    interval-seconds: 10
+    initial-delay-seconds: 1
+  disconnect-countdown-seconds: 5
+  transfer:
+    enabled: true
+    migrate-money: true
+    migrate-huskhomes-homes: true
+    huskhomes-timeout-seconds: 10
+    migrate-playerdata: true
+    migrate-stats: true
+    migrate-advancements: true
+    overwrite-existing: true
+    backup-existing: true
+    kick-after-success: true
+
 messages:
   done: "<green>✔ Migrate đã hoàn tất cho tài khoản này.</green>"
   status: "<yellow>ℹ Trạng thái migrate: <white>{status}</white></yellow>"

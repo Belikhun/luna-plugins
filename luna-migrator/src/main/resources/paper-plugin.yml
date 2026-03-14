@@ -18,3 +18,11 @@ dependencies:
       load: BEFORE
       required: true
       join-classpath: true
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    HuskHomes:
+      load: BEFORE
+      required: false
+      join-classpath: true

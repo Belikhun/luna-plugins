@@ -6,6 +6,7 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
+import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
@@ -109,7 +110,7 @@ public final class AuthAdminCommand implements SimpleCommand {
 			boolean registered = account.isPresent() && account.get().hasPassword();
 			boolean locked = account.isPresent() && account.get().isLocked(now);
 			UUID effectiveUuid = target.getUniqueId();
-			UUID expectedOfflineUuid = offlineUuid(target.getUsername());
+			UUID expectedOfflineUuid = OfflineUuid.fromUsername(target.getUsername());
 			source.sendRichMessage(info("ℹ Trạng thái " + target.getUsername() + ":"));
 			source.sendRichMessage(muted("- Xác thực runtime: ") + accent(authenticated ? "ĐÃ XÁC THỰC" : "CHƯA XÁC THỰC"));
 			source.sendRichMessage(muted("- Đăng ký: ") + accent(registered ? "ĐÃ ĐĂNG KÝ" : "CHƯA ĐĂNG KÝ"));
@@ -353,11 +354,6 @@ public final class AuthAdminCommand implements SimpleCommand {
 			return player.getUsername();
 		}
 		return "CONSOLE";
-	}
-
-	private UUID offlineUuid(String username) {
-		String normalized = username == null ? "" : username;
-		return UUID.nameUUIDFromBytes(("OfflinePlayer:" + normalized).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 	}
 
 	private String info(String text) {

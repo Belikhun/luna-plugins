@@ -13,6 +13,7 @@ miniplaceholders = "3.1.0"
 placeholderapi = "2.12.2"
 luckperms = "5.4"
 interactivechat = "4.3.5.1"
+huskhomes = "4.10"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -26,3 +27,4 @@ miniplaceholders-api = { module = "io.github.miniplaceholders:miniplaceholders-a
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
 luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms" }
 interactivechat-api = { module = "com.loohp:InteractiveChat", version.ref = "interactivechat" }
+huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", version.ref = "huskhomes" }

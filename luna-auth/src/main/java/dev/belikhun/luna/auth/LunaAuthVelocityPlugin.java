@@ -11,6 +11,7 @@ import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
@@ -24,9 +25,12 @@ import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
 import dev.belikhun.luna.auth.service.MojangPremiumCheckService;
 import dev.belikhun.luna.auth.service.Pbkdf2PasswordHasher;
+import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
@@ -36,10 +40,11 @@ import net.kyori.adventure.text.Component;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -49,6 +54,9 @@ import java.util.logging.Logger;
 	name = "LunaAuth",
 	version = BuildConstants.VERSION,
 	description = "Luna authentication authority for Velocity",
+	dependencies = {
+		@Dependency(id = "lunacore")
+	},
 	authors = {"Belikhun"}
 )
 public final class LunaAuthVelocityPlugin {
@@ -61,6 +69,11 @@ public final class LunaAuthVelocityPlugin {
 	private boolean premiumUuidEnabled;
 	private Map<UUID, UUID> uuidOverrideMap;
 	private boolean authFlowLogsEnabled;
+	private boolean backendHandshakeRequired;
+	private Set<String> requiredBackendNames;
+	private String backendNotReadyMessage;
+	private BackendStatusView backendStatusView;
+	private volatile boolean lastBackendReady;
 	private MojangPremiumCheckService mojangPremiumCheckService;
 	private final Set<InetSocketAddress> verifiedOnlineSessions;
 	private volatile boolean initialized;
@@ -71,6 +84,9 @@ public final class LunaAuthVelocityPlugin {
 		this.dataDirectory = dataDirectory;
 		this.verifiedOnlineSessions = ConcurrentHashMap.newKeySet();
 		this.uuidOverrideMap = Map.of();
+		this.requiredBackendNames = Set.of();
+		this.backendNotReadyMessage = "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.";
+		this.lastBackendReady = false;
 		this.initialized = false;
 	}
 
@@ -86,6 +102,7 @@ public final class LunaAuthVelocityPlugin {
 		Map<String, Object> pbkdf2 = ConfigValues.map(hashing, "pbkdf2");
 		Map<String, Object> quickLogin = ConfigValues.map(auth, "quick-login");
 		Map<String, Object> mixedMode = ConfigValues.map(quickLogin, "mixed-mode");
+		Map<String, Object> backendHandshake = ConfigValues.map(auth, "backend-handshake");
 
 		boolean ansi = ConfigValues.booleanValue(logging, "ansi", true);
 		boolean debug = ConfigValues.booleanValue(logging, "debug", false);
@@ -94,6 +111,9 @@ public final class LunaAuthVelocityPlugin {
 		this.mixedModeQuickLoginEnabled = ConfigValues.booleanValue(mixedMode, "enabled", true);
 		this.premiumUuidEnabled = ConfigValues.booleanValue(mixedMode, "premium-uuid", true);
 		this.uuidOverrideMap = parseUuidOverrideMap(ConfigValues.map(mixedMode, "uuid-override-map"));
+		this.backendHandshakeRequired = ConfigValues.booleanValue(backendHandshake, "required", true);
+		this.requiredBackendNames = parseRequiredBackends(backendHandshake.get("required-backends"));
+		this.backendNotReadyMessage = ConfigValues.string(backendHandshake, "deny-message", "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.");
 		int maxFailures = ConfigValues.intValue(auth, "max-failures", 5);
 		long lockoutSeconds = Math.max(1, ConfigValues.intValue(auth, "lockout-seconds", 120));
 		long sessionSeconds = Math.max(60, ConfigValues.intValue(auth, "session-after-disconnect-seconds", 900));
@@ -109,12 +129,18 @@ public final class LunaAuthVelocityPlugin {
 			+ ", mixedMode=" + mixedModeQuickLoginEnabled
 			+ ", premiumUuid=" + premiumUuidEnabled
 			+ ", uuidOverrideRules=" + uuidOverrideMap.size()
+			+ ", backendHandshakeRequired=" + backendHandshakeRequired
+			+ ", requiredBackends=" + requiredBackendNames
 			+ ", authFlowLogs=" + authFlowLogsEnabled
 			+ ", hashIterations=" + hashIterations
 			+ ", hashSaltBytes=" + hashSaltBytes
 			+ ", hashKeyBits=" + hashKeyBits);
-		Database database = LunaCoreVelocity.services().dependencyManager().resolve(Database.class);
-		this.pluginMessagingBus = LunaCoreVelocity.services().pluginMessagingBus();
+
+		var services = LunaCoreVelocity.services();
+
+		Database database = services.dependencyManager().resolve(Database.class);
+		this.backendStatusView = services.backendStatusView();
+		this.pluginMessagingBus = services.pluginMessagingBus();
 		this.pluginMessagingBus.registerIncoming(AuthChannels.COMMAND_REQUEST, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String action = reader.readUtf();
@@ -163,8 +189,14 @@ public final class LunaAuthVelocityPlugin {
 	@Subscribe
 	public void onPreLogin(PreLoginEvent event) {
 		if (!isReady()) {
-			event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text("Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.")));
+			event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(backendNotReadyMessage)));
 			warnNotReady("PreLogin", event.getUsername());
+			return;
+		}
+
+		if (!isBackendHandshakeReady()) {
+			event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(backendNotReadyMessage)));
+			warnNotReady("PreLogin.BackendHandshake", event.getUsername());
 			return;
 		}
 
@@ -216,7 +248,7 @@ public final class LunaAuthVelocityPlugin {
 			effectiveUuid = mappedUuid;
 			mappingMode = "CONFIG_UUID_MAP";
 		} else if (!premiumUuidEnabled) {
-			effectiveUuid = offlineUuid(event.getUsername());
+			effectiveUuid = OfflineUuid.fromUsername(event.getUsername());
 			mappingMode = "OFFLINE_UUID_FALLBACK";
 		}
 
@@ -295,7 +327,7 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		logger.audit("Đang tắt LunaAuth Velocity và hủy đăng ký channels.");
+		initAudit("Đang tắt LunaAuth Velocity và hủy đăng ký channels.");
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.unregisterIncoming(AuthChannels.COMMAND_REQUEST);
 			pluginMessagingBus.unregisterOutgoing(AuthChannels.AUTH_STATE);
@@ -400,9 +432,53 @@ public final class LunaAuthVelocityPlugin {
 		return "0.0.0.0";
 	}
 
-	private UUID offlineUuid(String username) {
-		String normalized = username == null ? "" : username;
-		return UUID.nameUUIDFromBytes(("OfflinePlayer:" + normalized).getBytes(StandardCharsets.UTF_8));
+	private boolean isBackendHandshakeReady() {
+		if (!backendHandshakeRequired) {
+			return true;
+		}
+		if (backendStatusView == null) {
+			return false;
+		}
+
+		Map<String, BackendServerStatus> snapshot = backendStatusView.snapshot();
+		boolean ready;
+		if (requiredBackendNames.isEmpty()) {
+			ready = snapshot.values().stream().anyMatch(BackendServerStatus::online);
+		} else {
+			ready = requiredBackendNames.stream().allMatch(name -> {
+				BackendServerStatus status = snapshot.get(name);
+				return status != null && status.online();
+			});
+		}
+
+		if (ready != lastBackendReady) {
+			if (ready) {
+				logger.success("Auth backend handshake sẵn sàng. Cho phép kết nối mới.");
+			} else {
+				logger.warn("Auth backend handshake chưa sẵn sàng. Tạm khóa kết nối mới.");
+			}
+			lastBackendReady = ready;
+		}
+
+		return ready;
+	}
+
+	private Set<String> parseRequiredBackends(Object rawValue) {
+		if (!(rawValue instanceof Iterable<?> iterable)) {
+			return Set.of();
+		}
+
+		Set<String> out = new HashSet<>();
+		for (Object item : iterable) {
+			if (item == null) {
+				continue;
+			}
+			String value = String.valueOf(item).trim().toLowerCase(Locale.ROOT);
+			if (!value.isBlank()) {
+				out.add(value);
+			}
+		}
+		return Set.copyOf(out);
 	}
 
 	private Map<UUID, UUID> parseUuidOverrideMap(Map<String, Object> rawMap) {

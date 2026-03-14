@@ -4,6 +4,12 @@ logging:
   auth-flow: true
 
 auth:
+  backend-handshake:
+    required: true
+    required-backends: []
+    # Ví dụ:
+    # required-backends: ["lobby"]
+    deny-message: "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây."
   max-failures: 5
   lockout-seconds: 120
   session-after-disconnect-seconds: 900
