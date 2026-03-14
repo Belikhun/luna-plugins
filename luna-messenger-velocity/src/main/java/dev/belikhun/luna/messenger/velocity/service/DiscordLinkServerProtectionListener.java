@@ -4,6 +4,7 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import net.kyori.adventure.text.Component;
 
@@ -44,11 +45,16 @@ public final class DiscordLinkServerProtectionListener {
 		if (!config.serverProtection().requiresDiscordLink(targetServerName)) {
 			return;
 		}
+		String targetServerDisplayRich = config.serverDisplay(targetServerName);
+		String targetServerDisplayPlain = Formatters.stripFormats(targetServerDisplayRich);
+		if (targetServerDisplayPlain.isBlank()) {
+			targetServerDisplayPlain = targetServerName;
+		}
 
 		Player player = event.getPlayer();
 		DiscordAccountLinkService linkService = linkServiceSupplier.get();
 		if (linkService == null || !linkService.isDatabaseEnabled()) {
-			denyAndNotify(event, player, targetServerName, "", true);
+			denyAndNotify(event, player, targetServerDisplayRich, targetServerDisplayPlain, "", true);
 			return;
 		}
 		if (linkService.isServerProtectionBypassed(player.getUniqueId())) {
@@ -61,30 +67,38 @@ public final class DiscordLinkServerProtectionListener {
 
 		DiscordAccountLinkService.BeginLinkResult beginLink = linkService.beginLink(player.getUniqueId(), player.getUsername());
 		if (!beginLink.success()) {
-			denyAndNotify(event, player, targetServerName, "", beginLink.databaseDisabled());
+			denyAndNotify(event, player, targetServerDisplayRich, targetServerDisplayPlain, "", beginLink.databaseDisabled());
 			return;
 		}
 
-		denyAndNotify(event, player, targetServerName, beginLink.code(), false);
+		denyAndNotify(event, player, targetServerDisplayRich, targetServerDisplayPlain, beginLink.code(), false);
 	}
 
-	private void denyAndNotify(ServerPreConnectEvent event, Player player, String serverName, String code, boolean databaseDisabled) {
+	private void denyAndNotify(
+		ServerPreConnectEvent event,
+		Player player,
+		String serverDisplayRich,
+		String serverDisplayPlain,
+		String code,
+		boolean databaseDisabled
+	) {
 		event.setResult(ServerPreConnectEvent.ServerResult.denied());
 		boolean initialConnection = event.getPreviousServer() == null;
 
-		String noticePlain = "Bạn phải liên kết tài khoản minecraft của bạn với tài khoản discord để có thể tham gia máy chủ "
-			+ serverName + "!";
-		String noticeRich = "<color:" + NOTICE_ICON_COLOR + ">⚠</color> <white>Bạn phải liên kết tài khoản Minecraft với tài khoản Discord để có thể tham gia máy chủ </white>"
-			+ "<color:" + NOTICE_SERVER_COLOR + "><bold>" + escape(serverName) + "</bold></color><white>!</white>";
+		String safeServerRich = (serverDisplayRich == null || serverDisplayRich.isBlank()) ? serverDisplayPlain : serverDisplayRich;
+		String safeServerPlain = (serverDisplayPlain == null || serverDisplayPlain.isBlank()) ? "Unknown" : serverDisplayPlain;
+		String noticePlain = "Cần liên kết Discord để vào máy chủ " + safeServerPlain + "!";
+		String noticeRich = "<color:" + NOTICE_ICON_COLOR + ">⚠</color> <white>Cần liên kết Discord để vào máy chủ </white>"
+			+ "<color:" + NOTICE_SERVER_COLOR + "><bold>" + safeServerRich + "</bold></color><white>!</white>";
 		if (databaseDisabled) {
-			String message = noticePlain + " Hệ thống liên kết Discord hiện chưa sẵn sàng, vui lòng thử lại sau.";
+			String message = noticePlain + " Hệ thống hiện chưa sẵn sàng.";
 			if (initialConnection) {
 				player.disconnect(Component.text(message));
 			} else {
 				player.sendRichMessage(noticeRich);
-				player.sendRichMessage("<red>❌ Hệ thống liên kết Discord hiện chưa sẵn sàng, vui lòng thử lại sau.</red>");
+				player.sendRichMessage("<red>❌ Hệ thống liên kết hiện chưa sẵn sàng. Vui lòng thử lại sau.</red>");
 			}
-			logger.warn("Chặn vào server yêu cầu Discord link nhưng database chưa sẵn sàng: player=" + player.getUsername() + " server=" + serverName);
+			logger.warn("Chặn vào server yêu cầu Discord link nhưng database chưa sẵn sàng: player=" + player.getUsername() + " server=" + safeServerPlain);
 			return;
 		}
 
@@ -98,12 +112,5 @@ public final class DiscordLinkServerProtectionListener {
 
 		player.sendRichMessage(noticeRich);
 		DiscordLinkInstructionMessages.sendInstruction(player::sendRichMessage, code, null);
-	}
-
-	private String escape(String value) {
-		if (value == null) {
-			return "";
-		}
-		return value.replace("<", "&lt;").replace(">", "&gt;");
 	}
 }
