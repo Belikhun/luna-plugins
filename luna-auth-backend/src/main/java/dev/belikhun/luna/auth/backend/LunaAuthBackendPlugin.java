@@ -15,6 +15,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -63,6 +64,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				getConfig().getString("prompt.pending.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</color>")
 			),
 			readAllowedCommands(),
+			this::requestStateSync,
 			logger.scope("Restriction"),
 			authFlowLogsEnabled
 		);
@@ -178,15 +180,12 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 		BackendAuthProxyCommand loginCommand = new BackendAuthProxyCommand("login", LunaCore.services().pluginMessaging());
 		BackendAuthProxyCommand registerCommand = new BackendAuthProxyCommand("register", LunaCore.services().pluginMessaging());
-		BackendAuthProxyCommand logoutCommand = new BackendAuthProxyCommand("logout", LunaCore.services().pluginMessaging());
 
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			commands.registrar().register("login", loginCommand);
 			commands.registrar().register("l", loginCommand);
 			commands.registrar().register("register", registerCommand);
 			commands.registrar().register("reg", registerCommand);
-			commands.registrar().register("logout", logoutCommand);
-			commands.registrar().register("lo", logoutCommand);
 		});
 		logger.success("LunaAuthBackend đã khởi động.");
 	}
@@ -222,8 +221,8 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 		List<String> configured = new ArrayList<>(getConfig().getStringList("allowedCommands"));
 		boolean commandListChanged = false;
-		commandListChanged |= addMissingCommand(configured, "logout");
-		commandListChanged |= addMissingCommand(configured, "lo");
+		commandListChanged |= removeCommand(configured, "logout");
+		commandListChanged |= removeCommand(configured, "lo");
 
 		if (commandListChanged) {
 			getConfig().set("allowedCommands", configured);
@@ -232,15 +231,8 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		saveConfig();
 	}
 
-	private boolean addMissingCommand(List<String> configured, String command) {
-		for (String value : configured) {
-			if (command.equalsIgnoreCase(value)) {
-				return false;
-			}
-		}
-
-		configured.add(command);
-		return true;
+	private boolean removeCommand(List<String> configured, String command) {
+		return configured.removeIf(value -> value != null && command.equalsIgnoreCase(value));
 	}
 
 	private void sendAuthenticatedFeedback(Player player) {
@@ -249,6 +241,15 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		flow("SendAuthenticatedFeedback player=" + player.getName() + " uuid=" + player.getUniqueId());
 		player.sendRichMessage(chat);
 		player.sendActionBar(MiniMessage.miniMessage().deserialize(actionbar));
+	}
+
+	private void requestStateSync(Player player) {
+		LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
+			writer.writeUtf("sync_state");
+			writer.writeUuid(player.getUniqueId());
+			writer.writeUtf(player.getName());
+		});
+		flow("TX command_request action=sync_state player=" + player.getName() + " uuid=" + player.getUniqueId() + " at=" + Instant.now());
 	}
 
 	private void flow(String message) {

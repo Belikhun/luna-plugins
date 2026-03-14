@@ -19,9 +19,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
-import dev.belikhun.luna.auth.command.LoginCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
-import dev.belikhun.luna.auth.command.RegisterCommand;
 import dev.belikhun.luna.auth.messaging.AuthChannels;
 import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
@@ -165,21 +163,29 @@ public final class LunaAuthVelocityPlugin {
 		this.pluginMessagingBus.registerIncoming(AuthChannels.COMMAND_REQUEST, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String action = reader.readUtf();
-			if (!"login".equals(action) && !"register".equals(action) && !"logout".equals(action)) {
+			if (!"login".equals(action) && !"register".equals(action) && !"logout".equals(action) && !"sync_state".equals(action)) {
 				flow("Bỏ qua command_request action không hỗ trợ: " + action);
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
 			java.util.UUID playerUuid = reader.readUuid();
 			String username = reader.readUtf();
-			String password = "logout".equals(action) ? "" : reader.readUtf();
-			String confirm = "register".equals(action) ? reader.readUtf() : "";
 			flow("RX command_request action=" + action + " player=" + username + " uuid=" + playerUuid);
 			Player player = proxyServer.getPlayer(playerUuid).orElse(null);
 			if (player == null) {
 				logger.warn("Nhận command_request nhưng player không còn online: uuid=" + playerUuid + " action=" + action);
 				return PluginMessageDispatchResult.HANDLED;
 			}
+
+			if ("sync_state".equals(action)) {
+				syncAuthState(player);
+				scheduleBackendSyncRetry(playerUuid, 1);
+				flow("Processed sync_state request player=" + username + " uuid=" + playerUuid);
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
+			String password = "logout".equals(action) ? "" : reader.readUtf();
+			String confirm = "register".equals(action) ? reader.readUtf() : "";
 
 			AuthService.AuthResult result;
 			if ("login".equals(action)) {
@@ -406,8 +412,6 @@ public final class LunaAuthVelocityPlugin {
 
 	private void registerCommands() {
 		CommandManager manager = proxyServer.getCommandManager();
-		manager.register(manager.metaBuilder("login").aliases("l").build(), new LoginCommand(authService, this::syncAuthState));
-		manager.register(manager.metaBuilder("register").aliases("reg").build(), new RegisterCommand(authService, this::syncAuthState));
 		manager.register(manager.metaBuilder("logout").aliases("lo").build(), new LogoutCommand(authService, this::syncAuthState));
 		CommandMeta authMeta = manager.metaBuilder("auth").aliases("lauth").build();
 		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, premiumUuidEnabled, uuidOverrideMap.size()));

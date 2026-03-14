@@ -32,9 +32,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Consumer;
 
 public final class AuthRestrictionListener implements Listener {
 	private static final long RESTRICTION_LOG_THROTTLE_MS = 3000L;
+	private static final long SYNC_REQUEST_THROTTLE_MS = 1500L;
 
 	private final JavaPlugin plugin;
 	private final BackendAuthStateRegistry stateRegistry;
@@ -45,11 +47,13 @@ public final class AuthRestrictionListener implements Listener {
 	private final Map<UUID, BossBar> activeBossbars;
 	private final Set<String> allowedCommands;
 	private final BackendAuthSpawnService spawnService;
+	private final Consumer<Player> syncStateRequestSender;
 	private final LunaLogger logger;
 	private final boolean authFlowLogsEnabled;
 	private final ConcurrentMap<UUID, Long> lastMoveRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastCommandRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastChatRestrictionLog;
+	private final ConcurrentMap<UUID, Long> lastSyncRequestLog;
 
 	public AuthRestrictionListener(
 		JavaPlugin plugin,
@@ -59,12 +63,14 @@ public final class AuthRestrictionListener implements Listener {
 		PromptTemplate registerPrompt,
 		PromptTemplate pendingPrompt,
 		Set<String> allowedCommands,
+		Consumer<Player> syncStateRequestSender,
 		LunaLogger logger,
 		boolean authFlowLogsEnabled
 	) {
 		this.plugin = plugin;
 		this.stateRegistry = stateRegistry;
 		this.spawnService = spawnService;
+		this.syncStateRequestSender = syncStateRequestSender;
 		this.logger = logger;
 		this.miniMessage = MiniMessage.miniMessage();
 		this.loginPrompt = toComponents(loginPrompt);
@@ -76,6 +82,7 @@ public final class AuthRestrictionListener implements Listener {
 		this.lastMoveRestrictionLog = new ConcurrentHashMap<>();
 		this.lastCommandRestrictionLog = new ConcurrentHashMap<>();
 		this.lastChatRestrictionLog = new ConcurrentHashMap<>();
+		this.lastSyncRequestLog = new ConcurrentHashMap<>();
 	}
 
 	public void startPromptTask() {
@@ -109,6 +116,7 @@ public final class AuthRestrictionListener implements Listener {
 		}
 
 		PromptSet prompt = promptFor(playerUuid);
+		requestStateSyncIfDue(event.getPlayer(), "JOIN");
 		if (prompt != pendingPrompt) {
 			event.getPlayer().sendMessage(prompt.chat());
 		}
@@ -124,6 +132,7 @@ public final class AuthRestrictionListener implements Listener {
 		lastMoveRestrictionLog.remove(event.getPlayer().getUniqueId());
 		lastCommandRestrictionLog.remove(event.getPlayer().getUniqueId());
 		lastChatRestrictionLog.remove(event.getPlayer().getUniqueId());
+		lastSyncRequestLog.remove(event.getPlayer().getUniqueId());
 		flow("Quit clear state player=" + event.getPlayer().getName() + " uuid=" + event.getPlayer().getUniqueId());
 	}
 
@@ -255,6 +264,7 @@ public final class AuthRestrictionListener implements Listener {
 	private void showPrompt(Player player) {
 		PromptSet prompt = promptFor(player.getUniqueId());
 		if (prompt == pendingPrompt) {
+			requestStateSyncIfDue(player, "PENDING_PROMPT_LOOP");
 			hidePrompt(player);
 			flow("SkipPrompt player=" + player.getName() + " uuid=" + player.getUniqueId() + " reason=PENDING");
 			return;
@@ -305,6 +315,19 @@ public final class AuthRestrictionListener implements Listener {
 
 		throttleMap.put(playerUuid, now);
 		logger.audit(message);
+	}
+
+	private void requestStateSyncIfDue(Player player, String reason) {
+		UUID playerUuid = player.getUniqueId();
+		long now = System.currentTimeMillis();
+		Long last = lastSyncRequestLog.get(playerUuid);
+		if (last != null && now - last < SYNC_REQUEST_THROTTLE_MS) {
+			return;
+		}
+
+		lastSyncRequestLog.put(playerUuid, now);
+		syncStateRequestSender.accept(player);
+		flow("RequestStateSync player=" + player.getName() + " uuid=" + playerUuid + " reason=" + reason);
 	}
 
 	private void flow(String message) {

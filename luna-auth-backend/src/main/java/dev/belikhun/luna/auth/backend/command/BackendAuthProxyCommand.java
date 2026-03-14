@@ -43,15 +43,6 @@ public final class BackendAuthProxyCommand implements BasicCommand {
 			return;
 		}
 
-		if ("logout".equals(mode)) {
-			pluginMessaging.send(player, AuthChannels.COMMAND_REQUEST, writer -> {
-				writer.writeUtf("logout");
-				writer.writeUuid(player.getUniqueId());
-				writer.writeUtf(player.getName());
-			});
-			return;
-		}
-
 		if (args.length < 2) {
 			player.sendRichMessage(CommandStrings.usage("/register", CommandStrings.required("mat_khau", "text"), CommandStrings.required("nhap_lai", "text")));
 			return;

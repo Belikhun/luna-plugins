@@ -21,10 +21,8 @@ prompt:
 allowedCommands:
   - login
   - register
-  - logout
   - l
   - reg
-  - lo
   - help
 
 auth-spawn:
