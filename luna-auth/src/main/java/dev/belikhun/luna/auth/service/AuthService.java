@@ -56,13 +56,6 @@ public final class AuthService {
 
 		SessionReuseStatus sessionReuseStatus = hasReusableSession(playerUuid, ipAddress, now);
 		if (quickAuthTrustDecision.trusted()) {
-			Optional<AuthAccount> usernameMapped = repository.findByUsername(username);
-			if (usernameMapped.isPresent() && !usernameMapped.get().playerUuid().equals(playerUuid)) {
-				recordAudit(playerUuid, ipAddress, "UUID_CONFLICT", "FAILED", "Tên người chơi đã map sang UUID khác", "SYSTEM", now);
-				repository.recordSessionEvent(playerUuid, username, ipAddress, "UUID_CONFLICT", "Username mapping conflict", now);
-				return JoinDecision.requireLogin();
-			}
-
 			authenticateRuntime(playerUuid, ipAddress);
 			String quickAuthReason = sessionReuseStatus.reusable()
 				? "Trusted forwarding path hợp lệ, tái sử dụng session"
@@ -74,13 +67,6 @@ public final class AuthService {
 		}
 
 		if (sessionReuseStatus.reusable()) {
-			Optional<AuthAccount> usernameMapped = repository.findByUsername(username);
-			if (usernameMapped.isPresent() && !usernameMapped.get().playerUuid().equals(playerUuid)) {
-				recordAudit(playerUuid, ipAddress, "UUID_CONFLICT", "FAILED", "Tên người chơi đã map sang UUID khác", "SYSTEM", now);
-				repository.recordSessionEvent(playerUuid, username, ipAddress, "UUID_CONFLICT", "Username mapping conflict", now);
-				return JoinDecision.requireLogin();
-			}
-
 			authenticateRuntime(playerUuid, ipAddress);
 			recordAudit(playerUuid, ipAddress, "SESSION_RESUME", "SUCCESS", "Khôi phục session hợp lệ theo IP và thời gian", "SYSTEM", now);
 			repository.recordSessionEvent(playerUuid, username, ipAddress, "SESSION_RESUME", "Khôi phục session hợp lệ", now);
