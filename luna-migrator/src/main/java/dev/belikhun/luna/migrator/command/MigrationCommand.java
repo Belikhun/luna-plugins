@@ -462,14 +462,14 @@ public final class MigrationCommand implements BasicCommand {
 	}
 
 	private String promptKeyword(String text) {
-		return "<color:" + LunaPalette.INFO_300 + "><b>" + text + "</b></color>";
+		return "<color:" + LunaPalette.NEUTRAL_50 + ">" + text + "</color>";
 	}
 
 	private String promptValue(String text) {
-		return "<color:" + LunaPalette.PRIMARY_300 + "><b>" + text + "</b></color>";
+		return "<color:" + LunaPalette.AMBER_300 + ">" + text + "</color>";
 	}
 
 	private String promptAction(String text) {
-		return "<color:" + LunaPalette.SUCCESS_500 + "><b><u>" + text + "</u></b></color>";
+		return "<color:" + LunaPalette.SUCCESS_500 + "><u>" + text + "</u></color>";
 	}
 }
