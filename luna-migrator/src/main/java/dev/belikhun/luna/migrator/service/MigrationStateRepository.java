@@ -67,6 +67,14 @@ public final class MigrationStateRepository {
 		);
 	}
 
+	public boolean clearMigrated(UUID onlineUuid) {
+		int updated = database.update(
+			"DELETE FROM luna_auth_migration_state WHERE online_uuid = ?",
+			List.of(onlineUuid.toString())
+		);
+		return updated > 0;
+	}
+
 	private String normalize(String username) {
 		return username == null ? "" : username.trim().toLowerCase();
 	}

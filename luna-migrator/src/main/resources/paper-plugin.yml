@@ -8,7 +8,7 @@ authors:
 commands:
   migrate:
     description: Đánh dấu trạng thái migrate UUID một lần.
-    usage: /migrate [tên_cũ]
+    usage: /migrate [oldname]
 permissions:
   lunamigrator.use:
     description: Cho phép dùng /migrate và /migrate confirm
@@ -20,6 +20,11 @@ permissions:
       lunamigrator.use: true
   lunamigrator.test:
     description: Cho phép dùng /migrate test
+    default: op
+    children:
+      lunamigrator.use: true
+  lunamigrator.clear:
+    description: Cho phép dùng /migrate clear
     default: op
     children:
       lunamigrator.use: true

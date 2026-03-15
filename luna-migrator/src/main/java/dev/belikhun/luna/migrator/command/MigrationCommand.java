@@ -37,6 +37,7 @@ public final class MigrationCommand implements BasicCommand {
 	private static final String PERMISSION_USE = "lunamigrator.use";
 	private static final String PERMISSION_MANUAL = "lunamigrator.manual";
 	private static final String PERMISSION_TEST = "lunamigrator.test";
+	private static final String PERMISSION_CLEAR = "lunamigrator.clear";
 	private static final long CONFIRM_WINDOW_MILLIS = 60_000L;
 	private static final long OFFLINE_MIGRATION_DELAY_TICKS = 60L;
 	private static final int DEFAULT_DISCONNECT_COUNTDOWN_SECONDS = 5;
@@ -71,6 +72,10 @@ public final class MigrationCommand implements BasicCommand {
 		}
 		if (args.length > 0 && "manual".equalsIgnoreCase(args[0])) {
 			handleManual(sender, args);
+			return;
+		}
+		if (args.length > 0 && "clear".equalsIgnoreCase(args[0])) {
+			handleClear(sender, args);
 			return;
 		}
 		if (!(sender instanceof Player player)) {
@@ -126,7 +131,7 @@ public final class MigrationCommand implements BasicCommand {
 		}
 
 		String legacyUsername = args[0];
-		if ("manual".equalsIgnoreCase(legacyUsername) || "confirm".equalsIgnoreCase(legacyUsername) || "status".equalsIgnoreCase(legacyUsername) || "test".equalsIgnoreCase(legacyUsername)) {
+		if ("manual".equalsIgnoreCase(legacyUsername) || "confirm".equalsIgnoreCase(legacyUsername) || "status".equalsIgnoreCase(legacyUsername) || "test".equalsIgnoreCase(legacyUsername) || "clear".equalsIgnoreCase(legacyUsername)) {
 			sender.sendRichMessage(error("❌ Thiếu tham số cần thiết."));
 			return;
 		}
@@ -136,21 +141,21 @@ public final class MigrationCommand implements BasicCommand {
 	@Override
 	public Collection<String> suggest(CommandSourceStack source, String[] args) {
 		if (args.length == 0) {
-			return List.of("status", "confirm", "test", "ten_cu", "manual");
+			return List.of("status", "confirm", "test", "oldname", "manual", "clear");
 		}
 		if (args.length == 1) {
-			return CommandCompletions.filterPrefix(List.of("status", "confirm", "test", "ten_cu", "manual"), args[0]);
+			return CommandCompletions.filterPrefix(List.of("status", "confirm", "test", "oldname", "manual", "clear"), args[0]);
 		}
 		if (args.length == 2 && "test".equalsIgnoreCase(args[0])) {
 			List<String> players = new ArrayList<>();
 			for (Player online : Bukkit.getOnlinePlayers()) {
 				players.add(online.getName());
 			}
-			players.add("ten_cu");
+			players.add("oldname");
 			return CommandCompletions.filterPrefix(players, args[1]);
 		}
 		if (args.length == 3 && "test".equalsIgnoreCase(args[0])) {
-			return CommandCompletions.filterPrefix(List.of("ten_cu"), args[2]);
+			return CommandCompletions.filterPrefix(List.of("oldname"), args[2]);
 		}
 		if (args.length == 2 && "manual".equalsIgnoreCase(args[0])) {
 			List<String> players = new ArrayList<>();
@@ -160,7 +165,15 @@ public final class MigrationCommand implements BasicCommand {
 			return CommandCompletions.filterPrefix(players, args[1]);
 		}
 		if (args.length == 3 && "manual".equalsIgnoreCase(args[0])) {
-			return CommandCompletions.filterPrefix(List.of("ten_cu"), args[2]);
+			return CommandCompletions.filterPrefix(List.of("oldname"), args[2]);
+		}
+		if (args.length == 2 && "clear".equalsIgnoreCase(args[0])) {
+			List<String> players = new ArrayList<>();
+			for (Player online : Bukkit.getOnlinePlayers()) {
+				players.add(online.getName());
+			}
+			players.add("player");
+			return CommandCompletions.filterPrefix(players, args[1]);
 		}
 		return List.of();
 	}
@@ -171,7 +184,7 @@ public final class MigrationCommand implements BasicCommand {
 			return;
 		}
 		if (args.length < 3) {
-			sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("manual"), CommandStrings.required("player", "player"), CommandStrings.required("ten_cu", "text")));
+			sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("manual"), CommandStrings.required("player", "player"), CommandStrings.required("oldname", "text")));
 			return;
 		}
 		Player target = Bukkit.getPlayerExact(args[1]);
@@ -207,6 +220,32 @@ public final class MigrationCommand implements BasicCommand {
 		startMigration(target, legacyUsername, sender, false);
 	}
 
+	private void handleClear(CommandSender sender, String[] args) {
+		if (!sender.hasPermission(PERMISSION_CLEAR) && !sender.hasPermission(PERMISSION_MANUAL)) {
+			sender.sendRichMessage(error("❌ Bạn không có quyền dùng /migrate clear."));
+			return;
+		}
+
+		if (args.length < 2) {
+			if (sender instanceof Player player) {
+				clearMigrationState(sender, player.getUniqueId(), player.getName());
+				return;
+			}
+			sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("clear"), CommandStrings.required("player", "player")));
+			return;
+		}
+
+		String targetName = args[1];
+		Player targetOnline = Bukkit.getPlayerExact(targetName);
+		if (targetOnline != null) {
+			clearMigrationState(sender, targetOnline.getUniqueId(), targetOnline.getName());
+			return;
+		}
+
+		OfflinePlayer targetOffline = Bukkit.getOfflinePlayer(targetName);
+		clearMigrationState(sender, targetOffline.getUniqueId(), targetName);
+	}
+
 	private void handleTest(CommandSender sender, String[] args) {
 		if (!sender.hasPermission(PERMISSION_TEST) && !sender.hasPermission(PERMISSION_MANUAL)) {
 			sender.sendRichMessage(error("❌ Bạn không có quyền dùng /migrate test."));
@@ -220,7 +259,7 @@ public final class MigrationCommand implements BasicCommand {
 
 		if (args.length <= 1) {
 			if (!(sender instanceof Player player)) {
-				sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("test"), CommandStrings.required("player", "player"), CommandStrings.required("ten_cu", "text")));
+				sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("test"), CommandStrings.required("player", "player"), CommandStrings.required("oldname", "text")));
 				return;
 			}
 			targetOnline = player;
@@ -319,7 +358,7 @@ public final class MigrationCommand implements BasicCommand {
 		if (legacyUsername.length() < 3 || legacyUsername.length() > 16) {
 			if (autoDetected) {
 				player.sendRichMessage(error("❌ Không tìm thấy dữ liệu cũ để migrate tự động."));
-				player.sendRichMessage(info("ℹ Nếu tên cũ khác hiện tại, dùng: ") + accent("/migrate <ten_cu>"));
+				player.sendRichMessage(info("ℹ Nếu tên cũ khác hiện tại, dùng: ") + accent("/migrate <oldname>"));
 				return;
 			}
 
@@ -329,7 +368,7 @@ public final class MigrationCommand implements BasicCommand {
 
 		if (!validateMigrationCandidate(player.getUniqueId(), legacyUsername, player)) {
 			if (autoDetected) {
-				player.sendRichMessage(info("ℹ Nếu tên cũ khác tên hiện tại, thử: ") + accent("/migrate <ten_cu>"));
+				player.sendRichMessage(info("ℹ Nếu tên cũ khác tên hiện tại, thử: ") + accent("/migrate <oldname>"));
 			}
 			return;
 		}
@@ -590,6 +629,30 @@ public final class MigrationCommand implements BasicCommand {
 		return plugin.getConfig().getBoolean("migration.transfer.migrate-playerdata", true)
 			|| plugin.getConfig().getBoolean("migration.transfer.migrate-stats", true)
 			|| plugin.getConfig().getBoolean("migration.transfer.migrate-advancements", true);
+	}
+
+	private void clearMigrationState(CommandSender sender, UUID targetUuid, String targetName) {
+		if (isMigrationInProgress(targetUuid)) {
+			sender.sendRichMessage(error("❌ Người chơi này đang migrate, không thể clear lúc này."));
+			return;
+		}
+
+		Optional<String> oldName = stateRepository.findOldUsername(targetUuid);
+		boolean cleared = stateRepository.clearMigrated(targetUuid);
+		pendingMigrations.remove(targetUuid);
+		reconnectBlockMessages.remove(targetUuid);
+
+		if (cleared) {
+			sender.sendRichMessage(success("✔ Đã clear trạng thái migrate cho ") + accent(targetName)
+				+ (oldName.isPresent() ? muted(" (oldname cũ: " + oldName.get() + ")") : "") + success("."));
+		} else {
+			sender.sendRichMessage(info("ℹ Không có trạng thái migrate đã lưu cho ") + accent(targetName) + info("."));
+		}
+
+		Player targetOnline = Bukkit.getPlayer(targetUuid);
+		if (targetOnline != null && targetOnline.isOnline() && targetOnline != sender) {
+			targetOnline.sendRichMessage(info("ℹ Quản trị viên đã clear trạng thái migrate của bạn. Bạn có thể chạy lại ") + accent("/migrate") + info(" để test."));
+		}
 	}
 
 	private void sendPlayerProgress(Player player, String miniMessage) {
