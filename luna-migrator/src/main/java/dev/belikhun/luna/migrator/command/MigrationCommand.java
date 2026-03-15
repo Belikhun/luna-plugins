@@ -11,13 +11,16 @@ import dev.belikhun.luna.migrator.service.MigrationDataTransferService;
 import dev.belikhun.luna.migrator.service.MigrationStateRepository;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.time.Duration;
@@ -31,7 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public final class MigrationCommand implements BasicCommand {
+	private static final String PERMISSION_USE = "lunamigrator.use";
 	private static final String PERMISSION_MANUAL = "lunamigrator.manual";
+	private static final String PERMISSION_TEST = "lunamigrator.test";
 	private static final long CONFIRM_WINDOW_MILLIS = 60_000L;
 	private static final long OFFLINE_MIGRATION_DELAY_TICKS = 60L;
 	private static final int DEFAULT_DISCONNECT_COUNTDOWN_SECONDS = 5;
@@ -55,6 +60,15 @@ public final class MigrationCommand implements BasicCommand {
 	@Override
 	public void execute(CommandSourceStack source, String[] args) {
 		CommandSender sender = source.getSender();
+		if (!sender.hasPermission(PERMISSION_USE)) {
+			sender.sendRichMessage(error("❌ Bạn không có quyền dùng /migrate."));
+			return;
+		}
+
+		if (args.length > 0 && "test".equalsIgnoreCase(args[0])) {
+			handleTest(sender, args);
+			return;
+		}
 		if (args.length > 0 && "manual".equalsIgnoreCase(args[0])) {
 			handleManual(sender, args);
 			return;
@@ -112,7 +126,7 @@ public final class MigrationCommand implements BasicCommand {
 		}
 
 		String legacyUsername = args[0];
-		if ("manual".equalsIgnoreCase(legacyUsername) || "confirm".equalsIgnoreCase(legacyUsername) || "status".equalsIgnoreCase(legacyUsername)) {
+		if ("manual".equalsIgnoreCase(legacyUsername) || "confirm".equalsIgnoreCase(legacyUsername) || "status".equalsIgnoreCase(legacyUsername) || "test".equalsIgnoreCase(legacyUsername)) {
 			sender.sendRichMessage(error("❌ Thiếu tham số cần thiết."));
 			return;
 		}
@@ -122,10 +136,21 @@ public final class MigrationCommand implements BasicCommand {
 	@Override
 	public Collection<String> suggest(CommandSourceStack source, String[] args) {
 		if (args.length == 0) {
-			return List.of("status", "confirm", "ten_cu", "manual");
+			return List.of("status", "confirm", "test", "ten_cu", "manual");
 		}
 		if (args.length == 1) {
-			return CommandCompletions.filterPrefix(List.of("status", "confirm", "ten_cu", "manual"), args[0]);
+			return CommandCompletions.filterPrefix(List.of("status", "confirm", "test", "ten_cu", "manual"), args[0]);
+		}
+		if (args.length == 2 && "test".equalsIgnoreCase(args[0])) {
+			List<String> players = new ArrayList<>();
+			for (Player online : Bukkit.getOnlinePlayers()) {
+				players.add(online.getName());
+			}
+			players.add("ten_cu");
+			return CommandCompletions.filterPrefix(players, args[1]);
+		}
+		if (args.length == 3 && "test".equalsIgnoreCase(args[0])) {
+			return CommandCompletions.filterPrefix(List.of("ten_cu"), args[2]);
 		}
 		if (args.length == 2 && "manual".equalsIgnoreCase(args[0])) {
 			List<String> players = new ArrayList<>();
@@ -180,6 +205,114 @@ public final class MigrationCommand implements BasicCommand {
 		sender.sendRichMessage(info("ℹ Đã bắt đầu migrate thủ công cho ") + accent(target.getName()) + info("."));
 		target.sendRichMessage(info("ℹ Quản trị viên đã bắt đầu migrate dữ liệu của bạn."));
 		startMigration(target, legacyUsername, sender, false);
+	}
+
+	private void handleTest(CommandSender sender, String[] args) {
+		if (!sender.hasPermission(PERMISSION_TEST) && !sender.hasPermission(PERMISSION_MANUAL)) {
+			sender.sendRichMessage(error("❌ Bạn không có quyền dùng /migrate test."));
+			return;
+		}
+
+		Player targetOnline = null;
+		UUID targetUuid;
+		String targetName;
+		String legacyUsername;
+
+		if (args.length <= 1) {
+			if (!(sender instanceof Player player)) {
+				sender.sendRichMessage(CommandStrings.usage("/migrate", CommandStrings.literal("test"), CommandStrings.required("player", "player"), CommandStrings.required("ten_cu", "text")));
+				return;
+			}
+			targetOnline = player;
+			targetUuid = player.getUniqueId();
+			targetName = player.getName();
+			legacyUsername = player.getName();
+		} else if (args.length == 2) {
+			if (sender instanceof Player player) {
+				targetOnline = player;
+				targetUuid = player.getUniqueId();
+				targetName = player.getName();
+				legacyUsername = args[1];
+			} else {
+				targetOnline = Bukkit.getPlayerExact(args[1]);
+				if (targetOnline != null) {
+					targetUuid = targetOnline.getUniqueId();
+					targetName = targetOnline.getName();
+					legacyUsername = targetOnline.getName();
+				} else {
+					OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(args[1]);
+					targetUuid = offlinePlayer.getUniqueId();
+					targetName = args[1];
+					legacyUsername = args[1];
+				}
+			}
+		} else {
+			targetOnline = Bukkit.getPlayerExact(args[1]);
+			if (targetOnline != null) {
+				targetUuid = targetOnline.getUniqueId();
+				targetName = targetOnline.getName();
+			} else {
+				OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(args[1]);
+				targetUuid = offlinePlayer.getUniqueId();
+				targetName = args[1];
+			}
+			legacyUsername = args[2];
+		}
+
+		if (legacyUsername.length() < 3 || legacyUsername.length() > 16) {
+			sender.sendRichMessage(error("❌ Tên cũ không hợp lệ (3-16 ký tự)."));
+			return;
+		}
+
+		sender.sendRichMessage(success("✔ Kết quả test migrate (không ghi dữ liệu):"));
+		sender.sendRichMessage(info("ℹ Mục tiêu: ") + accent(targetName) + info(" | UUID: ") + accent(targetUuid.toString()));
+		sender.sendRichMessage(info("ℹ Tên cũ kiểm tra: ") + accent(legacyUsername));
+
+		boolean inProgress = isMigrationInProgress(targetUuid);
+		sender.sendRichMessage(info("ℹ Tiến trình đang chạy: ") + accent(inProgress ? "CÓ" : "KHÔNG"));
+
+		Optional<String> migratedOldName = stateRepository.findOldUsername(targetUuid);
+		sender.sendRichMessage(info("ℹ Đã migrate trước đó: ") + accent(migratedOldName.isPresent() ? "CÓ" : "KHÔNG")
+			+ (migratedOldName.isPresent() ? muted(" (tên cũ: " + migratedOldName.get() + ")") : ""));
+
+		boolean eligibleSource = stateRepository.hasEligibleSourceData(legacyUsername);
+		sender.sendRichMessage(info("ℹ Có dữ liệu nguồn hợp lệ: ") + accent(eligibleSource ? "CÓ" : "KHÔNG"));
+
+		Optional<UUID> claimed = stateRepository.findOnlineUuidByOldUsername(legacyUsername);
+		if (claimed.isPresent() && !claimed.get().equals(targetUuid)) {
+			sender.sendRichMessage(error("❌ Tên cũ đang thuộc UUID khác: " + claimed.get()));
+		} else {
+			sender.sendRichMessage(info("ℹ Trạng thái claim tên cũ: ") + accent("HỢP LỆ"));
+		}
+
+		boolean offlineModeRequired = requiresOfflineWorldDataMigration();
+		sender.sendRichMessage(info("ℹ Cần migrate offline (file world): ") + accent(offlineModeRequired ? "CÓ" : "KHÔNG"));
+		if (offlineModeRequired) {
+			sender.sendRichMessage(info("ℹ Chính sách an toàn: ") + accent("ngắt kết nối trước") + info(", chờ ít nhất ") + accent("3 giây") + info(", rồi mới copy file."));
+		}
+
+		if (plugin.getConfig().getBoolean("migration.transfer.migrate-money", true)) {
+			RegisteredServiceProvider<Economy> economyProvider = Bukkit.getServicesManager().getRegistration(Economy.class);
+			sender.sendRichMessage(info("ℹ Vault economy provider: ") + accent(economyProvider != null && economyProvider.getProvider() != null ? "SẴN SÀNG" : "KHÔNG TÌM THẤY"));
+		}
+
+		if (plugin.getConfig().getBoolean("migration.transfer.migrate-huskhomes-homes", true)) {
+			boolean huskHomesEnabled = plugin.getServer().getPluginManager().isPluginEnabled("HuskHomes");
+			sender.sendRichMessage(info("ℹ HuskHomes plugin: ") + accent(huskHomesEnabled ? "SẴN SÀNG" : "CHƯA BẬT"));
+		}
+
+		if (targetOnline != null && targetOnline.isOnline()) {
+			LunaCore.services().pluginMessaging().send(targetOnline, CorePlayerMessageChannels.CHAT_RELAY, writer -> writer.writeUtf("<yellow>ℹ Đây là tin nhắn test channel migrate.</yellow>"));
+			sender.sendRichMessage(info("ℹ Test chat relay: ") + accent("ĐÃ GỬI") + info(" (đến player online)."));
+		} else {
+			sender.sendRichMessage(info("ℹ Test chat relay: ") + accent("BỎ QUA") + info(" (player không online)."));
+		}
+
+		if (eligibleSource && !inProgress && (!claimed.isPresent() || claimed.get().equals(targetUuid))) {
+			sender.sendRichMessage(success("✔ Kết luận: hệ thống sẵn sàng chạy migrate cho tổ hợp test này."));
+		} else {
+			sender.sendRichMessage(error("❌ Kết luận: có điều kiện chưa đạt, xem các dòng cảnh báo ở trên."));
+		}
 	}
 
 	private void prepareAndShowDetails(Player player, String legacyUsername, boolean autoDetected) {

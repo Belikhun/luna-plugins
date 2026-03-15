@@ -9,6 +9,20 @@ commands:
   migrate:
     description: Đánh dấu trạng thái migrate UUID một lần.
     usage: /migrate [tên_cũ]
+permissions:
+  lunamigrator.use:
+    description: Cho phép dùng /migrate và /migrate confirm
+    default: "true"
+  lunamigrator.manual:
+    description: Cho phép dùng /migrate manual
+    default: "op"
+    children:
+      lunamigrator.use: true
+  lunamigrator.test:
+    description: Cho phép dùng /migrate test
+    default: op
+    children:
+      lunamigrator.use: true
 dependencies:
   server:
     LunaCore:
