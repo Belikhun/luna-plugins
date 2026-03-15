@@ -9,6 +9,10 @@ import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.ServerConnection;
+import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
+import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
+import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
@@ -95,6 +99,17 @@ public final class LunaCoreVelocityPlugin {
 		).register(httpServerManager.router());
 
 		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
+		pluginMessagingBus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
+			String message = PluginMessageReader.of(context.payload()).readUtf();
+			if (context.source() instanceof ServerConnection serverConnection) {
+				serverConnection.getPlayer().sendRichMessage(message);
+				return PluginMessageDispatchResult.HANDLED;
+			}
+			if (context.source() instanceof com.velocitypowered.api.proxy.Player player) {
+				player.sendRichMessage(message);
+			}
+			return PluginMessageDispatchResult.HANDLED;
+		});
 		dependencyManager.registerSingleton(ProxyServer.class, proxyServer);
 		dependencyManager.registerSingleton(LunaLogger.class, logger);
 		dependencyManager.registerSingleton(VelocityHttpServerManager.class, httpServerManager);

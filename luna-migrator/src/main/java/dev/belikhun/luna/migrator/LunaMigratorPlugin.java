@@ -1,8 +1,10 @@
 package dev.belikhun.luna.migrator;
 
+import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.migrator.command.MigrationCommand;
 import dev.belikhun.luna.migrator.listener.MigrationJoinAlertListener;
+import dev.belikhun.luna.migrator.listener.MigrationReconnectGuardListener;
 import dev.belikhun.luna.migrator.service.MigrationDataTransferService;
 import dev.belikhun.luna.migrator.service.MigrationStateRepository;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
@@ -22,10 +24,19 @@ public final class LunaMigratorPlugin extends JavaPlugin {
 		stateRepository.ensureSchema();
 		MigrationDataTransferService dataTransferService = new MigrationDataTransferService(this);
 		MigrationCommand migrationCommand = new MigrationCommand(this, stateRepository, dataTransferService);
+		LunaCore.services().pluginMessaging().registerOutgoing(CorePlayerMessageChannels.CHAT_RELAY);
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			commands.registrar().register("migrate", migrationCommand);
 		});
 		getServer().getPluginManager().registerEvents(new MigrationJoinAlertListener(this, stateRepository), this);
+		getServer().getPluginManager().registerEvents(new MigrationReconnectGuardListener(migrationCommand), this);
 		getLogger().info("LunaMigrator đã khởi động.");
+	}
+
+	@Override
+	public void onDisable() {
+		if (getServer().getPluginManager().isPluginEnabled("LunaCore")) {
+			LunaCore.services().pluginMessaging().unregisterOutgoing(CorePlayerMessageChannels.CHAT_RELAY);
+		}
 	}
 }

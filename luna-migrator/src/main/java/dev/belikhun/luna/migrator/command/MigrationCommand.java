@@ -1,6 +1,7 @@
 package dev.belikhun.luna.migrator.command;
 
 import dev.belikhun.luna.core.api.auth.OfflineUuid;
+import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
@@ -32,6 +33,7 @@ import java.util.concurrent.ConcurrentMap;
 public final class MigrationCommand implements BasicCommand {
 	private static final String PERMISSION_MANUAL = "lunamigrator.manual";
 	private static final long CONFIRM_WINDOW_MILLIS = 60_000L;
+	private static final long OFFLINE_MIGRATION_DELAY_TICKS = 60L;
 	private static final int DEFAULT_DISCONNECT_COUNTDOWN_SECONDS = 5;
 
 	private final JavaPlugin plugin;
@@ -39,6 +41,7 @@ public final class MigrationCommand implements BasicCommand {
 	private final MigrationDataTransferService dataTransferService;
 	private final ConcurrentMap<UUID, PendingMigration> pendingMigrations;
 	private final ConcurrentMap<UUID, ActiveMigration> activeMigrations;
+	private final ConcurrentMap<UUID, String> reconnectBlockMessages;
 
 	public MigrationCommand(JavaPlugin plugin, MigrationStateRepository stateRepository, MigrationDataTransferService dataTransferService) {
 		this.plugin = plugin;
@@ -46,6 +49,7 @@ public final class MigrationCommand implements BasicCommand {
 		this.dataTransferService = dataTransferService;
 		this.pendingMigrations = new ConcurrentHashMap<>();
 		this.activeMigrations = new ConcurrentHashMap<>();
+		this.reconnectBlockMessages = new ConcurrentHashMap<>();
 	}
 
 	@Override
@@ -62,7 +66,7 @@ public final class MigrationCommand implements BasicCommand {
 
 		cleanupExpired();
 		if (activeMigrations.containsKey(player.getUniqueId())) {
-			sender.sendRichMessage(info("ℹ Tiến trình migrate đang chạy. Vui lòng chờ hoàn tất."));
+			sender.sendRichMessage(reconnectBlockedMessage(player.getUniqueId()));
 			return;
 		}
 
@@ -266,25 +270,63 @@ public final class MigrationCommand implements BasicCommand {
 	}
 
 	private void startMigration(Player player, String legacyUsername, CommandSender initiator, boolean clearPendingOnFinish) {
+		reconnectBlockMessages.put(player.getUniqueId(), "<yellow>⏳ Đang migrate dữ liệu. Vui lòng thử lại sau vài giây.</yellow>");
+
+		if (requiresOfflineWorldDataMigration()) {
+			activeMigrations.put(player.getUniqueId(), new ActiveMigration(null));
+			sendPlayerProgress(player, info("ℹ Để tránh ghi đè dữ liệu mới, bạn sẽ được ngắt kết nối trước khi migrate file world."));
+			if (initiator != player) {
+				initiator.sendRichMessage(info("ℹ Đang chuyển ") + accent(player.getName()) + info(" sang chế độ migrate an toàn (offline)..."));
+			}
+
+			Bukkit.getScheduler().runTask(plugin, () -> player.kick(net.kyori.adventure.text.Component.text("Đang chuẩn bị migrate dữ liệu an toàn. Vui lòng vào lại sau vài giây.")));
+			Bukkit.getScheduler().runTaskLater(plugin, () -> runOfflineSafeMigration(player.getUniqueId(), player.getName(), legacyUsername, initiator, clearPendingOnFinish), OFFLINE_MIGRATION_DELAY_TICKS);
+			return;
+		}
+
 		BossBar bossBar = Bukkit.createBossBar("Đang chuẩn bị migrate...", BarColor.BLUE, BarStyle.SOLID);
 		bossBar.addPlayer(player);
 		bossBar.setProgress(0D);
 		bossBar.setVisible(true);
 		activeMigrations.put(player.getUniqueId(), new ActiveMigration(bossBar));
 
-		player.sendRichMessage(info("ℹ Đã bắt đầu migrate dữ liệu từ tên cũ ") + accent(legacyUsername) + info("."));
+		sendPlayerProgress(player, info("ℹ Đã bắt đầu migrate dữ liệu từ tên cũ ") + accent(legacyUsername) + info("."));
 		if (initiator != player) {
 			initiator.sendRichMessage(info("ℹ Đang migrate cho ") + accent(player.getName()) + info("..."));
 		}
+
+		runMigrationAsync(player.getUniqueId(), player.getName(), legacyUsername, player, initiator, clearPendingOnFinish);
+	}
+
+	private void runOfflineSafeMigration(UUID playerUuid, String playerName, String legacyUsername, CommandSender initiator, boolean clearPendingOnFinish) {
+		Player stillOnline = Bukkit.getPlayer(playerUuid);
+		if (stillOnline != null && stillOnline.isOnline()) {
+			activeMigrations.remove(playerUuid);
+			reconnectBlockMessages.remove(playerUuid);
+			if (initiator != stillOnline) {
+				initiator.sendRichMessage(error("❌ " + playerName + " vẫn còn online. Không thể migrate file world an toàn."));
+			}
+			stillOnline.sendRichMessage(error("❌ Không thể bắt đầu migrate an toàn vì bạn vẫn đang online."));
+			return;
+		}
+
+		runMigrationAsync(playerUuid, playerName, legacyUsername, null, initiator, clearPendingOnFinish);
+	}
+
+	private void runMigrationAsync(UUID playerUuid, String playerName, String legacyUsername, Player livePlayer, CommandSender initiator, boolean clearPendingOnFinish) {
 
 		Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
 			MigrationDataTransferService.TransferResult transfer;
 			try {
 				transfer = dataTransferService.transfer(
 					legacyUsername,
-					player.getUniqueId(),
-					player.getName(),
-					update -> onProgressUpdate(player, update)
+					playerUuid,
+					playerName,
+					update -> {
+						if (livePlayer != null) {
+							onProgressUpdate(livePlayer, update);
+						}
+					}
 				);
 			} catch (Exception exception) {
 				String message = exception.getMessage();
@@ -295,14 +337,14 @@ public final class MigrationCommand implements BasicCommand {
 			}
 
 			MigrationDataTransferService.TransferResult finalTransfer = transfer;
-			Bukkit.getScheduler().runTask(plugin, () -> finalizeMigration(player, legacyUsername, initiator, clearPendingOnFinish, finalTransfer));
+			Bukkit.getScheduler().runTask(plugin, () -> finalizeMigration(playerUuid, playerName, legacyUsername, initiator, clearPendingOnFinish, finalTransfer));
 		});
 	}
 
 	private void onProgressUpdate(Player player, MigrationDataTransferService.ProgressUpdate update) {
 		Bukkit.getScheduler().runTask(plugin, () -> {
 			ActiveMigration active = activeMigrations.get(player.getUniqueId());
-			if (active == null) {
+			if (active == null || active.bossBar() == null) {
 				return;
 			}
 
@@ -312,53 +354,59 @@ public final class MigrationCommand implements BasicCommand {
 			bar.setColor(BarColor.BLUE);
 			bar.setTitle("⏳ " + update.currentTask() + " • " + String.format(Locale.US, "%.1f", percent * 100D) + "%");
 			if (update.taskCompleted() && player.isOnline()) {
-				player.sendRichMessage(success("✔ Hoàn tất: ") + info(update.currentTask()));
+				reconnectBlockMessages.put(player.getUniqueId(), "<yellow>⏳ Đang migrate dữ liệu: " + update.currentTask() + "</yellow>");
+				sendPlayerProgress(player, success("✔ Hoàn tất: ") + info(update.currentTask()));
 			}
 		});
 	}
 
 	private void finalizeMigration(
-		Player player,
+		UUID playerUuid,
+		String playerName,
 		String legacyUsername,
 		CommandSender initiator,
 		boolean clearPendingOnFinish,
 		MigrationDataTransferService.TransferResult transfer
 	) {
+		Player player = Bukkit.getPlayer(playerUuid);
 		if (clearPendingOnFinish) {
-			pendingMigrations.remove(player.getUniqueId());
+			pendingMigrations.remove(playerUuid);
 		}
 
 		if (!transfer.success()) {
-			removeBossBar(player.getUniqueId());
-			if (player.isOnline()) {
+			removeBossBar(playerUuid);
+			reconnectBlockMessages.remove(playerUuid);
+			if (player != null && player.isOnline()) {
 				player.sendRichMessage(error("❌ Migrate thất bại: " + transfer.message()));
 			}
 			if (initiator != player) {
-				initiator.sendRichMessage(error("❌ Migrate cho " + player.getName() + " thất bại: " + transfer.message()));
+				initiator.sendRichMessage(error("❌ Migrate cho " + playerName + " thất bại: " + transfer.message()));
 			}
 			return;
 		}
 
-		stateRepository.markMigrated(player.getUniqueId(), legacyUsername);
-		if (player.isOnline()) {
-			player.sendRichMessage(success("✔ Migrate dữ liệu hoàn tất cho tên cũ ") + accent(legacyUsername) + success("."));
+		stateRepository.markMigrated(playerUuid, legacyUsername);
+		reconnectBlockMessages.remove(playerUuid);
+		if (player != null && player.isOnline()) {
+			sendPlayerProgress(player, success("✔ Migrate dữ liệu hoàn tất cho tên cũ ") + accent(legacyUsername) + success("."));
 			sendTransferSummary(player, transfer);
 		}
 		if (initiator != player) {
-			initiator.sendRichMessage(success("✔ Đã migrate thành công cho ") + accent(player.getName()) + success("."));
+			initiator.sendRichMessage(success("✔ Đã migrate thành công cho ") + accent(playerName) + success("."));
+			sendTransferSummary(initiator, transfer);
 		}
 
-		if (transfer.kickAfterSuccess() && player.isOnline()) {
+		if (player != null && transfer.kickAfterSuccess() && player.isOnline()) {
 			int countdown = Math.max(1, plugin.getConfig().getInt("migration.disconnect-countdown-seconds", DEFAULT_DISCONNECT_COUNTDOWN_SECONDS));
 			startDisconnectCountdown(player, countdown);
 		} else {
-			removeBossBar(player.getUniqueId());
+			removeBossBar(playerUuid);
 		}
 	}
 
 	private void startDisconnectCountdown(Player player, int countdownSeconds) {
 		ActiveMigration active = activeMigrations.get(player.getUniqueId());
-		if (active == null) {
+		if (active == null || active.bossBar() == null) {
 			return;
 		}
 
@@ -397,7 +445,31 @@ public final class MigrationCommand implements BasicCommand {
 			return;
 		}
 
-		removed.bossBar().removeAll();
+		if (removed.bossBar() != null) {
+			removed.bossBar().removeAll();
+		}
+	}
+
+	private boolean requiresOfflineWorldDataMigration() {
+		if (!plugin.getConfig().getBoolean("migration.transfer.enabled", true)) {
+			return false;
+		}
+		return plugin.getConfig().getBoolean("migration.transfer.migrate-playerdata", true)
+			|| plugin.getConfig().getBoolean("migration.transfer.migrate-stats", true)
+			|| plugin.getConfig().getBoolean("migration.transfer.migrate-advancements", true);
+	}
+
+	private void sendPlayerProgress(Player player, String miniMessage) {
+		player.sendRichMessage(miniMessage);
+		LunaCore.services().pluginMessaging().send(player, CorePlayerMessageChannels.CHAT_RELAY, writer -> writer.writeUtf(miniMessage));
+	}
+
+	public boolean isMigrationInProgress(UUID playerUuid) {
+		return activeMigrations.containsKey(playerUuid);
+	}
+
+	public String reconnectBlockedMessage(UUID playerUuid) {
+		return reconnectBlockMessages.getOrDefault(playerUuid, "<yellow>⏳ Đang migrate dữ liệu. Vui lòng thử lại sau vài giây.</yellow>");
 	}
 
 	private void sendTransferSummary(CommandSender receiver, MigrationDataTransferService.TransferResult transfer) {
