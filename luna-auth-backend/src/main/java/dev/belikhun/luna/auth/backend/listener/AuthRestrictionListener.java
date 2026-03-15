@@ -40,7 +40,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.List;
 
@@ -62,7 +62,7 @@ public final class AuthRestrictionListener implements Listener {
 	private final Set<String> allowedCommands;
 	private final BackendAuthSpawnService spawnService;
 	private final Consumer<Player> syncStateRequestSender;
-	private final BiConsumer<Player, String> probePreferenceSender;
+	private final BiFunction<Player, String, Boolean> probePreferenceSender;
 	private final LunaLogger logger;
 	private final boolean authFlowLogsEnabled;
 	private final boolean modeSelectorGuiEnabled;
@@ -85,7 +85,7 @@ public final class AuthRestrictionListener implements Listener {
 		PromptTemplate pendingPrompt,
 		Set<String> allowedCommands,
 		Consumer<Player> syncStateRequestSender,
-		BiConsumer<Player, String> probePreferenceSender,
+		BiFunction<Player, String, Boolean> probePreferenceSender,
 		boolean modeSelectorGuiEnabled,
 		LunaLogger logger,
 		boolean authFlowLogsEnabled
@@ -172,7 +172,7 @@ public final class AuthRestrictionListener implements Listener {
 		flow("Quit clear state player=" + event.getPlayer().getName() + " uuid=" + event.getPlayer().getUniqueId());
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	@EventHandler(priority = EventPriority.HIGHEST)
 	public void onModeSelectorClick(InventoryClickEvent event) {
 		if (!(event.getWhoClicked() instanceof Player player)) {
 			return;
@@ -182,13 +182,16 @@ public final class AuthRestrictionListener implements Listener {
 		}
 
 		event.setCancelled(true);
+		if (event.getClickedInventory() == null || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
+			return;
+		}
 
 		if (stateRegistry.isAuthenticated(player.getUniqueId())) {
 			player.closeInventory();
 			return;
 		}
 
-		if (event.getRawSlot() == SLOT_REMEMBER) {
+		if (event.getSlot() == SLOT_REMEMBER) {
 			boolean next = !modeRememberSelection.getOrDefault(player.getUniqueId(), false);
 			modeRememberSelection.put(player.getUniqueId(), next);
 			event.getView().getTopInventory().setItem(SLOT_REMEMBER, rememberToggleItem(next));
@@ -198,10 +201,17 @@ public final class AuthRestrictionListener implements Listener {
 			return;
 		}
 
-		if (event.getRawSlot() == SLOT_PREMIUM) {
-			modeSelectedPlayers.add(player.getUniqueId());
+		if (event.getSlot() == SLOT_PREMIUM) {
 			boolean remember = modeRememberSelection.getOrDefault(player.getUniqueId(), false);
-			probePreferenceSender.accept(player, remember ? "online_forever" : "online");
+			String selectedMode = remember ? "online_forever" : "online";
+			boolean sent = probePreferenceSender.apply(player, selectedMode);
+			if (!sent) {
+				modeSelectedPlayers.remove(player.getUniqueId());
+				player.sendActionBar(miniMessage.deserialize("<red>Không gửi được lựa chọn. Vui lòng thử lại.</red>"));
+				flow("ModeSelectorChoiceSendFailed player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
+				return;
+			}
+			modeSelectedPlayers.add(player.getUniqueId());
 			player.sendRichMessage(remember
 				? "<yellow>Đã chọn Premium (ghi nhớ vĩnh viễn). Bạn sẽ được kết nối lại để xác thực online.</yellow>"
 				: "<yellow>Đã chọn Premium (24h). Bạn sẽ được kết nối lại để xác thực online.</yellow>");
@@ -210,10 +220,17 @@ public final class AuthRestrictionListener implements Listener {
 			return;
 		}
 
-		if (event.getRawSlot() == SLOT_OFFLINE) {
-			modeSelectedPlayers.add(player.getUniqueId());
+		if (event.getSlot() == SLOT_OFFLINE) {
 			boolean remember = modeRememberSelection.getOrDefault(player.getUniqueId(), false);
-			probePreferenceSender.accept(player, remember ? "offline_forever" : "offline");
+			String selectedMode = remember ? "offline_forever" : "offline";
+			boolean sent = probePreferenceSender.apply(player, selectedMode);
+			if (!sent) {
+				modeSelectedPlayers.remove(player.getUniqueId());
+				player.sendActionBar(miniMessage.deserialize("<red>Không gửi được lựa chọn. Vui lòng thử lại.</red>"));
+				flow("ModeSelectorChoiceSendFailed player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
+				return;
+			}
+			modeSelectedPlayers.add(player.getUniqueId());
 			player.sendRichMessage(remember
 				? "<green>Đã chọn Offline (ghi nhớ vĩnh viễn). Tiếp tục đăng nhập bằng mật khẩu server.</green>"
 				: "<green>Đã chọn Offline (24h). Tiếp tục đăng nhập bằng mật khẩu server.</green>");
@@ -222,7 +239,7 @@ public final class AuthRestrictionListener implements Listener {
 		}
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	@EventHandler(priority = EventPriority.HIGHEST)
 	public void onModeSelectorDrag(InventoryDragEvent event) {
 		if (!(event.getView().getTopInventory().getHolder() instanceof ModeSelectorHolder)) {
 			return;

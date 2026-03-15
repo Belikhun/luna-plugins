@@ -283,22 +283,26 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	}
 
 	private void requestStateSync(Player player) {
-		LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
+		boolean sent = LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
 			writer.writeUtf("sync_state");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeUtf(player.getName());
 		});
-		flow("TX command_request action=sync_state player=" + player.getName() + " uuid=" + player.getUniqueId() + " at=" + Instant.now());
+		flow("TX command_request action=sync_state player=" + player.getName() + " uuid=" + player.getUniqueId() + " sent=" + sent + " at=" + Instant.now());
 	}
 
-	private void sendProbePreference(Player player, String mode) {
-		LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
+	private boolean sendProbePreference(Player player, String mode) {
+		boolean sent = LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
 			writer.writeUtf("set_probe_preference");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeUtf(player.getName());
 			writer.writeUtf(mode);
 		});
-		flow("TX command_request action=set_probe_preference player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + mode + " at=" + Instant.now());
+		flow("TX command_request action=set_probe_preference player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + mode + " sent=" + sent + " at=" + Instant.now());
+		if (!sent) {
+			player.sendRichMessage("<red>❌ Không thể gửi lựa chọn xác thực lên proxy. Vui lòng thử lại sau vài giây.</red>");
+		}
+		return sent;
 	}
 
 	private void flow(String message) {

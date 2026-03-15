@@ -8,7 +8,6 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Locale;
-import java.util.Map;
 
 public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private final JavaPlugin plugin;
@@ -31,7 +30,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 
 	@Override
 	public String getVersion() {
-		return plugin.getDescription().getVersion();
+		return plugin.getPluginMeta().getVersion();
 	}
 
 	@Override
