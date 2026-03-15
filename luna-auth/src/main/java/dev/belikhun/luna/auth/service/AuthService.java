@@ -450,7 +450,7 @@ public final class AuthService {
 				false,
 				true,
 				false,
-				"Bạn đang đăng nhập bằng phiên Mojang hợp lệ nên đã được nhận diện bởi <color:#39d98a><b>Luna Quick Auth™</b></color>. Tuy nhiên tài khoản này chưa có mật khẩu, hãy đặt mật khẩu bằng <color:#f5f7fa><b>/register <mật_khẩu> <nhập_lại></b></color> để bảo vệ tài khoản khi client ở chế độ offline."
+				"Bạn đang đăng nhập bằng phiên Mojang hợp lệ nên đã được nhận diện bởi <color:#00c2ff><b>Luna QuikAuth™</b></color>. Tuy nhiên tài khoản này chưa có mật khẩu, hãy đặt mật khẩu bằng <color:#f5f7fa><b>/register <mật_khẩu> <nhập_lại></b></color> để bảo vệ tài khoản khi client ở chế độ offline."
 			);
 		}
 

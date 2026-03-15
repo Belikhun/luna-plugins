@@ -21,6 +21,19 @@ prompt:
   authenticated:
     actionbar: "<green>✔ Đã xác thực thành công</green>"
     chat: "<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>"
+    by-method:
+      quick_login:
+        actionbar: "<green>✔ <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực tức thì</green>"
+        chat: "<green>✔ Bạn đã được <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực bằng phiên Premium hợp lệ.</green>"
+      session_resume:
+        actionbar: "<green>✔ Phiên đăng nhập đã khôi phục</green>"
+        chat: "<green>✔ Phiên trước vẫn còn hiệu lực, không cần nhập lại mật khẩu.</green>"
+      password_login:
+        actionbar: "<green>✔ Đăng nhập mật khẩu thành công</green>"
+        chat: "<green>✔ Bạn đã xác thực bằng mật khẩu thành công.</green>"
+      register_password:
+        actionbar: "<green>✔ Tạo tài khoản thành công</green>"
+        chat: "<green>✔ Tài khoản mới đã được tạo và xác thực.</green>"
 
 allowedCommands:
   - login

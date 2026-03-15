@@ -12,6 +12,7 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
@@ -68,6 +69,7 @@ public final class LunaMessengerVelocityPlugin {
 	private VelocityMessengerStateStore stateStore;
 	private DiscordAccountLinkService discordAccountLinkService;
 	private DiscordCommandRegistry discordCommandRegistry;
+	private BackendStatusView backendStatusView;
 
 	@Inject
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -82,6 +84,7 @@ public final class LunaMessengerVelocityPlugin {
 		ensureDefaults();
 		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
 		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
+		backendStatusView = LunaCoreVelocity.services().backendStatusView();
 		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
@@ -254,9 +257,11 @@ public final class LunaMessengerVelocityPlugin {
 		long uptimeSeconds = uptimeMs / 1000L;
 		int playerCount = proxyServer.getPlayerCount();
 		int totalServers = proxyServer.getAllServers().size();
-		int onlineServers = (int) proxyServer.getAllServers().stream()
-			.filter(server -> !server.getPlayersConnected().isEmpty())
-			.count();
+		int onlineServers = backendStatusView == null
+			? 0
+			: (int) backendStatusView.snapshot().values().stream()
+				.filter(status -> status.online())
+				.count();
 
 		values.put("playerlist_count", Integer.toString(playerCount));
 		values.put("player_count", Integer.toString(playerCount));

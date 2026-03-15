@@ -148,9 +148,10 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			}
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String action = reader.readUtf();
-			if (!"auth_result".equals(action)) {
+			if (!"auth_result".equals(action) && !"auth_result_v2".equals(action)) {
 				return PluginMessageDispatchResult.HANDLED;
 			}
+			boolean v2Payload = "auth_result_v2".equals(action);
 
 			UUID playerUuid = reader.readUuid();
 			boolean success = reader.readBoolean();
@@ -158,10 +159,11 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			boolean needsRegister = reader.readBoolean();
 			boolean premiumNameCandidate = reader.readBoolean();
 			boolean hasModePreference = reader.readBoolean();
+			String authMethod = v2Payload ? reader.readUtf() : "default";
 			String message = reader.readUtf();
 			flow("RX command_response action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId()
 				+ " payloadUuid=" + playerUuid + " success=" + success + " authenticated=" + authenticated
-				+ " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " message=" + message);
+				+ " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " authMethod=" + authMethod + " message=" + message);
 			if (!source.getUniqueId().equals(playerUuid)) {
 				flow("Ignore command_response due to UUID mismatch source=" + source.getUniqueId() + " payload=" + playerUuid);
 				return PluginMessageDispatchResult.HANDLED;
@@ -179,7 +181,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				restrictionListener.hidePrompt(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 				if (!wasAuthenticated) {
-					sendAuthenticatedFeedback(source);
+					sendAuthenticatedFeedback(source, authMethod);
 				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
@@ -246,11 +248,43 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	}
 
 	private void sendAuthenticatedFeedback(Player player) {
-		String chat = getConfig().getString("prompt.authenticated.chat", "<green>✔ Bạn đã xác thực thành công.</green>");
-		String actionbar = getConfig().getString("prompt.authenticated.actionbar", "<green>✔ Đã xác thực</green>");
-		flow("SendAuthenticatedFeedback player=" + player.getName() + " uuid=" + player.getUniqueId());
+		sendAuthenticatedFeedback(player, "default");
+	}
+
+	private void sendAuthenticatedFeedback(Player player, String authMethod) {
+		String normalizedMethod = normalizeAuthMethod(authMethod);
+		String methodBasePath = "prompt.authenticated.by-method." + normalizedMethod;
+		String chat = getConfig().getString(methodBasePath + ".chat");
+		if (chat == null || chat.isBlank()) {
+			chat = getConfig().getString("prompt.authenticated.chat", "<green>✔ Bạn đã xác thực thành công.</green>");
+		}
+		String actionbar = getConfig().getString(methodBasePath + ".actionbar");
+		if (actionbar == null || actionbar.isBlank()) {
+			actionbar = getConfig().getString("prompt.authenticated.actionbar", "<green>✔ Đã xác thực</green>");
+		}
+		flow("SendAuthenticatedFeedback player=" + player.getName() + " uuid=" + player.getUniqueId() + " authMethod=" + normalizedMethod);
 		player.sendRichMessage(chat);
 		player.sendActionBar(MiniMessage.miniMessage().deserialize(actionbar));
+	}
+
+	private String normalizeAuthMethod(String authMethod) {
+		if (authMethod == null || authMethod.isBlank()) {
+			return "default";
+		}
+		String normalized = authMethod.trim().toLowerCase(Locale.ROOT);
+		if ("quick-login".equals(normalized) || "quickauth".equals(normalized)) {
+			return "quick_login";
+		}
+		if ("session-resume".equals(normalized) || "session_resume".equals(normalized)) {
+			return "session_resume";
+		}
+		if ("login".equals(normalized) || "password-login".equals(normalized)) {
+			return "password_login";
+		}
+		if ("register".equals(normalized) || "register-password".equals(normalized)) {
+			return "register_password";
+		}
+		return normalized;
 	}
 
 	private void requestStateSync(Player player) {

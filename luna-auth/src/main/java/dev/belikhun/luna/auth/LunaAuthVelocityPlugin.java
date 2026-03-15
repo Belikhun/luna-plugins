@@ -96,6 +96,7 @@ public final class LunaAuthVelocityPlugin {
 	private MojangPremiumCheckService mojangPremiumCheckService;
 	private final Set<InetSocketAddress> verifiedOnlineSessions;
 	private final ConcurrentMap<UUID, String> pendingBackendAuthMessages;
+	private final ConcurrentMap<UUID, String> pendingBackendAuthMethods;
 	private final Set<UUID> backendSyncRetryInFlight;
 	private final ConcurrentMap<String, Long> mixedModeProbeFallbackUntil;
 	private final ConcurrentMap<String, Long> mixedModeManualProbeUntil;
@@ -110,6 +111,7 @@ public final class LunaAuthVelocityPlugin {
 		this.dataDirectory = dataDirectory;
 		this.verifiedOnlineSessions = ConcurrentHashMap.newKeySet();
 		this.pendingBackendAuthMessages = new ConcurrentHashMap<>();
+		this.pendingBackendAuthMethods = new ConcurrentHashMap<>();
 		this.backendSyncRetryInFlight = ConcurrentHashMap.newKeySet();
 		this.mixedModeProbeFallbackUntil = new ConcurrentHashMap<>();
 		this.mixedModeManualProbeUntil = new ConcurrentHashMap<>();
@@ -228,7 +230,7 @@ public final class LunaAuthVelocityPlugin {
 			}
 			flow("Xử lý command_request xong action=" + action + " player=" + username + " success=" + result.success());
 			syncAuthState(player);
-			sendCommandResponse(player, result.success(), result.message());
+			sendCommandResponse(player, result.success(), result.message(), authMethodForCommandAction(action, result.success()));
 			if ("logout".equals(action) && result.success()) {
 				player.disconnect(Component.text("Bạn đã đăng xuất phiên hiện tại."));
 			}
@@ -434,8 +436,10 @@ public final class LunaAuthVelocityPlugin {
 				player.sendRichMessage(decision.message());
 			}
 
-			if (!sendAuthenticatedBackendNotice(player, decision.message())) {
+			String authMethod = authMethodForJoinDecisionMessage(decision.message());
+			if (!sendAuthenticatedBackendNotice(player, decision.message(), authMethod)) {
 				pendingBackendAuthMessages.put(player.getUniqueId(), decision.message());
+				pendingBackendAuthMethods.put(player.getUniqueId(), authMethod);
 			}
 			return;
 		}
@@ -460,11 +464,13 @@ public final class LunaAuthVelocityPlugin {
 		UUID playerUuid = event.getPlayer().getUniqueId();
 		boolean authStateSent = syncAuthState(event.getPlayer(), event.getServer());
 		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
+		String pendingMethod = pendingBackendAuthMethods.getOrDefault(playerUuid, "default");
 		boolean authResultSent = true;
 		if (pendingMessage != null) {
-			authResultSent = sendAuthenticatedBackendNotice(event.getPlayer(), event.getServer(), pendingMessage);
+			authResultSent = sendAuthenticatedBackendNotice(event.getPlayer(), event.getServer(), pendingMessage, pendingMethod);
 			if (authResultSent) {
 				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
+				pendingBackendAuthMethods.remove(playerUuid, pendingMethod);
 			}
 		}
 
@@ -484,6 +490,7 @@ public final class LunaAuthVelocityPlugin {
 		mixedModeProbeFallbackUntil.remove(mixedModeProbeKey(event.getPlayer().getUsername(), event.getPlayer().getRemoteAddress()));
 		mixedModeManualProbeUntil.remove(mixedModeProbeKey(event.getPlayer().getUsername(), event.getPlayer().getRemoteAddress()));
 		pendingBackendAuthMessages.remove(event.getPlayer().getUniqueId());
+		pendingBackendAuthMethods.remove(event.getPlayer().getUniqueId());
 		backendSyncRetryInFlight.remove(event.getPlayer().getUniqueId());
 		authService.onDisconnect(event.getPlayer().getUniqueId());
 	}
@@ -588,7 +595,7 @@ public final class LunaAuthVelocityPlugin {
 		return sent;
 	}
 
-	private void sendCommandResponse(Player player, boolean success, String message) {
+	private void sendCommandResponse(Player player, boolean success, String message, String authMethod) {
 		if (!isReady()) {
 			return;
 		}
@@ -599,20 +606,21 @@ public final class LunaAuthVelocityPlugin {
 
 		player.getCurrentServer().ifPresent(connection -> {
 			boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
-			writer.writeUtf("auth_result");
+			writer.writeUtf("auth_result_v2");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(success);
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
 			writer.writeBoolean(premiumNameCandidate);
 			writer.writeBoolean(hasModePreference);
+			writer.writeUtf(authMethod);
 			writer.writeUtf(message);
 			});
-			flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+			flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " authMethod=" + authMethod + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
 		});
 	}
 
-	private boolean sendAuthenticatedBackendNotice(Player player, String message) {
+	private boolean sendAuthenticatedBackendNotice(Player player, String message, String authMethod) {
 		if (!isReady()) {
 			return false;
 		}
@@ -620,40 +628,42 @@ public final class LunaAuthVelocityPlugin {
 		if (connectionOptional.isEmpty()) {
 			return false;
 		}
-		return sendAuthenticatedBackendNotice(player, connectionOptional.get(), message);
+		return sendAuthenticatedBackendNotice(player, connectionOptional.get(), message, authMethod);
  	}
 
-	private boolean sendAuthenticatedBackendNotice(Player player, ServerConnection connection, String message) {
+	private boolean sendAuthenticatedBackendNotice(Player player, ServerConnection connection, String message, String authMethod) {
 		boolean premiumNameCandidate = isPremiumNameCandidate(player);
 		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 		boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
-			writer.writeUtf("auth_result");
+			writer.writeUtf("auth_result_v2");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(true);
 			writer.writeBoolean(true);
 			writer.writeBoolean(false);
 			writer.writeBoolean(premiumNameCandidate);
 			writer.writeBoolean(hasModePreference);
+			writer.writeUtf(authMethod);
 			writer.writeUtf(message);
 		});
-		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+		flow("TX command_response(auto-auth) player=" + player.getUsername() + " authMethod=" + authMethod + " message=" + message + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 
-	private boolean sendAuthenticatedBackendNotice(Player player, RegisteredServer server, String message) {
+	private boolean sendAuthenticatedBackendNotice(Player player, RegisteredServer server, String message, String authMethod) {
 		boolean premiumNameCandidate = isPremiumNameCandidate(player);
 		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 		boolean sent = pluginMessagingBus.send(server, AuthChannels.COMMAND_RESPONSE, writer -> {
-			writer.writeUtf("auth_result");
+			writer.writeUtf("auth_result_v2");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(true);
 			writer.writeBoolean(true);
 			writer.writeBoolean(false);
 			writer.writeBoolean(premiumNameCandidate);
 			writer.writeBoolean(hasModePreference);
+			writer.writeUtf(authMethod);
 			writer.writeUtf(message);
 		});
-		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + server.getServerInfo().getName() + " sent=" + sent);
+		flow("TX command_response(auto-auth) player=" + player.getUsername() + " authMethod=" + authMethod + " message=" + message + " server=" + server.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 
@@ -696,11 +706,13 @@ public final class LunaAuthVelocityPlugin {
 		boolean stateSent = sendAuthState(connection, player, authenticated);
 
 		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
+		String pendingMethod = pendingBackendAuthMethods.getOrDefault(playerUuid, "default");
 		boolean authResultSent = true;
 		if (authenticated && pendingMessage != null) {
-			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage);
+			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage, pendingMethod);
 			if (authResultSent) {
 				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
+				pendingBackendAuthMethods.remove(playerUuid, pendingMethod);
 			}
 		}
 
@@ -723,6 +735,35 @@ public final class LunaAuthVelocityPlugin {
 		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
 			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
 			.schedule();
+	}
+
+	private String authMethodForJoinDecisionMessage(String message) {
+		if (message == null) {
+			return "default";
+		}
+		if (message.contains("Đăng nhập nhanh")) {
+			return "quick_login";
+		}
+		if (message.contains("khôi phục phiên")) {
+			return "session_resume";
+		}
+		return "default";
+	}
+
+	private String authMethodForCommandAction(String action, boolean success) {
+		if (!success) {
+			return "default";
+		}
+		if ("login".equals(action)) {
+			return "password_login";
+		}
+		if ("register".equals(action)) {
+			return "register_password";
+		}
+		if ("logout".equals(action)) {
+			return "logout";
+		}
+		return "default";
 	}
 
 	private boolean needsRegister(UUID playerUuid) {
