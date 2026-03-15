@@ -481,14 +481,14 @@ public final class AuthRestrictionListener implements Listener {
 			return;
 		}
 
-			if (hasModePreference) {
-				modeSelectedPlayers.add(playerUuid);
-				if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
-					player.closeInventory();
-				}
-				flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=true -> skip selector");
-				return;
+		if (hasModePreference) {
+			modeSelectedPlayers.add(playerUuid);
+			if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
+				player.closeInventory();
 			}
+			flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=true -> skip selector");
+			return;
+		}
 
 		if (stateRegistry.isAuthenticated(playerUuid)) {
 			return;
@@ -584,10 +584,10 @@ public final class AuthRestrictionListener implements Listener {
 	private ItemStack selectorItem(Material material, String name, List<String> loreLines) {
 		ItemStack stack = new ItemStack(material);
 		ItemMeta meta = stack.getItemMeta();
-		meta.displayName(miniMessage.deserialize(name));
+		meta.displayName(miniMessage.deserialize("<!i>" + name));
 		List<Component> lore = new java.util.ArrayList<>();
 		for (String line : loreLines) {
-			lore.add(miniMessage.deserialize(line));
+			lore.add(miniMessage.deserialize("<!i>" + line));
 		}
 		meta.lore(lore);
 		stack.setItemMeta(meta);

@@ -208,7 +208,7 @@ public final class LunaAuthVelocityPlugin {
 			if ("set_probe_preference".equals(action)) {
 				String mode = reader.readUtf();
 				if (applyMixedModePreference(player, mode)) {
-					if ("online".equalsIgnoreCase(mode)) {
+					if ("online".equalsIgnoreCase(mode) || "online_forever".equalsIgnoreCase(mode)) {
 						player.disconnect(Component.text("Đã ghi nhận chế độ Premium. Vui lòng kết nối lại để xác thực online."));
 					}
 				}
