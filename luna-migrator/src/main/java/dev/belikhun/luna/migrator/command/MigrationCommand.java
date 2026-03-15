@@ -225,20 +225,20 @@ public final class MigrationCommand implements BasicCommand {
 		UUID currentUuid = player.getUniqueId();
 		long remainMs = Math.max(1000L, pendingMigrations.get(player.getUniqueId()).expiresAtEpochMillis() - System.currentTimeMillis());
 
-		player.sendRichMessage(success("✔ Đã phát hiện dữ liệu cũ sẵn sàng migrate.")
-			+ (autoDetected ? muted(" (tự động theo tên hiện tại)") : ""));
-		player.sendRichMessage(info("ℹ Migrate sẽ chuyển dữ liệu từ UUID cũ sang UUID hiện tại của bạn."));
-		player.sendRichMessage(info("ℹ UUID cũ: ") + accent(oldUuid.toString()));
-		player.sendRichMessage(info("ℹ UUID hiện tại: ") + accent(currentUuid.toString()));
-		player.sendRichMessage(info("ℹ Dữ liệu sẽ được chuyển:"));
+		player.sendRichMessage(promptBase("✔ Đã phát hiện dữ liệu cũ sẵn sàng migrate.")
+			+ (autoDetected ? promptBase(" (tự động theo tên hiện tại)") : ""));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Tên cũ") + promptBase(": ") + promptValue(legacyUsername));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("UUID cũ") + promptBase(": ") + promptValue(oldUuid.toString()));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("UUID hiện tại") + promptBase(": ") + promptValue(currentUuid.toString()));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Hạng mục sẽ chuyển") + promptBase(":"));
 		for (String line : includedDataLines()) {
-			player.sendRichMessage(muted("• ") + info(line));
+			player.sendRichMessage(promptBase("• ") + promptKeyword(line));
 		}
-		player.sendRichMessage(info("ℹ Dùng ") + accent("/migrate confirm") + info(" để bắt đầu tiến trình migrate."));
-		player.sendRichMessage(info("ℹ Xác nhận còn hiệu lực trong ") + accent(Formatters.duration(Duration.ofMillis(remainMs))) + info("."));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Thực hiện ngay") + promptBase(": ") + promptAction("/migrate confirm"));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Xác nhận còn hiệu lực") + promptBase(": ") + promptValue(Formatters.duration(Duration.ofMillis(remainMs))));
 		if (plugin.getConfig().getBoolean("migration.transfer.kick-after-success", true)) {
 			int countdown = Math.max(1, plugin.getConfig().getInt("migration.disconnect-countdown-seconds", DEFAULT_DISCONNECT_COUNTDOWN_SECONDS));
-			player.sendRichMessage(muted("ℹ Sau khi hoàn tất, bạn sẽ bị ngắt kết nối sau ") + accent(String.valueOf(countdown)) + muted(" giây."));
+			player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Lưu ý") + promptBase(": sau khi hoàn tất, bạn sẽ bị ngắt kết nối sau ") + promptValue(countdown + " giây") + promptBase("."));
 		}
 	}
 
@@ -455,5 +455,21 @@ public final class MigrationCommand implements BasicCommand {
 
 	private String accent(String text) {
 		return "<color:" + LunaPalette.PRIMARY_300 + ">" + text + "</color>";
+	}
+
+	private String promptBase(String text) {
+		return "<color:" + LunaPalette.NEUTRAL_50 + ">" + text + "</color>";
+	}
+
+	private String promptKeyword(String text) {
+		return "<color:" + LunaPalette.INFO_300 + "><b>" + text + "</b></color>";
+	}
+
+	private String promptValue(String text) {
+		return "<color:" + LunaPalette.PRIMARY_300 + "><b>" + text + "</b></color>";
+	}
+
+	private String promptAction(String text) {
+		return "<color:" + LunaPalette.SUCCESS_500 + "><b><u>" + text + "</u></b></color>";
 	}
 }
