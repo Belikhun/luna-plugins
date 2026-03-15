@@ -43,11 +43,17 @@ import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorVali
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidator;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 
 @Plugin(
 	id = "lunacore",
@@ -86,13 +92,15 @@ public final class LunaCoreVelocityPlugin {
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
 		Path configPath = dataDirectory.resolve("config.yml");
+		Path serversConfigPath = dataDirectory.resolve("servers.yml");
 		Map<String, Object> rootConfig = LunaYamlConfig.loadMap(configPath);
+		Map<String, Object> selectorRootConfig = LunaYamlConfig.loadMap(serversConfigPath);
 		Map<String, Object> loggingConfig = ConfigValues.map(rootConfig, "logging");
 		Map<String, Object> pluginMessagingConfig = ConfigValues.map(loggingConfig, "pluginMessaging");
 		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
 		Map<String, Object> databaseConfig = ConfigValues.map(rootConfig, "database");
-		serverSelectorConfig = VelocityServerSelectorConfig.from(rootConfig);
-		runSelectorValidation(rootConfig, serverSelectorConfig);
+		serverSelectorConfig = VelocityServerSelectorConfig.from(selectorRootConfig);
+		runSelectorValidation(selectorRootConfig, serverSelectorConfig);
 		boolean pluginMessagingLogsEnabled = ConfigValues.booleanValue(pluginMessagingConfig, "enabled", false);
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
@@ -189,11 +197,67 @@ public final class LunaCoreVelocityPlugin {
 
 	private void ensureDefaults() {
 		Path config = dataDirectory.resolve("config.yml");
+		Path servers = dataDirectory.resolve("servers.yml");
 		try {
 			LunaYamlConfig.ensureFile(config, () -> getClass().getClassLoader().getResourceAsStream("config.yml"));
-			logger.audit("Đã sẵn sàng tệp cấu hình: " + config);
+			boolean migrated = migrateServerSelectorConfig(config, servers);
+			if (!migrated && !Files.exists(servers)) {
+				LunaYamlConfig.ensureFile(servers, () -> getClass().getClassLoader().getResourceAsStream("servers.yml"));
+			}
+			logger.audit("Đã sẵn sàng tệp cấu hình: " + config + ", " + servers);
 		} catch (RuntimeException exception) {
 			logger.error("Không thể khởi tạo config.yml mặc định cho LunaCore Velocity.", exception);
+		}
+	}
+
+	private boolean migrateServerSelectorConfig(Path configPath, Path serversPath) {
+		Map<String, Object> rootConfig = LunaYamlConfig.loadMap(configPath);
+		Map<String, Object> serversConfig = new LinkedHashMap<>(LunaYamlConfig.loadMap(serversPath));
+
+		Map<String, Object> legacySelector = ConfigValues.map(rootConfig, "server-selector");
+		Map<String, Object> currentSelector = ConfigValues.map(serversConfig, "server-selector");
+		if (legacySelector.isEmpty() || !currentSelector.isEmpty()) {
+			return false;
+		}
+
+		serversConfig.put("server-selector", deepCopy(legacySelector));
+		dumpYamlMap(serversPath, serversConfig);
+		logger.success("Đã migrate server-selector từ config.yml sang servers.yml.");
+		return true;
+	}
+
+	private Object deepCopy(Object value) {
+		if (value instanceof Map<?, ?> map) {
+			Map<String, Object> copied = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				copied.put(String.valueOf(entry.getKey()), deepCopy(entry.getValue()));
+			}
+			return copied;
+		}
+		if (value instanceof List<?> list) {
+			List<Object> copied = new ArrayList<>();
+			for (Object item : list) {
+				copied.add(deepCopy(item));
+			}
+			return copied;
+		}
+		return value;
+	}
+
+	private void dumpYamlMap(Path outputPath, Map<String, Object> data) {
+		try {
+			Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+			Object yaml = yamlClass.getConstructor().newInstance();
+			Path parent = outputPath.getParent();
+			if (parent != null) {
+				Files.createDirectories(parent);
+			}
+
+			try (Writer writer = Files.newBufferedWriter(outputPath, StandardCharsets.UTF_8)) {
+				yamlClass.getMethod("dump", Object.class, Writer.class).invoke(yaml, data, writer);
+			}
+		} catch (Exception exception) {
+			throw new IllegalStateException("Không thể ghi file YAML: " + outputPath, exception);
 		}
 	}
 

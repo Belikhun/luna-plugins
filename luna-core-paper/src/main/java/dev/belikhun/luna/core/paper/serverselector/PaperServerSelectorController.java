@@ -21,10 +21,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Locale;
 
 public final class PaperServerSelectorController implements Listener {
 	private static final int GUI_SIZE = 54;
@@ -81,23 +81,23 @@ public final class PaperServerSelectorController implements Listener {
 
 	public void open(Player player, int page) {
 		SelectorPayload payload = payloadByPlayer.get(player.getUniqueId());
-		List<BackendServerStatus> statuses = sortedStatuses(payload);
-		int maxPage = Math.max(0, (statuses.size() - 1) / PAGE_SIZE);
+		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
+		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 		int currentPage = Math.max(0, Math.min(page, maxPage));
 		openPages.put(player.getUniqueId(), currentPage);
 
-		String title = payload == null ? "Danh Sách Máy Chủ" : payload.templateName();
-		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(title));
+		String title = payload == null ? "Danh Sách Máy Chủ" : payload.guiTitle();
+		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
 		guiManager.track(view);
 
-		int start = currentPage * PAGE_SIZE;
-		int end = Math.min(statuses.size(), start + PAGE_SIZE);
-		for (int i = start; i < end; i++) {
-			BackendServerStatus status = statuses.get(i);
-			ServerPayload serverPayload = payload == null ? null : payload.server(status.serverName());
+		Map<Integer, ServerRenderEntry> pageLayout = layoutByPage.getOrDefault(currentPage, Map.of());
+		for (Map.Entry<Integer, ServerRenderEntry> entry : pageLayout.entrySet()) {
+			int slot = entry.getKey();
+			ServerRenderEntry renderEntry = entry.getValue();
+			BackendServerStatus status = renderEntry.status();
+			ServerPayload serverPayload = renderEntry.payload();
 			String permission = serverPayload == null ? "" : serverPayload.permission();
 			boolean noPermission = permission != null && !permission.isBlank() && !player.hasPermission(permission);
-			int slot = i - start;
 			view.setItem(slot, buildServerItem(status, serverPayload, payload, noPermission), (clicker, event, gui) -> {
 				if (noPermission) {
 					clicker.sendMessage(LunaUi.mini("<red>❌ Bạn không có quyền vào máy chủ này.</red>"));
@@ -164,8 +164,78 @@ public final class PaperServerSelectorController implements Listener {
 		} else {
 			statuses = new ArrayList<>(statusView.snapshot().values());
 		}
-		statuses.sort(Comparator.comparing(status -> status.serverName().toLowerCase()));
+		statuses.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
 		return statuses;
+	}
+
+	private Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage(SelectorPayload payload) {
+		List<ServerRenderEntry> entries = sortedEntries(payload);
+		Map<Integer, Map<Integer, ServerRenderEntry>> byPage = new LinkedHashMap<>();
+		List<ServerRenderEntry> unresolved = new ArrayList<>();
+
+		for (ServerRenderEntry entry : entries) {
+			ServerPayload payloadEntry = entry.payload();
+			if (payloadEntry == null || payloadEntry.slot() == null || payloadEntry.page() == null) {
+				unresolved.add(entry);
+				continue;
+			}
+
+			int slot = payloadEntry.slot();
+			int page = payloadEntry.page() - 1;
+			if (slot < 0 || slot >= PAGE_SIZE || page < 0) {
+				unresolved.add(entry);
+				continue;
+			}
+			byPage.computeIfAbsent(page, ignored -> new LinkedHashMap<>()).put(slot, entry);
+		}
+
+		int pagePointer = 0;
+		for (ServerRenderEntry entry : unresolved) {
+			while (true) {
+				Map<Integer, ServerRenderEntry> pageLayout = byPage.computeIfAbsent(pagePointer, ignored -> new LinkedHashMap<>());
+				int slot = firstFreeSlot(pageLayout);
+				if (slot == -1) {
+					pagePointer++;
+					continue;
+				}
+				pageLayout.put(slot, entry);
+				break;
+			}
+		}
+
+		return byPage;
+	}
+
+	private List<ServerRenderEntry> sortedEntries(SelectorPayload payload) {
+		List<ServerRenderEntry> entries = new ArrayList<>();
+		if (payload != null && !payload.servers().isEmpty()) {
+			for (ServerPayload item : payload.servers().values()) {
+				BackendServerStatus status = statusView.status(item.backendName()).orElseGet(() -> new BackendServerStatus(
+					item.backendName(),
+					item.displayName(),
+					item.accentColor(),
+					false,
+					0L,
+					null
+				));
+				entries.add(new ServerRenderEntry(status, item));
+			}
+		} else {
+			for (BackendServerStatus status : statusView.snapshot().values()) {
+				entries.add(new ServerRenderEntry(status, null));
+			}
+		}
+		entries.sort(Comparator.comparing(entry -> entry.status().serverName().toLowerCase(Locale.ROOT)));
+		return entries;
+	}
+
+	private int firstFreeSlot(Map<Integer, ServerRenderEntry> pageLayout) {
+		for (int slot = 0; slot < PAGE_SIZE; slot++) {
+			if (!pageLayout.containsKey(slot)) {
+				return slot;
+			}
+		}
+		return -1;
 	}
 
 	private org.bukkit.inventory.ItemStack buildServerItem(
@@ -183,30 +253,31 @@ public final class PaperServerSelectorController implements Listener {
 			? serverPayload.displayName()
 			: (status.serverDisplay() == null || status.serverDisplay().isBlank() ? status.serverName() : status.serverDisplay());
 
-		String nameTemplate = payload == null ? "<b>%server_display%</b>" : payload.templateName();
-		String headerTemplate = payload == null ? "" : payload.headerTemplate();
-		String bodyTemplate = payload == null ? "%line%" : payload.bodyLineTemplate();
-		String footerTemplate = payload == null ? "" : payload.footerTemplate();
+		TemplatePayload template = payload == null
+			? TemplatePayload.defaultTemplate()
+			: payload.resolveTemplate(serverPayload, statusText);
 
 		Map<String, String> values = placeholderValues(status, display, statusText, onlinePlayers, maxPlayers);
 		List<Component> lore = new ArrayList<>();
-		if (!headerTemplate.isBlank()) {
-			lore.add(LunaUi.mini(applyTemplate(headerTemplate, values)));
+		for (String headerLine : template.headerLines()) {
+			lore.add(LunaUi.mini(applyTemplate(headerLine == null ? "" : headerLine, values)));
 		}
-		List<String> description = serverPayload == null ? List.of() : serverPayload.description();
+
+		List<String> description = serverPayload == null ? List.of() : serverPayload.description(statusText);
 		for (String line : description) {
 			Map<String, String> withLine = new LinkedHashMap<>(values);
 			withLine.put("line", line == null ? "" : line);
-			lore.add(LunaUi.mini(applyTemplate(bodyTemplate, withLine)));
+			lore.add(LunaUi.mini(applyTemplate(template.bodyLineTemplate(), withLine)));
 		}
-		if (!footerTemplate.isBlank()) {
-			lore.add(LunaUi.mini(applyTemplate(footerTemplate, values)));
+
+		for (String footerLine : template.footerLines()) {
+			lore.add(LunaUi.mini(applyTemplate(footerLine == null ? "" : footerLine, values)));
 		}
 		lore.add(LunaUi.mini("<gray>Trạng thái: <white>" + statusText + "</white></gray>"));
 		lore.add(LunaUi.mini("<gray>Người chơi: <white>" + onlinePlayers + "/" + maxPlayers + "</white></gray>"));
 		lore.add(LunaUi.mini(noPermission ? "<red>Không có quyền truy cập</red>" : "<yellow>Nhấn để kết nối</yellow>"));
 
-		return LunaUi.item(material, applyTemplate(nameTemplate, values), lore);
+		return LunaUi.item(material, applyTemplate(template.nameTemplate(), values), lore);
 	}
 
 	private Material resolveMaterial(String statusText) {
@@ -266,14 +337,18 @@ public final class PaperServerSelectorController implements Listener {
 	private SelectorPayload parsePayload(PluginMessageReader reader) {
 		try {
 			String mode = reader.readUtf();
-			if (!"open-v2".equalsIgnoreCase(mode)) {
+			if (!"open-v3".equalsIgnoreCase(mode)) {
 				return SelectorPayload.empty();
 			}
 
+			String guiTitle = reader.readUtf();
 			String name = reader.readUtf();
-			String header = reader.readUtf();
+			List<String> header = List.copyOf(readLines(reader));
 			String bodyLine = reader.readUtf();
-			String footer = reader.readUtf();
+			List<String> footer = List.copyOf(readLines(reader));
+			Map<String, TemplateOverridePayload> globalTemplateByStatus = readTemplateOverrides(reader);
+
+			TemplatePayload baseTemplate = new TemplatePayload(name, header, bodyLine, footer, globalTemplateByStatus);
 			int serverCount = Math.max(0, reader.readInt());
 			Map<String, ServerPayload> servers = new LinkedHashMap<>();
 			for (int i = 0; i < serverCount; i++) {
@@ -281,28 +356,93 @@ public final class PaperServerSelectorController implements Listener {
 				String display = reader.readUtf();
 				String accent = reader.readUtf();
 				String permission = reader.readUtf();
-				int lineCount = Math.max(0, reader.readInt());
-				List<String> description = new ArrayList<>();
-				for (int line = 0; line < lineCount; line++) {
-					description.add(reader.readUtf());
+				int rawSlot = reader.readInt();
+				int rawPage = reader.readInt();
+				Integer slot = rawSlot < 0 ? null : rawSlot;
+				Integer page = rawPage < 0 ? null : rawPage;
+				List<String> description = List.copyOf(readLines(reader));
+
+				int statusDescriptionCount = Math.max(0, reader.readInt());
+				Map<String, List<String>> descriptionByStatus = new LinkedHashMap<>();
+				for (int index = 0; index < statusDescriptionCount; index++) {
+					String statusKey = reader.readUtf().toUpperCase(Locale.ROOT);
+					descriptionByStatus.put(statusKey, List.copyOf(readLines(reader)));
 				}
-				servers.put(backendName.toLowerCase(Locale.ROOT), new ServerPayload(backendName, display, accent, permission, List.copyOf(description)));
+
+				TemplatePayload serverTemplate = null;
+				boolean hasServerTemplate = reader.readBoolean();
+				if (hasServerTemplate) {
+					serverTemplate = new TemplatePayload(
+						reader.readUtf(),
+						List.copyOf(readLines(reader)),
+						reader.readUtf(),
+						List.copyOf(readLines(reader)),
+						readTemplateOverrides(reader)
+					);
+				}
+
+				servers.put(backendName.toLowerCase(Locale.ROOT), new ServerPayload(
+					backendName,
+					display,
+					accent,
+					permission,
+					slot,
+					page,
+					description,
+					Map.copyOf(descriptionByStatus),
+					serverTemplate
+				));
 			}
-			return new SelectorPayload(name, header, bodyLine, footer, servers);
+			return new SelectorPayload(guiTitle, baseTemplate, servers);
 		} catch (Exception ignored) {
 			return SelectorPayload.empty();
 		}
 	}
 
+	private List<String> readLines(PluginMessageReader reader) {
+		int lineCount = Math.max(0, reader.readInt());
+		List<String> lines = new ArrayList<>(lineCount);
+		for (int i = 0; i < lineCount; i++) {
+			lines.add(reader.readUtf());
+		}
+		return lines;
+	}
+
+	private Map<String, TemplateOverridePayload> readTemplateOverrides(PluginMessageReader reader) {
+		int overrideCount = Math.max(0, reader.readInt());
+		Map<String, TemplateOverridePayload> overrides = new LinkedHashMap<>();
+		for (int i = 0; i < overrideCount; i++) {
+			String status = reader.readUtf().toUpperCase(Locale.ROOT);
+			String name = null;
+			List<String> header = null;
+			String bodyLine = null;
+			List<String> footer = null;
+
+			if (reader.readBoolean()) {
+				name = reader.readUtf();
+			}
+			if (reader.readBoolean()) {
+				header = List.copyOf(readLines(reader));
+			}
+			if (reader.readBoolean()) {
+				bodyLine = reader.readUtf();
+			}
+			if (reader.readBoolean()) {
+				footer = List.copyOf(readLines(reader));
+			}
+
+			overrides.put(status, new TemplateOverridePayload(name, header, bodyLine, footer));
+		}
+		return Map.copyOf(overrides);
+	}
+
 	private record SelectorPayload(
-		String templateName,
-		String headerTemplate,
-		String bodyLineTemplate,
-		String footerTemplate,
+		String guiTitle,
+		TemplatePayload template,
 		Map<String, ServerPayload> servers
 	) {
 		static SelectorPayload empty() {
-			return new SelectorPayload("Danh Sách Máy Chủ", "", "%line%", "", Map.of());
+			return new SelectorPayload("Danh Sách Máy Chủ", TemplatePayload.defaultTemplate(), Map.of());
 		}
 
 		ServerPayload server(String backendName) {
@@ -311,6 +451,58 @@ public final class PaperServerSelectorController implements Listener {
 			}
 			return servers.get(backendName.toLowerCase(Locale.ROOT));
 		}
+
+		TemplatePayload resolveTemplate(ServerPayload serverPayload, String status) {
+			TemplatePayload resolved = template.applyOverride(template.byStatus().get(status));
+			if (serverPayload == null || serverPayload.template() == null) {
+				return resolved;
+			}
+			resolved = resolved.merge(serverPayload.template());
+			return resolved.applyOverride(serverPayload.template().byStatus().get(status));
+		}
+	}
+
+	private record TemplatePayload(
+		String nameTemplate,
+		List<String> headerLines,
+		String bodyLineTemplate,
+		List<String> footerLines,
+		Map<String, TemplateOverridePayload> byStatus
+	) {
+		static TemplatePayload defaultTemplate() {
+			return new TemplatePayload("<b>%server_display%</b>", List.of(), "%line%", List.of(), Map.of());
+		}
+
+		TemplatePayload applyOverride(TemplateOverridePayload override) {
+			if (override == null) {
+				return this;
+			}
+			return new TemplatePayload(
+				override.nameTemplate() != null ? override.nameTemplate() : nameTemplate,
+				override.headerLines() != null ? override.headerLines() : headerLines,
+				override.bodyLineTemplate() != null ? override.bodyLineTemplate() : bodyLineTemplate,
+				override.footerLines() != null ? override.footerLines() : footerLines,
+				byStatus
+			);
+		}
+
+		TemplatePayload merge(TemplatePayload serverTemplate) {
+			return new TemplatePayload(
+				serverTemplate.nameTemplate(),
+				serverTemplate.headerLines(),
+				serverTemplate.bodyLineTemplate(),
+				serverTemplate.footerLines(),
+				serverTemplate.byStatus()
+			);
+		}
+	}
+
+	private record TemplateOverridePayload(
+		String nameTemplate,
+		List<String> headerLines,
+		String bodyLineTemplate,
+		List<String> footerLines
+	) {
 	}
 
 	private record ServerPayload(
@@ -318,7 +510,24 @@ public final class PaperServerSelectorController implements Listener {
 		String displayName,
 		String accentColor,
 		String permission,
-		List<String> description
+		Integer slot,
+		Integer page,
+		List<String> description,
+		Map<String, List<String>> descriptionByStatus,
+		TemplatePayload template
+	) {
+		List<String> description(String status) {
+			if (status == null) {
+				return description;
+			}
+			List<String> override = descriptionByStatus.get(status.toUpperCase(Locale.ROOT));
+			return override == null ? description : override;
+		}
+	}
+
+	private record ServerRenderEntry(
+		BackendServerStatus status,
+		ServerPayload payload
 	) {
 	}
 }

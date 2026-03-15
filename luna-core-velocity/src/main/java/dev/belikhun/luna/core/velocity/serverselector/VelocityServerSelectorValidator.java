@@ -51,7 +51,7 @@ public final class VelocityServerSelectorValidator {
 		}
 
 		Set<String> seenBackends = new HashSet<>();
-		Set<Integer> seenSlots = new HashSet<>();
+		Set<String> seenSlotPages = new HashSet<>();
 		Set<String> usedDescriptionKeys = new LinkedHashSet<>();
 
 		for (Map.Entry<String, Object> entry : serversSection.entrySet()) {
@@ -74,12 +74,24 @@ public final class VelocityServerSelectorValidator {
 			}
 
 			Integer slot = ConfigValues.integerValue(serverNode.get("slot"), null);
+			Integer page = ConfigValues.integerValue(serverNode.get("page"), null);
+			if (page != null && page < 1) {
+				errors.add("Page không hợp lệ tại server '" + backendName + "': " + page + " (phải >= 1).");
+			}
 			if (slot != null) {
-				if (slot < 0 || slot > 53) {
-					errors.add("Slot không hợp lệ tại server '" + backendName + "': " + slot + " (phải trong [0..53]).");
-				} else if (!seenSlots.add(slot)) {
-					errors.add("Trùng slot trong server-selector: " + slot);
+				if (slot < 0 || slot > 44) {
+					errors.add("Slot không hợp lệ tại server '" + backendName + "': " + slot + " (phải trong [0..44]).");
 				}
+				if (page == null) {
+					warnings.add("Server '" + backendName + "' có slot nhưng thiếu page. Cần khai báo cả slot + page để cố định vị trí.");
+				} else {
+					String key = page + ":" + slot;
+					if (!seenSlotPages.add(key)) {
+						errors.add("Trùng vị trí server-selector tại page=" + page + ", slot=" + slot + ".");
+					}
+				}
+			} else if (page != null) {
+				warnings.add("Server '" + backendName + "' có page nhưng thiếu slot. Cần khai báo cả slot + page để cố định vị trí.");
 			}
 
 			String material = ConfigValues.string(serverNode, "material", "");
@@ -87,10 +99,7 @@ public final class VelocityServerSelectorValidator {
 				warnings.add("Material có định dạng lạ tại server '" + backendName + "': " + material);
 			}
 
-			String descriptionKey = ConfigValues.string(serverNode, "description-key", backendName).trim();
-			if (descriptionKey.isBlank()) {
-				descriptionKey = backendName;
-			}
+			String descriptionKey = backendName.trim();
 			usedDescriptionKeys.add(descriptionKey);
 			if (!descriptionsSection.containsKey(descriptionKey)) {
 				errors.add("Thiếu descriptions.'" + descriptionKey + "' cho server '" + backendName + "'.");
@@ -103,6 +112,35 @@ public final class VelocityServerSelectorValidator {
 				errors,
 				warnings
 			);
+
+			Map<String, Object> serverTemplate = ConfigValues.map(serverNode, "template");
+			validateTemplateBlockPlaceholders(
+				"servers." + nodeName + ".template",
+				serverTemplate,
+				config.diagnostics().unknownPlaceholderAsError(),
+				errors,
+				warnings
+			);
+
+			Map<String, Object> serverDescByStatus = ConfigValues.map(serverNode, "descriptions-by-status");
+			for (Map.Entry<String, Object> statusEntry : serverDescByStatus.entrySet()) {
+				Object raw = statusEntry.getValue();
+				if (!(raw instanceof Iterable<?> iterable)) {
+					warnings.add("servers." + nodeName + ".descriptions-by-status." + statusEntry.getKey() + " không phải danh sách.");
+					continue;
+				}
+				int index = 0;
+				for (Object line : iterable) {
+					validateTemplatePlaceholders(
+						"servers." + nodeName + ".descriptions-by-status." + statusEntry.getKey() + "[" + index + "]",
+						line == null ? "" : String.valueOf(line),
+						config.diagnostics().unknownPlaceholderAsError(),
+						errors,
+						warnings
+					);
+					index++;
+				}
+			}
 		}
 
 		for (String key : descriptionsSection.keySet()) {
@@ -112,9 +150,26 @@ public final class VelocityServerSelectorValidator {
 		}
 
 		validateTemplatePlaceholders("template.name", config.template().name(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
-		validateTemplatePlaceholders("template.header", config.template().header(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+		validateTemplatePlaceholders("title", config.guiTitle(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+		validateTemplateLines("template.header", config.template().headerLines(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
 		validateTemplatePlaceholders("template.body-line", config.template().bodyLine(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
-		validateTemplatePlaceholders("template.footer", config.template().footer(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+		validateTemplateLines("template.footer", config.template().footerLines(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+		for (Map.Entry<ServerSelectorStatus, VelocityServerSelectorConfig.TemplateOverride> entry : config.template().byStatus().entrySet()) {
+			String path = "template.by-status." + entry.getKey().name();
+			VelocityServerSelectorConfig.TemplateOverride override = entry.getValue();
+			if (override.name() != null) {
+				validateTemplatePlaceholders(path + ".name", override.name(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+			}
+			if (override.bodyLine() != null) {
+				validateTemplatePlaceholders(path + ".body-line", override.bodyLine(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+			}
+			if (override.headerLines() != null) {
+				validateTemplateLines(path + ".header", override.headerLines(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+			}
+			if (override.footerLines() != null) {
+				validateTemplateLines(path + ".footer", override.footerLines(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+			}
+		}
 
 		validateTemplatePlaceholders("messages.opening", config.openingMessage(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
 		validateTemplatePlaceholders("messages.player-only", config.playerOnlyMessage(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
@@ -126,6 +181,28 @@ public final class VelocityServerSelectorValidator {
 
 		for (Map.Entry<String, Object> entry : descriptionsSection.entrySet()) {
 			Object raw = entry.getValue();
+			if (raw instanceof Map<?, ?> mapNode) {
+				for (Map.Entry<?, ?> statusEntry : mapNode.entrySet()) {
+					Object statusRaw = statusEntry.getValue();
+					if (!(statusRaw instanceof Iterable<?> statusLines)) {
+						warnings.add("descriptions.'" + entry.getKey() + "." + statusEntry.getKey() + "' không phải danh sách.");
+						continue;
+					}
+					int index = 0;
+					for (Object line : statusLines) {
+						validateTemplatePlaceholders(
+							"descriptions." + entry.getKey() + "." + statusEntry.getKey() + "[" + index + "]",
+							line == null ? "" : String.valueOf(line),
+							config.diagnostics().unknownPlaceholderAsError(),
+							errors,
+							warnings
+						);
+						index++;
+					}
+				}
+				continue;
+			}
+
 			if (!(raw instanceof Iterable<?> iterable)) {
 				warnings.add("descriptions.'" + entry.getKey() + "' không phải danh sách.");
 				continue;
@@ -145,6 +222,59 @@ public final class VelocityServerSelectorValidator {
 		}
 
 		return new VelocityServerSelectorValidationReport(List.copyOf(errors), List.copyOf(warnings));
+	}
+
+	private static void validateTemplateLines(
+		String path,
+		List<String> lines,
+		boolean unknownAsError,
+		List<String> errors,
+		List<String> warnings
+	) {
+		for (int i = 0; i < lines.size(); i++) {
+			validateTemplatePlaceholders(path + "[" + i + "]", lines.get(i), unknownAsError, errors, warnings);
+		}
+	}
+
+	private static void validateTemplateBlockPlaceholders(
+		String basePath,
+		Map<String, Object> block,
+		boolean unknownAsError,
+		List<String> errors,
+		List<String> warnings
+	) {
+		if (block.isEmpty()) {
+			return;
+		}
+		validateTemplatePlaceholders(basePath + ".name", ConfigValues.string(block, "name", ""), unknownAsError, errors, warnings);
+		validateTemplatePlaceholders(basePath + ".body-line", ConfigValues.string(block, "body-line", ""), unknownAsError, errors, warnings);
+
+		Object header = block.get("header");
+		if (header instanceof Iterable<?> iterable) {
+			int i = 0;
+			for (Object line : iterable) {
+				validateTemplatePlaceholders(basePath + ".header[" + i + "]", line == null ? "" : String.valueOf(line), unknownAsError, errors, warnings);
+				i++;
+			}
+		} else {
+			validateTemplatePlaceholders(basePath + ".header", ConfigValues.string(header, ""), unknownAsError, errors, warnings);
+		}
+
+		Object footer = block.get("footer");
+		if (footer instanceof Iterable<?> iterable) {
+			int i = 0;
+			for (Object line : iterable) {
+				validateTemplatePlaceholders(basePath + ".footer[" + i + "]", line == null ? "" : String.valueOf(line), unknownAsError, errors, warnings);
+				i++;
+			}
+		} else {
+			validateTemplatePlaceholders(basePath + ".footer", ConfigValues.string(footer, ""), unknownAsError, errors, warnings);
+		}
+
+		Map<String, Object> byStatus = ConfigValues.map(block, "by-status");
+		for (Map.Entry<String, Object> entry : byStatus.entrySet()) {
+			validateTemplateBlockPlaceholders(basePath + ".by-status." + entry.getKey(), ConfigValues.map(entry.getValue()), unknownAsError, errors, warnings);
+		}
 	}
 
 	private static void validateTemplatePlaceholders(

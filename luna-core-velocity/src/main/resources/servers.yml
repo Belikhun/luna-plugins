@@ -1,0 +1,148 @@
+server-selector:
+  title: "<gradient:#4C00E0:#CF115E>Chọn máy chủ</gradient>"
+  enabled: true
+  fail-on-server-command-override-failure: true
+  diagnostics:
+    enabled: true
+    fail-on-validation-error: true
+    unknown-placeholder-as-error: false
+  template:
+    name: "<color:#ffa1a5>(✘)</color> <b>%server_display%</b>"
+    header:
+      - ""
+    body-line: "<color:#36a8ff>▍</color> <white>%line%</white>"
+    footer:
+      - ""
+      - "<color:#ffa1a5>ℹ Máy chủ đang ngoại tuyến!</color>"
+      - ""
+      - "<dark_gray>> %server_name%</dark_gray>"
+    by-status:
+      ONLINE:
+        name: "<color:#87ff08>(✔)</color> <b>%server_display%</b> <gray>[⛏ %version%]</gray>"
+        footer:
+          - ""
+          - "<color:#87ff08>ℹ %online%/%max% người chơi</color>"
+          - "<color:#FFD634>⌚ đã chạy %uptime%</color>"
+          - "<color:#6DFFD4>🧪 %tps% tps</color>"
+          - ""
+          - "<dark_gray>> %server_name%</dark_gray>"
+      MAINT:
+        name: "<color:#FFD634>(⚠)</color> <b>%server_display%</b>"
+        footer:
+          - ""
+          - "<color:#FFD634>ℹ Máy chủ đang bảo trì!</color>"
+          - ""
+          - "<dark_gray>> %server_name%</dark_gray>"
+      NOP:
+        name: "<gray>(🔒)</gray> <b>%server_display%</b>"
+        footer:
+          - ""
+          - "<color:#ffa1a5>ℹ Bạn không có quyền truy cập!</color>"
+          - ""
+          - "<dark_gray>> %server_name%</dark_gray>"
+  messages:
+    opening: "<yellow>Đang mở danh sách máy chủ...</yellow>"
+    player-only: "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"
+    not-found: "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"
+    offline: "<red>❌ %server_display% hiện đang ngoại tuyến.</red>"
+    maint: "<yellow>⚠ %server_display% đang bảo trì.</yellow>"
+    no-permission: "<red>❌ Bạn không có quyền vào %server_display%.</red>"
+    connecting: "<yellow>⌛ Đang kết nối đến %server_display%...</yellow>"
+  status-colors:
+    ONLINE: "<green>"
+    OFFLINE: "<red>"
+    MAINT: "<yellow>"
+    NOP: "<gray>"
+  servers:
+    survival:
+      backend-name: "survival"
+      page: 1
+      slot: 13
+      display: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
+      accent-color: "#25EED0"
+      permission: ""
+      connect-message: ""
+    infdun:
+      backend-name: "infdun"
+      page: 1
+      slot: 33
+      display: "<gradient:#31ADAD:#8CE67C>INFINITY DUNGEONS</gradient>"
+      accent-color: "#8CE67C"
+      permission: ""
+      connect-message: ""
+    sandbox:
+      backend-name: "sandbox"
+      page: 1
+      slot: 34
+      display: "<gradient:#E98700:#FF61BB>SANDBOX</gradient>"
+      accent-color: "#FF61BB"
+      permission: ""
+      connect-message: ""
+    event:
+      backend-name: "event"
+      page: 1
+      slot: 28
+      display: "<gradient:#bafdc1:#9BC1F9>EVENT1</gradient>"
+      accent-color: "#9BC1F9"
+      permission: ""
+      connect-message: ""
+    event2:
+      backend-name: "event2"
+      page: 1
+      slot: 29
+      display: "<gradient:#9863E7:#FCD05C>EV</gradient><gradient:#FCD05C:#5FE2C5>ENT2</gradient>"
+      accent-color: "#5FE2C5"
+      permission: ""
+      connect-message: ""
+    manhunt:
+      backend-name: "manhunt"
+      page: 1
+      slot: 32
+      display: "<gradient:#EC8C8C:#FFC58B>M</gradient><gradient:#FFC58B:#FFFF9E>A</gradient><gradient:#FFFF9E:#9AFF9A>NH</gradient><gradient:#9AFF9A:#97CFF5>U</gradient><gradient:#97CFF5:#A39AFF>N</gradient><gradient:#A39AFF:#EEA0FF>T</gradient>"
+      accent-color: "#EEA0FF"
+      permission: ""
+      connect-message: ""
+    iceboat:
+      backend-name: "iceboat"
+      page: 1
+      slot: 22
+      display: "<gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient>"
+      accent-color: "#1EA9FB"
+      permission: ""
+      connect-message: ""
+      descriptions-by-status:
+        ONLINE:
+          - "<yellow><b>SPRING CLEANUP EVENT 2026!"
+          - "Đua thuyền tốc độ cao, tranh hạng"
+          - "từng giây. Vượt checkpoint, giữ vững"
+          - "đường đua và bứt tốc để về đích"
+          - "nhanh nhất!"
+      template:
+        by-status:
+          ONLINE:
+            name: "<color:#87ff08>(✔)</color> <b><gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient></b> <gray>[⛏ %version%]</gray>"
+  descriptions:
+    survival:
+      - "Máy chủ sinh tồn vanilla lifesteal"
+      - "với các tính năng đặc biệt"
+      - "khám phá cấu trúc khắp bản đồ"
+    infdun:
+      - "Chế độ rogue-like hầm ngục"
+      - "được tạo ngẫu nhiên vô tận"
+      - "boss, vật phẩm và phù phép tùy chỉnh"
+    sandbox:
+      - "Hộp cát sáng tạo thế giới phẳng"
+      - "thử nghiệm ý tưởng xây dựng"
+      - "và cỗ máy đá đỏ"
+    event:
+      - "Máy chủ chạy sự kiện"
+    event2:
+      - "Máy chủ chạy sự kiện"
+    manhunt:
+      - "Truy đuổi speedrunner"
+      - "qua Overworld, Nether và End"
+      - "chế độ đối kháng nhiều người chơi"
+    iceboat:
+      - "Đua thuyền tốc độ cao"
+      - "vượt checkpoint và giữ đường đua"
+      - "bứt tốc về đích nhanh nhất"

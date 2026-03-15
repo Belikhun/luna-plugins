@@ -2,7 +2,9 @@ package dev.belikhun.luna.core.velocity.serverselector;
 
 import dev.belikhun.luna.core.api.config.ConfigValues;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -10,6 +12,7 @@ public record VelocityServerSelectorConfig(
 	boolean enabled,
 	boolean failOnServerOverrideFailure,
 	SelectorDiagnostics diagnostics,
+	String guiTitle,
 	ServerTemplate template,
 	String openingMessage,
 	String playerOnlyMessage,
@@ -49,10 +52,24 @@ public record VelocityServerSelectorConfig(
 			String accentColor = ConfigValues.string(item, "accent-color", "");
 			String permission = ConfigValues.string(item, "permission", "");
 			String connectMessage = ConfigValues.string(item, "connect-message", "");
-			String descriptionKey = ConfigValues.string(item, "description-key", backendName);
 			Integer slot = ConfigValues.integerValue(item.get("slot"), null);
+			Integer page = ConfigValues.integerValue(item.get("page"), null);
 			String material = ConfigValues.string(item, "material", "");
-			servers.put(normalize(backendName), new ServerDefinition(backendName, displayName, accentColor, permission, connectMessage, descriptionKey, slot, material, description(descriptionKey, descriptionsSection)));
+			ServerTemplate serverTemplate = parseTemplate(ConfigValues.map(item, "template"), null);
+			Map<ServerSelectorStatus, List<String>> descriptionByStatus = parseDescriptionByStatus(ConfigValues.map(item, "descriptions-by-status"));
+			servers.put(normalize(backendName), new ServerDefinition(
+				backendName,
+				displayName,
+				accentColor,
+				permission,
+				connectMessage,
+				slot,
+				page,
+				material,
+				description(backendName, descriptionsSection),
+				descriptionByStatus,
+				serverTemplate
+			));
 		}
 
 		return new VelocityServerSelectorConfig(
@@ -63,12 +80,8 @@ public record VelocityServerSelectorConfig(
 				ConfigValues.booleanValue(diagnosticsSection, "fail-on-validation-error", true),
 				ConfigValues.booleanValue(diagnosticsSection, "unknown-placeholder-as-error", false)
 			),
-			new ServerTemplate(
-				ConfigValues.string(templateSection, "name", "<b>%server_display%</b>"),
-				ConfigValues.string(templateSection, "header", ""),
-				ConfigValues.string(templateSection, "body-line", "%line%"),
-				ConfigValues.string(templateSection, "footer", "")
-			),
+			ConfigValues.string(section, "title", "<gradient:#4C00E0:#CF115E>Chọn máy chủ</gradient>"),
+			parseTemplate(templateSection, new ServerTemplate("<b>%server_display%</b>", List.of(), "%line%", List.of(), Map.of())),
 			ConfigValues.string(messages, "opening", "<yellow>Đang mở danh sách máy chủ...</yellow>"),
 			ConfigValues.string(messages, "player-only", "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"),
 			ConfigValues.string(messages, "not-found", "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"),
@@ -99,26 +112,126 @@ public record VelocityServerSelectorConfig(
 		return value.trim().toLowerCase(Locale.ROOT);
 	}
 
-	private static java.util.List<String> description(String key, Map<String, Object> descriptionsSection) {
+	private static List<String> description(String backendName, Map<String, Object> descriptionsSection) {
+		String key = backendName == null ? "" : backendName.trim();
 		Object raw = descriptionsSection.get(key);
+		if (raw instanceof Map<?, ?> map) {
+			raw = map.get("default");
+		}
 		if (raw instanceof Iterable<?> iterable) {
-			java.util.List<String> lines = new java.util.ArrayList<>();
+			List<String> lines = new ArrayList<>();
 			for (Object item : iterable) {
 				if (item == null) {
 					continue;
 				}
 				lines.add(String.valueOf(item));
 			}
-			return java.util.List.copyOf(lines);
+			return List.copyOf(lines);
 		}
-		return java.util.List.of();
+		return List.of();
+	}
+
+	private static Map<ServerSelectorStatus, List<String>> parseDescriptionByStatus(Map<String, Object> section) {
+		Map<ServerSelectorStatus, List<String>> byStatus = new LinkedHashMap<>();
+		for (ServerSelectorStatus status : ServerSelectorStatus.values()) {
+			Object raw = section.get(status.name());
+			if (!(raw instanceof Iterable<?> iterable)) {
+				continue;
+			}
+			List<String> lines = new ArrayList<>();
+			for (Object item : iterable) {
+				if (item == null) {
+					continue;
+				}
+				lines.add(String.valueOf(item));
+			}
+			byStatus.put(status, List.copyOf(lines));
+		}
+		return Map.copyOf(byStatus);
+	}
+
+	private static ServerTemplate parseTemplate(Map<String, Object> section, ServerTemplate fallback) {
+		if (section.isEmpty()) {
+			return fallback;
+		}
+
+		String nameFallback = fallback == null ? "<b>%server_display%</b>" : fallback.name();
+		String bodyFallback = fallback == null ? "%line%" : fallback.bodyLine();
+		List<String> headerFallback = fallback == null ? List.of() : fallback.headerLines();
+		List<String> footerFallback = fallback == null ? List.of() : fallback.footerLines();
+		Map<ServerSelectorStatus, TemplateOverride> fallbackByStatus = fallback == null ? Map.of() : fallback.byStatus();
+
+		Map<ServerSelectorStatus, TemplateOverride> byStatus = new LinkedHashMap<>();
+		Map<String, Object> byStatusSection = ConfigValues.map(section, "by-status");
+		for (ServerSelectorStatus status : ServerSelectorStatus.values()) {
+			Map<String, Object> statusNode = ConfigValues.map(byStatusSection, status.name());
+			if (statusNode.isEmpty()) {
+				TemplateOverride inherited = fallbackByStatus.get(status);
+				if (inherited != null) {
+					byStatus.put(status, inherited);
+				}
+				continue;
+			}
+
+			String nameOverride = statusNode.containsKey("name") ? ConfigValues.string(statusNode.get("name"), "") : null;
+			String bodyOverride = statusNode.containsKey("body-line") ? ConfigValues.string(statusNode.get("body-line"), "") : null;
+			List<String> headerOverride = statusNode.containsKey("header") ? parseTextLines(statusNode.get("header"), List.of()) : null;
+			List<String> footerOverride = statusNode.containsKey("footer") ? parseTextLines(statusNode.get("footer"), List.of()) : null;
+			byStatus.put(status, new TemplateOverride(nameOverride, headerOverride, bodyOverride, footerOverride));
+		}
+
+		return new ServerTemplate(
+			ConfigValues.string(section, "name", nameFallback),
+			parseTextLines(section.get("header"), headerFallback),
+			ConfigValues.string(section, "body-line", bodyFallback),
+			parseTextLines(section.get("footer"), footerFallback),
+			Map.copyOf(byStatus)
+		);
+	}
+
+	private static List<String> parseTextLines(Object raw, List<String> fallback) {
+		if (raw == null) {
+			return fallback;
+		}
+
+		if (raw instanceof Iterable<?> iterable) {
+			List<String> lines = new ArrayList<>();
+			for (Object item : iterable) {
+				if (item == null) {
+					continue;
+				}
+				lines.add(String.valueOf(item));
+			}
+			return List.copyOf(lines);
+		}
+
+		String text = String.valueOf(raw);
+		if (text.isEmpty()) {
+			return List.of();
+		}
+
+		String[] parts = text.split("\\r?\\n");
+		List<String> lines = new ArrayList<>(parts.length);
+		for (String part : parts) {
+			lines.add(part);
+		}
+		return List.copyOf(lines);
 	}
 
 	public record ServerTemplate(
 		String name,
-		String header,
+		List<String> headerLines,
 		String bodyLine,
-		String footer
+		List<String> footerLines,
+		Map<ServerSelectorStatus, TemplateOverride> byStatus
+	) {
+	}
+
+	public record TemplateOverride(
+		String name,
+		List<String> headerLines,
+		String bodyLine,
+		List<String> footerLines
 	) {
 	}
 
@@ -128,10 +241,12 @@ public record VelocityServerSelectorConfig(
 		String accentColor,
 		String permission,
 		String connectMessage,
-		String descriptionKey,
 		Integer slot,
+		Integer page,
 		String material,
-		java.util.List<String> description
+		List<String> description,
+		Map<ServerSelectorStatus, List<String>> descriptionByStatus,
+		ServerTemplate template
 	) {
 	}
 
