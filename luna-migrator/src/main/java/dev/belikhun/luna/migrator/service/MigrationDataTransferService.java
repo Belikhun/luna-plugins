@@ -22,9 +22,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 public final class MigrationDataTransferService {
 	private final JavaPlugin plugin;
@@ -41,7 +44,7 @@ public final class MigrationDataTransferService {
 
 	public TransferResult transfer(String legacyUsername, UUID onlineUuid, String onlineUsername, ProgressListener progressListener) {
 		if (!plugin.getConfig().getBoolean("migration.transfer.enabled", true)) {
-			return TransferResult.success(0, 0, false, 0D, 0);
+			return TransferResult.success(0, 0, false, 0D, 0, false);
 		}
 
 		UUID offlineUuid = OfflineUuid.fromUsername(legacyUsername);
@@ -66,6 +69,7 @@ public final class MigrationDataTransferService {
 		int copied = 0;
 		int missing = 0;
 		int migratedHuskHomesHomes = 0;
+		boolean migratedHuskHomesUserData = false;
 		double migratedMoney = 0D;
 		List<String> errors = new ArrayList<>();
 		String backupStamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
@@ -112,6 +116,7 @@ public final class MigrationDataTransferService {
 				return TransferResult.failed(huskHomesTransfer.message());
 			}
 			migratedHuskHomesHomes = huskHomesTransfer.homesMoved();
+			migratedHuskHomesUserData = huskHomesTransfer.userDataUpdated();
 			progressTracker.complete(taskName);
 		}
 
@@ -119,11 +124,11 @@ public final class MigrationDataTransferService {
 			return TransferResult.failed(errors.get(0));
 		}
 
-		if (copied <= 0 && migratedMoney <= 0D && migratedHuskHomesHomes <= 0) {
+		if (copied <= 0 && migratedMoney <= 0D && migratedHuskHomesHomes <= 0 && !migratedHuskHomesUserData) {
 			return TransferResult.failed("Không tìm thấy dữ liệu world nào để chuyển từ UUID cũ sang UUID mới.");
 		}
 
-		return TransferResult.success(copied, missing, kickAfterSuccess, migratedMoney, migratedHuskHomesHomes);
+		return TransferResult.success(copied, missing, kickAfterSuccess, migratedMoney, migratedHuskHomesHomes, migratedHuskHomesUserData);
 	}
 
 	private HuskHomesTransferResult migrateHuskHomesHomes(UUID offlineUuid, String legacyUsername, UUID onlineUuid, String onlineUsername) {
@@ -137,8 +142,9 @@ public final class MigrationDataTransferService {
 			User oldUser = User.of(offlineUuid, legacyUsername);
 			User newUser = User.of(onlineUuid, onlineUsername == null ? legacyUsername : onlineUsername);
 			List<Home> homes = api.getUserHomes(oldUser).get(timeoutSeconds, TimeUnit.SECONDS);
+			boolean userDataUpdated = migrateHuskHomesUserData(api, oldUser, newUser, timeoutSeconds);
 			if (homes.isEmpty()) {
-				return HuskHomesTransferResult.success(0);
+				return HuskHomesTransferResult.success(0, userDataUpdated);
 			}
 
 			int moved = 0;
@@ -152,7 +158,7 @@ public final class MigrationDataTransferService {
 				moved++;
 			}
 
-			return HuskHomesTransferResult.success(moved);
+			return HuskHomesTransferResult.success(moved, userDataUpdated);
 		} catch (InterruptedException exception) {
 			Thread.currentThread().interrupt();
 			return HuskHomesTransferResult.failed("Tiến trình migrate HuskHomes đã bị gián đoạn.");
@@ -172,6 +178,173 @@ public final class MigrationDataTransferService {
 			}
 			return HuskHomesTransferResult.failed("Không thể migrate dữ liệu HuskHomes: " + message);
 		}
+	}
+
+	private boolean migrateHuskHomesUserData(HuskHomesAPI api, User oldUser, User newUser, long timeoutSeconds)
+		throws InterruptedException, ExecutionException, TimeoutException {
+		Object oldUserData = awaitFuture(getUserDataFuture(api, oldUser), timeoutSeconds);
+		if (oldUserData == null) {
+			return false;
+		}
+
+		Object homeSlots = invokeNoArg(oldUserData, "getHomeSlots");
+		Object ignoringTeleports = invokeNoArg(oldUserData, "isIgnoringTeleports");
+		Object rtpCooldown = invokeNoArg(oldUserData, "getRtpCooldown");
+		if (homeSlots == null && ignoringTeleports == null && rtpCooldown == null) {
+			return false;
+		}
+
+		boolean edited = false;
+		for (var method : api.getClass().getMethods()) {
+			if (!"editUserData".equals(method.getName()) || method.getParameterCount() != 2) {
+				continue;
+			}
+			if (!method.getParameterTypes()[0].isAssignableFrom(newUser.getClass())) {
+				continue;
+			}
+
+			Class<?> editorType = method.getParameterTypes()[1];
+			Object editor;
+			if (Consumer.class.isAssignableFrom(editorType)) {
+				editor = (Consumer<Object>) data -> applyHuskHomesUserData(data, homeSlots, ignoringTeleports, rtpCooldown);
+			} else if (Function.class.isAssignableFrom(editorType)) {
+				editor = (Function<Object, Object>) data -> {
+					applyHuskHomesUserData(data, homeSlots, ignoringTeleports, rtpCooldown);
+					return data;
+				};
+			} else {
+				continue;
+			}
+
+			try {
+				Object result = method.invoke(api, newUser, editor);
+				awaitFuture(result, timeoutSeconds);
+				edited = true;
+				break;
+			} catch (ReflectiveOperationException ignored) {
+				// Try the next overload if this one cannot be invoked.
+			}
+		}
+
+		if (!edited) {
+			Object newUserData = awaitFuture(getUserDataFuture(api, newUser), timeoutSeconds);
+			if (newUserData == null) {
+				return false;
+			}
+			applyHuskHomesUserData(newUserData, homeSlots, ignoringTeleports, rtpCooldown);
+			Object saveFuture = saveUserData(api, newUserData);
+			if (saveFuture != null) {
+				awaitFuture(saveFuture, timeoutSeconds);
+			}
+		}
+
+		return true;
+	}
+
+	private Object getUserDataFuture(HuskHomesAPI api, User user) {
+		for (var method : api.getClass().getMethods()) {
+			if (!"getUserData".equals(method.getName()) || method.getParameterCount() != 1) {
+				continue;
+			}
+			if (!method.getParameterTypes()[0].isAssignableFrom(user.getClass())) {
+				continue;
+			}
+			try {
+				return method.invoke(api, user);
+			} catch (Exception ignored) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	private Object saveUserData(HuskHomesAPI api, Object userData) {
+		for (var method : api.getClass().getMethods()) {
+			if (!"saveUserData".equals(method.getName()) || method.getParameterCount() != 1) {
+				continue;
+			}
+			if (!method.getParameterTypes()[0].isAssignableFrom(userData.getClass())) {
+				continue;
+			}
+			try {
+				return method.invoke(api, userData);
+			} catch (Exception ignored) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	private Object awaitFuture(Object maybeFuture, long timeoutSeconds) throws InterruptedException, ExecutionException, TimeoutException {
+		if (!(maybeFuture instanceof CompletableFuture<?> future)) {
+			return maybeFuture;
+		}
+		return future.get(timeoutSeconds, TimeUnit.SECONDS);
+	}
+
+	private void applyHuskHomesUserData(Object targetUserData, Object homeSlots, Object ignoringTeleports, Object rtpCooldown) {
+		if (targetUserData == null) {
+			return;
+		}
+		invokeSetter(targetUserData, "setHomeSlots", homeSlots);
+		invokeSetter(targetUserData, "setIgnoringTeleports", ignoringTeleports);
+		invokeSetter(targetUserData, "setRtpCooldown", rtpCooldown);
+	}
+
+	private Object invokeNoArg(Object target, String methodName) {
+		if (target == null) {
+			return null;
+		}
+		try {
+			return target.getClass().getMethod(methodName).invoke(target);
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
+
+	private void invokeSetter(Object target, String methodName, Object value) {
+		if (target == null || value == null) {
+			return;
+		}
+		for (var method : target.getClass().getMethods()) {
+			if (!methodName.equals(method.getName()) || method.getParameterCount() != 1) {
+				continue;
+			}
+			Class<?> paramType = method.getParameterTypes()[0];
+			Class<?> valueType = value.getClass();
+			if (!isAssignable(paramType, valueType)) {
+				continue;
+			}
+			try {
+				method.invoke(target, value);
+				return;
+			} catch (Exception ignored) {
+				return;
+			}
+		}
+	}
+
+	private boolean isAssignable(Class<?> paramType, Class<?> valueType) {
+		if (paramType.isAssignableFrom(valueType)) {
+			return true;
+		}
+
+		if (!paramType.isPrimitive()) {
+			return false;
+		}
+
+		Class<?> wrapper = switch (paramType.getName()) {
+			case "boolean" -> Boolean.class;
+			case "byte" -> Byte.class;
+			case "short" -> Short.class;
+			case "int" -> Integer.class;
+			case "long" -> Long.class;
+			case "float" -> Float.class;
+			case "double" -> Double.class;
+			case "char" -> Character.class;
+			default -> null;
+		};
+		return wrapper != null && wrapper.isAssignableFrom(valueType);
 	}
 
 	private MoneyTransferResult migrateMoney(UUID offlineUuid, UUID onlineUuid) {
@@ -299,23 +472,23 @@ public final class MigrationDataTransferService {
 		}
 	}
 
-	private record HuskHomesTransferResult(boolean success, String message, int homesMoved) {
-		private static HuskHomesTransferResult success(int homesMoved) {
-			return new HuskHomesTransferResult(true, "", homesMoved);
+	private record HuskHomesTransferResult(boolean success, String message, int homesMoved, boolean userDataUpdated) {
+		private static HuskHomesTransferResult success(int homesMoved, boolean userDataUpdated) {
+			return new HuskHomesTransferResult(true, "", homesMoved, userDataUpdated);
 		}
 
 		private static HuskHomesTransferResult failed(String message) {
-			return new HuskHomesTransferResult(false, message, 0);
+			return new HuskHomesTransferResult(false, message, 0, false);
 		}
 	}
 
-	public record TransferResult(boolean success, String message, int copiedEntries, int missingEntries, boolean kickAfterSuccess, double migratedMoney, int migratedHuskHomesHomes) {
-		public static TransferResult success(int copiedEntries, int missingEntries, boolean kickAfterSuccess, double migratedMoney, int migratedHuskHomesHomes) {
-			return new TransferResult(true, "", copiedEntries, missingEntries, kickAfterSuccess, migratedMoney, migratedHuskHomesHomes);
+	public record TransferResult(boolean success, String message, int copiedEntries, int missingEntries, boolean kickAfterSuccess, double migratedMoney, int migratedHuskHomesHomes, boolean migratedHuskHomesUserData) {
+		public static TransferResult success(int copiedEntries, int missingEntries, boolean kickAfterSuccess, double migratedMoney, int migratedHuskHomesHomes, boolean migratedHuskHomesUserData) {
+			return new TransferResult(true, "", copiedEntries, missingEntries, kickAfterSuccess, migratedMoney, migratedHuskHomesHomes, migratedHuskHomesUserData);
 		}
 
 		public static TransferResult failed(String message) {
-			return new TransferResult(false, message, 0, 0, false, 0D, 0);
+			return new TransferResult(false, message, 0, 0, false, 0D, 0, false);
 		}
 	}
 

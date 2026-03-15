@@ -254,10 +254,11 @@ public final class MigrationCommand implements BasicCommand {
 			lines.add("Tiến trình advancements");
 		}
 		if (plugin.getConfig().getBoolean("migration.transfer.migrate-money", true)) {
-			lines.add("Số dư kinh tế Vault");
+			lines.add("Số xu trong tài khoản");
 		}
 		if (plugin.getConfig().getBoolean("migration.transfer.migrate-huskhomes-homes", true)) {
-			lines.add("Danh sách nhà HuskHomes");
+			lines.add("Danh sách vị trí nhà đã đặt");
+			lines.add("Thông tin người chơi HuskHomes (bao gồm số slot nhà)");
 		}
 		if (lines.isEmpty()) {
 			lines.add("Không có hạng mục nào đang bật.");
@@ -408,6 +409,9 @@ public final class MigrationCommand implements BasicCommand {
 		}
 		if (transfer.migratedHuskHomesHomes() > 0) {
 			receiver.sendRichMessage(info("ℹ Đã chuyển nhà HuskHomes: ") + accent(String.valueOf(transfer.migratedHuskHomesHomes())));
+		}
+		if (transfer.migratedHuskHomesUserData()) {
+			receiver.sendRichMessage(info("ℹ Đã chuyển thông tin HuskHomes của người chơi (bao gồm số slot nhà)."));
 		}
 	}
 
