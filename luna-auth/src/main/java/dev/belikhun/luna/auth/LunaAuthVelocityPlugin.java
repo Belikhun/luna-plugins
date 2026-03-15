@@ -436,7 +436,7 @@ public final class LunaAuthVelocityPlugin {
 				player.sendRichMessage(decision.message());
 			}
 
-			String authMethod = authMethodForJoinDecisionMessage(decision.message());
+			String authMethod = decision.authMethod();
 			if (!sendAuthenticatedBackendNotice(player, decision.message(), authMethod)) {
 				pendingBackendAuthMessages.put(player.getUniqueId(), decision.message());
 				pendingBackendAuthMethods.put(player.getUniqueId(), authMethod);
@@ -735,19 +735,6 @@ public final class LunaAuthVelocityPlugin {
 		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
 			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
 			.schedule();
-	}
-
-	private String authMethodForJoinDecisionMessage(String message) {
-		if (message == null) {
-			return "default";
-		}
-		if (message.contains("Đăng nhập nhanh")) {
-			return "quick_login";
-		}
-		if (message.contains("khôi phục phiên")) {
-			return "session_resume";
-		}
-		return "default";
 	}
 
 	private String authMethodForCommandAction(String action, boolean success) {

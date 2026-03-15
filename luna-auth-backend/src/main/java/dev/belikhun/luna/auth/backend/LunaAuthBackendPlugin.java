@@ -133,7 +133,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				restrictionListener.hidePrompt(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 				if (!wasAuthenticated) {
-					sendAuthenticatedFeedback(source);
+					flow("Skip authenticated feedback on AUTH_STATE to avoid overriding method-specific feedback from COMMAND_RESPONSE.");
 				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
@@ -170,7 +170,6 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			}
 			restrictionListener.updateModeSelectorEligibility(source, premiumNameCandidate, hasModePreference);
 			BackendAuthStateRegistry.AuthState previous = stateRegistry.state(playerUuid);
-			boolean wasAuthenticated = stateRegistry.isAuthenticated(playerUuid);
 
 			boolean shouldSendResultChat = !success || !authenticated;
 			if (shouldSendResultChat) {
@@ -180,7 +179,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
-				if (!wasAuthenticated) {
+				if (success) {
 					sendAuthenticatedFeedback(source, authMethod);
 				}
 			} else {
@@ -245,10 +244,6 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 	private boolean removeCommand(List<String> configured, String command) {
 		return configured.removeIf(value -> value != null && command.equalsIgnoreCase(value));
-	}
-
-	private void sendAuthenticatedFeedback(Player player) {
-		sendAuthenticatedFeedback(player, "default");
 	}
 
 	private void sendAuthenticatedFeedback(Player player, String authMethod) {

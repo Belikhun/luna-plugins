@@ -440,9 +440,9 @@ public final class AuthService {
 		repository.recordAuditEvent(playerUuid, ipAddress, eventType, result, reason, actor, now);
 	}
 
-	public record JoinDecision(boolean authenticated, boolean needsRegister, boolean locked, String message) {
+	public record JoinDecision(boolean authenticated, boolean needsRegister, boolean locked, String message, String authMethod) {
 		public static JoinDecision requireRegister() {
-			return new JoinDecision(false, true, false, "ℹ Tài khoản chưa đăng ký. Dùng /register <mật_khẩu> <nhập_lại>.");
+			return new JoinDecision(false, true, false, "ℹ Tài khoản chưa đăng ký. Dùng /register <mật_khẩu> <nhập_lại>.", "default");
 		}
 
 		public static JoinDecision requireRegisterWithQuickAuthNotice() {
@@ -450,25 +450,26 @@ public final class AuthService {
 				false,
 				true,
 				false,
-				"Bạn đang đăng nhập bằng phiên Mojang hợp lệ nên đã được nhận diện bởi <color:#00c2ff><b>Luna QuikAuth™</b></color>. Tuy nhiên tài khoản này chưa có mật khẩu, hãy đặt mật khẩu bằng <color:#f5f7fa><b>/register <mật_khẩu> <nhập_lại></b></color> để bảo vệ tài khoản khi client ở chế độ offline."
+				"Bạn đang đăng nhập bằng phiên Mojang hợp lệ nên đã được nhận diện bởi <color:#00c2ff><b>Luna QuikAuth™</b></color>. Tuy nhiên tài khoản này chưa có mật khẩu, hãy đặt mật khẩu bằng <color:#f5f7fa><b>/register <mật_khẩu> <nhập_lại></b></color> để bảo vệ tài khoản khi client ở chế độ offline.",
+				"default"
 			);
 		}
 
 		public static JoinDecision requireLogin() {
-			return new JoinDecision(false, false, false, "ℹ Vui lòng đăng nhập bằng /login <mật_khẩu>.");
+			return new JoinDecision(false, false, false, "ℹ Vui lòng đăng nhập bằng /login <mật_khẩu>.", "default");
 		}
 
 		public static JoinDecision lockedState(long remainingMillis) {
 			long seconds = Math.max(1L, remainingMillis / 1000L);
-			return new JoinDecision(false, false, true, "❌ Tài khoản đang bị khóa tạm thời, còn " + seconds + " giây.");
+			return new JoinDecision(false, false, true, "❌ Tài khoản đang bị khóa tạm thời, còn " + seconds + " giây.", "default");
 		}
 
 		public static JoinDecision quickLoginState() {
-			return new JoinDecision(true, false, false, "✔ Đăng nhập nhanh thành công.");
+			return new JoinDecision(true, false, false, "✔ Đăng nhập nhanh thành công.", "quick_login");
 		}
 
 		public static JoinDecision sessionResumeState() {
-			return new JoinDecision(true, false, false, "✔ Đã khôi phục phiên đăng nhập hợp lệ.");
+			return new JoinDecision(true, false, false, "✔ Đã khôi phục phiên đăng nhập hợp lệ.", "session_resume");
 		}
 
 	}
