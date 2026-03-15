@@ -1,6 +1,10 @@
 logging:
   auth-flow: true
 
+auth:
+  mode-selector-gui:
+    enabled: true
+
 prompt:
   pending:
     bossbar: "<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>"

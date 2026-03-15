@@ -4,6 +4,7 @@ import dev.belikhun.luna.auth.model.AuthAccount;
 import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -210,6 +211,19 @@ public final class AuthService {
 		return AuthResult.success("✔ Đã reset mật khẩu. Người chơi sẽ phải /register lại.");
 	}
 
+	public AuthResult adminResetAll(UUID playerUuid, String username, String ipAddress, String actor) {
+		UUID offlineUuid = OfflineUuid.fromUsername(username == null ? "" : username.trim());
+		UUID normalizedOfflineUuid = OfflineUuid.fromUsername(username == null ? "" : username.trim().toLowerCase(Locale.ROOT));
+
+		runtimeStates.remove(playerUuid);
+		sessions.remove(playerUuid);
+		repository.resetAllPlayerData(playerUuid, offlineUuid, normalizedOfflineUuid, username);
+
+		long now = System.currentTimeMillis();
+		recordAudit(playerUuid, ipAddress, "ADMIN_RESET_ALL", "SUCCESS", "Quản trị viên xóa toàn bộ dữ liệu xác thực", actor, now);
+		return AuthResult.success("✔ Đã xóa toàn bộ dữ liệu auth của người chơi (mật khẩu, lịch sử, session, UUID claim).");
+	}
+
 	public AuthResult adminUnlock(UUID playerUuid, String username, String ipAddress, String actor) {
 		long now = System.currentTimeMillis();
 		AuthAccount account = repository.find(playerUuid).orElse(null);
@@ -328,11 +342,40 @@ public final class AuthService {
 	}
 
 	public void claimOfflineUuidMapping(String username, UUID offlineUuid, UUID onlineUuid) {
-		repository.claimOfflineUuidMapping(username, offlineUuid, onlineUuid, System.currentTimeMillis());
+		long now = System.currentTimeMillis();
+		repository.claimOfflineUuidMapping(username, offlineUuid, onlineUuid, now);
+
+		String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+		UUID normalizedOfflineUuid = OfflineUuid.fromUsername(normalized);
+		if (!normalizedOfflineUuid.equals(offlineUuid)) {
+			repository.claimOfflineUuidMapping(username, normalizedOfflineUuid, onlineUuid, now);
+		}
 	}
 
 	public Optional<UUID> findClaimedOnlineUuid(UUID offlineUuid, String username) {
-		return repository.findClaimedOnlineUuid(offlineUuid, username);
+		Optional<UUID> claimed = repository.findClaimedOnlineUuid(offlineUuid, username);
+		if (claimed.isPresent()) {
+			return claimed;
+		}
+
+		UUID canonicalOfflineUuid = OfflineUuid.fromUsername(username == null ? "" : username.trim());
+		if (!canonicalOfflineUuid.equals(offlineUuid)) {
+			claimed = repository.findClaimedOnlineUuid(canonicalOfflineUuid, username);
+			if (claimed.isPresent()) {
+				return claimed;
+			}
+		}
+
+		String normalized = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+		UUID normalizedOfflineUuid = OfflineUuid.fromUsername(normalized);
+		if (!normalizedOfflineUuid.equals(offlineUuid) && !normalizedOfflineUuid.equals(canonicalOfflineUuid)) {
+			claimed = repository.findClaimedOnlineUuid(normalizedOfflineUuid, username);
+			if (claimed.isPresent()) {
+				return claimed;
+			}
+		}
+
+		return repository.findLatestClaimedOnlineUuidByUsername(username);
 	}
 
 	public boolean isKnownPremiumIdentity(String username) {

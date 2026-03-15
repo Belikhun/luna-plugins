@@ -24,7 +24,6 @@ public final class LunaMigratorPlugin extends JavaPlugin {
 		MigrationCommand migrationCommand = new MigrationCommand(this, stateRepository, dataTransferService);
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			commands.registrar().register("migrate", migrationCommand);
-			commands.registrar().register("migration", migrationCommand);
 		});
 		getServer().getPluginManager().registerEvents(new MigrationJoinAlertListener(this, stateRepository), this);
 		getLogger().info("LunaMigrator đã khởi động.");

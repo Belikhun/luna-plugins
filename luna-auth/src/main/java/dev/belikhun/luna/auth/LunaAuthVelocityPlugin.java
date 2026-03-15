@@ -75,6 +75,8 @@ public final class LunaAuthVelocityPlugin {
 	private static final int BACKEND_SYNC_RETRY_MAX_ATTEMPTS = 20;
 	private static final long BACKEND_SYNC_RETRY_DELAY_MILLIS = 250L;
 	private static final long MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS = 90_000L;
+	private static final long MIXED_MODE_MANUAL_PROBE_WINDOW_MILLIS = 300_000L;
+	private static final long MODE_PREFERENCE_MIN_TTL_MILLIS = 60_000L;
 
 	private final ProxyServer proxyServer;
 	private final Path dataDirectory;
@@ -82,6 +84,7 @@ public final class LunaAuthVelocityPlugin {
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private AuthService authService;
 	private boolean mixedModeQuickLoginEnabled;
+	private boolean mixedModeSelectorEnabled;
 	private boolean premiumUuidEnabled;
 	private Map<UUID, UUID> uuidOverrideMap;
 	private boolean authFlowLogsEnabled;
@@ -95,6 +98,10 @@ public final class LunaAuthVelocityPlugin {
 	private final ConcurrentMap<UUID, String> pendingBackendAuthMessages;
 	private final Set<UUID> backendSyncRetryInFlight;
 	private final ConcurrentMap<String, Long> mixedModeProbeFallbackUntil;
+	private final ConcurrentMap<String, Long> mixedModeManualProbeUntil;
+	private final ConcurrentMap<String, ModePreference> mixedModePreferences;
+	private Path modePreferenceFile;
+	private long modePreferenceTtlMillis;
 	private volatile boolean initialized;
 
 	@Inject
@@ -105,6 +112,10 @@ public final class LunaAuthVelocityPlugin {
 		this.pendingBackendAuthMessages = new ConcurrentHashMap<>();
 		this.backendSyncRetryInFlight = ConcurrentHashMap.newKeySet();
 		this.mixedModeProbeFallbackUntil = new ConcurrentHashMap<>();
+		this.mixedModeManualProbeUntil = new ConcurrentHashMap<>();
+		this.mixedModePreferences = new ConcurrentHashMap<>();
+		this.modePreferenceFile = dataDirectory.resolve("mode-preferences.yml");
+		this.modePreferenceTtlMillis = 24L * 60L * 60L * 1000L;
 		this.uuidOverrideMap = Map.of();
 		this.requiredBackendNames = Set.of();
 		this.backendNotReadyMessage = "Hệ thống xác thực đang khởi tạo. Vui lòng thử lại sau vài giây.";
@@ -131,6 +142,7 @@ public final class LunaAuthVelocityPlugin {
 		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaAuthVelocity"), ansi).withDebug(debug).scope("AuthVelocity");
 		this.authFlowLogsEnabled = ConfigValues.booleanValue(logging, "auth-flow", true);
 		this.mixedModeQuickLoginEnabled = ConfigValues.booleanValue(mixedMode, "enabled", true);
+		this.mixedModeSelectorEnabled = ConfigValues.booleanValue(mixedMode, "mode-selector-gui-enabled", true);
 		this.premiumUuidEnabled = ConfigValues.booleanValue(mixedMode, "premium-uuid", true);
 		this.uuidOverrideMap = parseUuidOverrideMap(ConfigValues.map(mixedMode, "uuid-override-map"));
 		this.backendHandshakeRequired = ConfigValues.booleanValue(backendHandshake, "required", true);
@@ -145,10 +157,16 @@ public final class LunaAuthVelocityPlugin {
 		int hashKeyBits = Math.max(128, ConfigValues.intValue(pbkdf2, "key-bits", 256));
 		long premiumCheckTimeoutMillis = Math.max(500L, ConfigValues.intValue(mixedMode, "premium-check-timeout-ms", 3000));
 		long premiumNameCacheMinutes = Math.max(1L, ConfigValues.intValue(mixedMode, "premium-name-cache-minutes", 60));
+		int modePreferenceHours = Math.max(1, ConfigValues.intValue(mixedMode, "mode-preference-hours", 24));
+		this.modePreferenceTtlMillis = Math.max(MODE_PREFERENCE_MIN_TTL_MILLIS, modePreferenceHours * 60L * 60L * 1000L);
+ 		this.modePreferenceFile = dataDirectory.resolve("mode-preferences.yml");
 
 		this.mojangPremiumCheckService = new MojangPremiumCheckService(logger, premiumCheckTimeoutMillis, premiumNameCacheMinutes, authFlowLogsEnabled);
+		loadModePreferences();
 		logger.audit("Khởi tạo LunaAuth Velocity: onlineMode=" + proxyServer.getConfiguration().isOnlineMode()
 			+ ", mixedMode=" + mixedModeQuickLoginEnabled
+			+ ", mixedModeSelectorEnabled=" + mixedModeSelectorEnabled
+			+ ", modePreferenceHours=" + modePreferenceHours
 			+ ", premiumUuid=" + premiumUuidEnabled
 			+ ", uuidOverrideRules=" + uuidOverrideMap.size()
 			+ ", backendHandshakeRequired=" + backendHandshakeRequired
@@ -166,7 +184,7 @@ public final class LunaAuthVelocityPlugin {
 		this.pluginMessagingBus.registerIncoming(AuthChannels.COMMAND_REQUEST, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String action = reader.readUtf();
-			if (!"login".equals(action) && !"register".equals(action) && !"logout".equals(action) && !"sync_state".equals(action)) {
+			if (!"login".equals(action) && !"register".equals(action) && !"logout".equals(action) && !"sync_state".equals(action) && !"set_probe_preference".equals(action)) {
 				flow("Bỏ qua command_request action không hỗ trợ: " + action);
 				return PluginMessageDispatchResult.HANDLED;
 			}
@@ -184,6 +202,16 @@ public final class LunaAuthVelocityPlugin {
 				syncAuthState(player);
 				scheduleBackendSyncRetry(playerUuid, 1);
 				flow("Processed sync_state request player=" + username + " uuid=" + playerUuid);
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
+			if ("set_probe_preference".equals(action)) {
+				String mode = reader.readUtf();
+				if (applyMixedModePreference(player, mode)) {
+					if ("online".equalsIgnoreCase(mode)) {
+						player.disconnect(Component.text("Đã ghi nhận chế độ Premium. Vui lòng kết nối lại để xác thực online."));
+					}
+				}
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
@@ -269,16 +297,54 @@ public final class LunaAuthVelocityPlugin {
 		if (fallbackUntil != null) {
 			if (fallbackUntil >= now) {
 				mixedModeProbeFallbackUntil.remove(probeKey, fallbackUntil);
+				clearModePreference(username);
+				mixedModeManualProbeUntil.remove(probeKey);
 				flow("PreLogin mixed-mode: dùng fallback offline cho lượt thử lại username=" + username
-					+ " remote=" + event.getConnection().getRemoteAddress());
+					+ " remote=" + event.getConnection().getRemoteAddress()
+					+ " -> reset mode preference");
 				return;
 			}
 			mixedModeProbeFallbackUntil.remove(probeKey, fallbackUntil);
 		}
 
+		if (!mixedModeSelectorEnabled) {
+			mixedModeProbeFallbackUntil.put(probeKey, now + MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS);
+			event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
+			flow("PreLogin mixed-mode: mode-selector-gui tắt -> dùng probe-fallback mặc định username=" + username
+				+ " remote=" + event.getConnection().getRemoteAddress());
+			return;
+		}
+
+		Optional<String> persistedMode = findActiveModePreference(username);
+		if (persistedMode.isPresent()) {
+			String mode = persistedMode.get();
+			if ("offline".equals(mode)) {
+				flow("PreLogin mixed-mode: dùng mode preference=offline username=" + username);
+				return;
+			}
+
+			if ("online".equals(mode)) {
+				mixedModeProbeFallbackUntil.put(probeKey, now + MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS);
+				event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
+				flow("PreLogin mixed-mode: dùng mode preference=online username=" + username
+					+ " remote=" + event.getConnection().getRemoteAddress());
+				return;
+			}
+		}
+
+		Long manualProbeUntil = mixedModeManualProbeUntil.get(probeKey);
+		if (manualProbeUntil == null || manualProbeUntil < now) {
+			if (manualProbeUntil != null) {
+				mixedModeManualProbeUntil.remove(probeKey, manualProbeUntil);
+			}
+			flow("PreLogin mixed-mode: premium name nhưng chưa có lựa chọn online từ dialog, giữ offline flow username=" + username);
+			return;
+		}
+		mixedModeManualProbeUntil.remove(probeKey, manualProbeUntil);
+
 		mixedModeProbeFallbackUntil.put(probeKey, now + MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS);
 		event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
-		flow("PreLogin mixed-mode: premium name -> probe online-mode username=" + username
+		flow("PreLogin mixed-mode: gui-selected premium probe -> force online-mode username=" + username
 			+ " remote=" + event.getConnection().getRemoteAddress());
 	}
 
@@ -416,6 +482,7 @@ public final class LunaAuthVelocityPlugin {
 		flow("Disconnect player=" + event.getPlayer().getUsername() + " remote=" + event.getPlayer().getRemoteAddress());
 		verifiedOnlineSessions.remove(event.getPlayer().getRemoteAddress());
 		mixedModeProbeFallbackUntil.remove(mixedModeProbeKey(event.getPlayer().getUsername(), event.getPlayer().getRemoteAddress()));
+		mixedModeManualProbeUntil.remove(mixedModeProbeKey(event.getPlayer().getUsername(), event.getPlayer().getRemoteAddress()));
 		pendingBackendAuthMessages.remove(event.getPlayer().getUniqueId());
 		backendSyncRetryInFlight.remove(event.getPlayer().getUniqueId());
 		authService.onDisconnect(event.getPlayer().getUniqueId());
@@ -436,7 +503,7 @@ public final class LunaAuthVelocityPlugin {
 		CommandManager manager = proxyServer.getCommandManager();
 		manager.register(manager.metaBuilder("logout").aliases("lo").build(), new LogoutCommand(authService, this::syncAuthState));
 		CommandMeta authMeta = manager.metaBuilder("auth").aliases("lauth").build();
-		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, premiumUuidEnabled, uuidOverrideMap.size()));
+		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, this::setModePreferenceByCommand, premiumUuidEnabled, uuidOverrideMap.size()));
 	}
 
 	private void sendSetSpawnRequest(Player target, String actorName) {
@@ -484,15 +551,19 @@ public final class LunaAuthVelocityPlugin {
 			return false;
 		}
 		boolean needsRegister = needsRegister(player.getUniqueId());
+		boolean premiumNameCandidate = isPremiumNameCandidate(player);
+		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 
 		boolean sent = pluginMessagingBus.send(connection, AuthChannels.AUTH_STATE, writer -> {
 			writer.writeUtf("state");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
+			writer.writeBoolean(premiumNameCandidate);
+			writer.writeBoolean(hasModePreference);
 			writer.writeUtf(player.getUsername());
 		});
-		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 
@@ -501,15 +572,19 @@ public final class LunaAuthVelocityPlugin {
 			return false;
 		}
 		boolean needsRegister = needsRegister(player.getUniqueId());
+		boolean premiumNameCandidate = isPremiumNameCandidate(player);
+		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 
 		boolean sent = pluginMessagingBus.send(server, AuthChannels.AUTH_STATE, writer -> {
 			writer.writeUtf("state");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
+			writer.writeBoolean(premiumNameCandidate);
+			writer.writeBoolean(hasModePreference);
 			writer.writeUtf(player.getUsername());
 		});
-		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + server.getServerInfo().getName() + " sent=" + sent);
+		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + server.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 
@@ -519,6 +594,8 @@ public final class LunaAuthVelocityPlugin {
 		}
 		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
 		boolean needsRegister = needsRegister(player.getUniqueId());
+		boolean premiumNameCandidate = isPremiumNameCandidate(player);
+		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 
 		player.getCurrentServer().ifPresent(connection -> {
 			boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
@@ -527,9 +604,11 @@ public final class LunaAuthVelocityPlugin {
 			writer.writeBoolean(success);
 			writer.writeBoolean(authenticated);
 			writer.writeBoolean(needsRegister);
+			writer.writeBoolean(premiumNameCandidate);
+			writer.writeBoolean(hasModePreference);
 			writer.writeUtf(message);
 			});
-			flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
+			flow("TX command_response player=" + player.getUsername() + " success=" + success + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
 		});
 	}
 
@@ -545,12 +624,16 @@ public final class LunaAuthVelocityPlugin {
  	}
 
 	private boolean sendAuthenticatedBackendNotice(Player player, ServerConnection connection, String message) {
+		boolean premiumNameCandidate = isPremiumNameCandidate(player);
+		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 		boolean sent = pluginMessagingBus.send(connection, AuthChannels.COMMAND_RESPONSE, writer -> {
 			writer.writeUtf("auth_result");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(true);
 			writer.writeBoolean(true);
 			writer.writeBoolean(false);
+			writer.writeBoolean(premiumNameCandidate);
+			writer.writeBoolean(hasModePreference);
 			writer.writeUtf(message);
 		});
 		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
@@ -558,12 +641,16 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private boolean sendAuthenticatedBackendNotice(Player player, RegisteredServer server, String message) {
+		boolean premiumNameCandidate = isPremiumNameCandidate(player);
+		boolean hasModePreference = hasActiveModePreference(player.getUsername());
 		boolean sent = pluginMessagingBus.send(server, AuthChannels.COMMAND_RESPONSE, writer -> {
 			writer.writeUtf("auth_result");
 			writer.writeUuid(player.getUniqueId());
 			writer.writeBoolean(true);
 			writer.writeBoolean(true);
 			writer.writeBoolean(false);
+			writer.writeBoolean(premiumNameCandidate);
+			writer.writeBoolean(hasModePreference);
 			writer.writeUtf(message);
 		});
 		flow("TX command_response(auto-auth) player=" + player.getUsername() + " message=" + message + " server=" + server.getServerInfo().getName() + " sent=" + sent);
@@ -642,6 +729,17 @@ public final class LunaAuthVelocityPlugin {
 		return authService.account(playerUuid)
 			.map(account -> !account.hasPassword())
 			.orElse(true);
+	}
+
+	private boolean isPremiumNameCandidate(Player player) {
+		if (!mixedModeQuickLoginEnabled) {
+			return false;
+		}
+		if (proxyServer.getConfiguration().isOnlineMode()) {
+			return false;
+		}
+		String username = player.getUsername();
+		return username != null && !username.isBlank() && mojangPremiumCheckService.isPremiumUsername(username);
 	}
 
 	private AuthService.QuickAuthTrustDecision quickAuthDecision(Player player) {
@@ -915,5 +1013,201 @@ public final class LunaAuthVelocityPlugin {
 			remote = remoteAddress.toString();
 		}
 		return normalizedUsername + "@" + remote;
+	}
+
+	private boolean applyMixedModePreference(Player player, String modeRaw) {
+		if (modeRaw == null || modeRaw.isBlank()) {
+			flow("Bỏ qua set_probe_preference vì mode rỗng cho player=" + player.getUsername());
+			return false;
+		}
+
+		String mode = modeRaw.trim().toLowerCase(Locale.ROOT);
+		String probeKey = mixedModeProbeKey(player.getUsername(), player.getRemoteAddress());
+		if ("online".equals(mode) || "online_forever".equals(mode)) {
+			if (!mixedModeQuickLoginEnabled || proxyServer.getConfiguration().isOnlineMode()) {
+				flow("Bỏ qua online probe preference vì mixed-mode không khả dụng player=" + player.getUsername());
+				return false;
+			}
+
+			if (!mojangPremiumCheckService.isPremiumUsername(player.getUsername())) {
+				flow("Từ chối online probe preference vì username không phải premium name player=" + player.getUsername());
+				player.sendRichMessage("<red>Tên này không phải tài khoản Premium hợp lệ.</red>");
+				return false;
+			}
+
+			boolean rememberForever = "online_forever".equals(mode);
+			setModePreference(player.getUsername(), "online", rememberForever);
+			mixedModeProbeFallbackUntil.remove(probeKey);
+			mixedModeManualProbeUntil.put(probeKey, System.currentTimeMillis() + MIXED_MODE_MANUAL_PROBE_WINDOW_MILLIS);
+			flow("Đã ghi nhận online probe preference player=" + player.getUsername() + " key=" + probeKey + " rememberForever=" + rememberForever);
+			return true;
+		}
+
+		if ("offline".equals(mode) || "offline_forever".equals(mode)) {
+			boolean rememberForever = "offline_forever".equals(mode);
+			setModePreference(player.getUsername(), "offline", rememberForever);
+			mixedModeProbeFallbackUntil.remove(probeKey);
+			mixedModeManualProbeUntil.remove(probeKey);
+			flow("Đã ghi nhận offline preference player=" + player.getUsername() + " key=" + probeKey + " rememberForever=" + rememberForever);
+			return true;
+		}
+
+		if ("unset".equals(mode)) {
+			clearModePreference(player.getUsername());
+			mixedModeProbeFallbackUntil.remove(probeKey);
+			mixedModeManualProbeUntil.remove(probeKey);
+			flow("Đã xóa mode preference player=" + player.getUsername() + " key=" + probeKey);
+			return true;
+		}
+
+		flow("Bỏ qua set_probe_preference mode không hợp lệ=" + mode + " player=" + player.getUsername());
+		return false;
+	}
+
+	private synchronized void loadModePreferences() {
+		mixedModePreferences.clear();
+		Map<String, Object> root = LunaYamlConfig.loadMap(modePreferenceFile);
+		Object rawPrefs = root.get("preferences");
+		if (!(rawPrefs instanceof Map<?, ?> rawMap)) {
+			return;
+		}
+
+		long now = System.currentTimeMillis();
+		for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+			String username = normalizePreferenceKey(String.valueOf(entry.getKey()));
+			if (!(entry.getValue() instanceof Map<?, ?> prefNode)) {
+				continue;
+			}
+
+			Object modeValue = prefNode.get("mode");
+			Object expiresValue = prefNode.get("expires-at");
+			boolean rememberForever = Boolean.TRUE.equals(prefNode.get("remember-forever"));
+			if (!(modeValue instanceof String mode)) {
+				continue;
+			}
+			long expiresAt = rememberForever ? Long.MAX_VALUE : parseLong(expiresValue, 0L);
+			if (!rememberForever && expiresAt <= now) {
+				continue;
+			}
+
+			String normalizedMode = mode.trim().toLowerCase(Locale.ROOT);
+			if (!"online".equals(normalizedMode) && !"offline".equals(normalizedMode)) {
+				continue;
+			}
+			mixedModePreferences.put(username, new ModePreference(normalizedMode, expiresAt, rememberForever));
+		}
+
+		saveModePreferences();
+	}
+
+	private synchronized void saveModePreferences() {
+		Map<String, Object> root = new LinkedHashMap<>();
+		Map<String, Object> preferences = new LinkedHashMap<>();
+		long now = System.currentTimeMillis();
+		List<String> expiredKeys = new ArrayList<>();
+
+		for (Map.Entry<String, ModePreference> entry : mixedModePreferences.entrySet()) {
+			ModePreference preference = entry.getValue();
+			if (!preference.rememberForever() && preference.expiresAtEpochMillis() <= now) {
+				expiredKeys.add(entry.getKey());
+				continue;
+			}
+
+			Map<String, Object> node = new LinkedHashMap<>();
+			node.put("mode", preference.mode());
+			node.put("remember-forever", preference.rememberForever());
+			if (!preference.rememberForever()) {
+				node.put("expires-at", preference.expiresAtEpochMillis());
+			}
+			preferences.put(entry.getKey(), node);
+		}
+
+		for (String expiredKey : expiredKeys) {
+			mixedModePreferences.remove(expiredKey);
+		}
+
+		root.put("preferences", preferences);
+		try {
+			dumpYamlMap(modePreferenceFile, root);
+		} catch (Exception exception) {
+			logger.warn("Không thể lưu mode-preferences.yml: " + exception.getMessage());
+		}
+	}
+
+	private Optional<String> findActiveModePreference(String username) {
+		String key = normalizePreferenceKey(username);
+		ModePreference preference = mixedModePreferences.get(key);
+		if (preference == null) {
+			return Optional.empty();
+		}
+		if (!preference.rememberForever() && preference.expiresAtEpochMillis() <= System.currentTimeMillis()) {
+			mixedModePreferences.remove(key);
+			saveModePreferences();
+			return Optional.empty();
+		}
+		return Optional.of(preference.mode());
+	}
+
+	private boolean hasActiveModePreference(String username) {
+		return findActiveModePreference(username).isPresent();
+	}
+
+	private void setModePreference(String username, String mode, boolean rememberForever) {
+		String key = normalizePreferenceKey(username);
+		String normalizedMode = mode.trim().toLowerCase(Locale.ROOT);
+		long expiresAt = rememberForever ? Long.MAX_VALUE : (System.currentTimeMillis() + modePreferenceTtlMillis);
+		mixedModePreferences.put(key, new ModePreference(normalizedMode, expiresAt, rememberForever));
+		saveModePreferences();
+	}
+
+	private void clearModePreference(String username) {
+		String key = normalizePreferenceKey(username);
+		if (mixedModePreferences.remove(key) != null) {
+			saveModePreferences();
+		}
+	}
+
+	private String normalizePreferenceKey(String username) {
+		return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private long parseLong(Object value, long fallback) {
+		if (value instanceof Number number) {
+			return number.longValue();
+		}
+		if (value == null) {
+			return fallback;
+		}
+		try {
+			return Long.parseLong(String.valueOf(value));
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
+	}
+
+	private AuthAdminCommand.ModePreferenceResult setModePreferenceByCommand(String username, String modeRaw) {
+		if (username == null || username.isBlank()) {
+			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Username không hợp lệ.");
+		}
+
+		String mode = modeRaw == null ? "" : modeRaw.trim().toLowerCase(Locale.ROOT);
+		if ("unset".equals(mode)) {
+			clearModePreference(username);
+			return new AuthAdminCommand.ModePreferenceResult(true, "✔ Đã xóa mode preference của " + username + ".");
+		}
+
+		if (!"online".equals(mode) && !"offline".equals(mode)) {
+			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Mode phải là online | offline | unset.");
+		}
+
+		if ("online".equals(mode) && !mojangPremiumCheckService.isPremiumUsername(username)) {
+			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Username này không phải premium name hợp lệ.");
+		}
+
+		setModePreference(username, mode, false);
+		return new AuthAdminCommand.ModePreferenceResult(true, "✔ Đã lưu mode preference=" + mode + " cho " + username + " trong 24 giờ.");
+	}
+
+	private record ModePreference(String mode, long expiresAtEpochMillis, boolean rememberForever) {
 	}
 }

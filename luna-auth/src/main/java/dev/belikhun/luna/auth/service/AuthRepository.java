@@ -101,6 +101,15 @@ public final class AuthRepository {
 			.map(UUID::fromString);
 	}
 
+	public Optional<UUID> findLatestClaimedOnlineUuidByUsername(String username) {
+		return database.first(
+			"SELECT online_uuid FROM luna_auth_uuid_claims WHERE username = ? ORDER BY updated_at DESC",
+			List.of(normalizeUsername(username))
+		).map(row -> row.get("online_uuid"))
+			.map(Object::toString)
+			.map(UUID::fromString);
+	}
+
 	public Optional<AuthAccount> find(UUID playerUuid) {
 		return database.first(
 			"SELECT player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at "
@@ -164,6 +173,21 @@ public final class AuthRepository {
 			current.createdAtEpochMillis(),
 			now
 		));
+	}
+
+	public void resetAllPlayerData(UUID playerUuid, UUID offlineUuid, UUID normalizedOfflineUuid, String username) {
+		String playerUuidString = playerUuid.toString();
+		String normalizedUsername = normalizeUsername(username);
+
+		database.update("DELETE FROM luna_auth_accounts WHERE player_uuid = ?", List.of(playerUuidString));
+		database.update("DELETE FROM luna_auth_login_history WHERE player_uuid = ?", List.of(playerUuidString));
+		database.update("DELETE FROM luna_auth_audit_history WHERE player_uuid = ?", List.of(playerUuidString));
+		database.update("DELETE FROM luna_auth_session_history WHERE player_uuid = ?", List.of(playerUuidString));
+
+		database.update(
+			"DELETE FROM luna_auth_uuid_claims WHERE online_uuid = ? OR offline_uuid = ? OR offline_uuid = ? OR username = ?",
+			List.of(playerUuidString, offlineUuid.toString(), normalizedOfflineUuid.toString(), normalizedUsername)
+		);
 	}
 
 	public void recordAttemptLegacy(UUID playerUuid, String username, String ip, boolean success, String reason, long now) {

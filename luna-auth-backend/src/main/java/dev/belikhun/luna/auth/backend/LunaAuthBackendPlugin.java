@@ -29,6 +29,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	private BackendAuthSpawnService spawnService;
 	private LunaLogger logger;
 	private boolean authFlowLogsEnabled;
+	private boolean modeSelectorGuiEnabled;
 
 	@Override
 	public void onEnable() {
@@ -42,6 +43,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		saveDefaultConfig();
 		migrateConfig();
 		this.authFlowLogsEnabled = getConfig().getBoolean("logging.auth-flow", true);
+		this.modeSelectorGuiEnabled = getConfig().getBoolean("auth.mode-selector-gui.enabled", true);
 		this.stateRegistry = new BackendAuthStateRegistry();
 		this.spawnService = new BackendAuthSpawnService(this);
 		this.restrictionListener = new AuthRestrictionListener(
@@ -65,12 +67,14 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			),
 			readAllowedCommands(),
 			this::requestStateSync,
+			this::sendProbePreference,
+			modeSelectorGuiEnabled,
 			logger.scope("Restriction"),
 			authFlowLogsEnabled
 		);
 		getServer().getPluginManager().registerEvents(restrictionListener, this);
 		restrictionListener.startPromptTask();
-		flow("Plugin enable complete, authFlowLogs=" + authFlowLogsEnabled + " allowedCommands=" + readAllowedCommands());
+		flow("Plugin enable complete, authFlowLogs=" + authFlowLogsEnabled + " modeSelectorGuiEnabled=" + modeSelectorGuiEnabled + " allowedCommands=" + readAllowedCommands());
 		LunaCore.services().pluginMessaging().registerOutgoing(AuthChannels.COMMAND_REQUEST);
 		LunaCore.services().pluginMessaging().registerIncoming(AuthChannels.ADMIN_REQUEST, context -> {
 			if (!(context.source() instanceof Player source)) {
@@ -111,13 +115,16 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			UUID playerUuid = reader.readUuid();
 			boolean authenticated = reader.readBoolean();
 			boolean needsRegister = reader.readBoolean();
+			boolean premiumNameCandidate = reader.readBoolean();
+			boolean hasModePreference = reader.readBoolean();
 			String username = reader.readUtf();
 			flow("RX auth_state action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId()
-				+ " payloadUuid=" + playerUuid + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " username=" + username);
+				+ " payloadUuid=" + playerUuid + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " username=" + username);
 			if (!source.getUniqueId().equals(playerUuid)) {
 				flow("Ignore auth_state due to UUID mismatch source=" + source.getUniqueId() + " payload=" + playerUuid);
 				return PluginMessageDispatchResult.HANDLED;
 			}
+			restrictionListener.updateModeSelectorEligibility(source, premiumNameCandidate, hasModePreference);
 			BackendAuthStateRegistry.AuthState previous = stateRegistry.state(playerUuid);
 			boolean wasAuthenticated = stateRegistry.isAuthenticated(playerUuid);
 
@@ -149,14 +156,17 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			boolean success = reader.readBoolean();
 			boolean authenticated = reader.readBoolean();
 			boolean needsRegister = reader.readBoolean();
+			boolean premiumNameCandidate = reader.readBoolean();
+			boolean hasModePreference = reader.readBoolean();
 			String message = reader.readUtf();
 			flow("RX command_response action=" + action + " source=" + source.getName() + " sourceUuid=" + source.getUniqueId()
 				+ " payloadUuid=" + playerUuid + " success=" + success + " authenticated=" + authenticated
-				+ " needsRegister=" + needsRegister + " message=" + message);
+				+ " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " message=" + message);
 			if (!source.getUniqueId().equals(playerUuid)) {
 				flow("Ignore command_response due to UUID mismatch source=" + source.getUniqueId() + " payload=" + playerUuid);
 				return PluginMessageDispatchResult.HANDLED;
 			}
+			restrictionListener.updateModeSelectorEligibility(source, premiumNameCandidate, hasModePreference);
 			BackendAuthStateRegistry.AuthState previous = stateRegistry.state(playerUuid);
 			boolean wasAuthenticated = stateRegistry.isAuthenticated(playerUuid);
 
@@ -250,6 +260,16 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			writer.writeUtf(player.getName());
 		});
 		flow("TX command_request action=sync_state player=" + player.getName() + " uuid=" + player.getUniqueId() + " at=" + Instant.now());
+	}
+
+	private void sendProbePreference(Player player, String mode) {
+		LunaCore.services().pluginMessaging().send(player, AuthChannels.COMMAND_REQUEST, writer -> {
+			writer.writeUtf("set_probe_preference");
+			writer.writeUuid(player.getUniqueId());
+			writer.writeUtf(player.getName());
+			writer.writeUtf(mode);
+		});
+		flow("TX command_request action=set_probe_preference player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + mode + " at=" + Instant.now());
 	}
 
 	private void flow(String message) {

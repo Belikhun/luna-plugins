@@ -17,7 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,7 +68,7 @@ public final class MigrationDataTransferService {
 		int migratedHuskHomesHomes = 0;
 		double migratedMoney = 0D;
 		List<String> errors = new ArrayList<>();
-		String backupStamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(Instant.now());
+		String backupStamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
 
 		for (World world : plugin.getServer().getWorlds()) {
 			File worldFolder = world.getWorldFolder();
@@ -233,6 +233,14 @@ public final class MigrationDataTransferService {
 			return new CopyResult(0, 1, List.of());
 		}
 
+		try {
+			backupOriginalSource(worldRoot.getFileName().toString(), directoryName, source, backupStamp);
+		} catch (IOException exception) {
+			return new CopyResult(0, 0, List.of(
+				"Không thể sao lưu dữ liệu gốc " + directoryName + " trong world " + worldRoot.getFileName() + ": " + exception.getMessage()
+			));
+		}
+
 		Path target = dir.resolve(toUuid + "." + extension);
 		try {
 			if (Files.exists(target)) {
@@ -253,10 +261,22 @@ public final class MigrationDataTransferService {
 		}
 	}
 
+	private void backupOriginalSource(String worldName, String directoryName, Path source, String backupStamp) throws IOException {
+		Path backupDir = plugin.getDataFolder().toPath()
+			.resolve("backup")
+			.resolve(backupStamp)
+			.resolve("original")
+			.resolve(worldName)
+			.resolve(directoryName);
+		Files.createDirectories(backupDir);
+		Files.copy(source, backupDir.resolve(source.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+	}
+
 	private void backupExistingTarget(String worldName, String directoryName, Path target, String backupStamp) throws IOException {
 		Path backupDir = plugin.getDataFolder().toPath()
 			.resolve("backup")
 			.resolve(backupStamp)
+			.resolve("target")
 			.resolve(worldName)
 			.resolve(directoryName);
 		Files.createDirectories(backupDir);

@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 public final class AuthAdminCommand implements SimpleCommand {
@@ -33,22 +34,35 @@ public final class AuthAdminCommand implements SimpleCommand {
 	private static final String PERMISSION_CHANGEPASSWORD = "lunaauth.admin.changepassword";
 	private static final String PERMISSION_FORCELOGIN = "lunaauth.admin.forcelogin";
 	private static final String PERMISSION_SETSPAWN = "lunaauth.admin.setspawn";
+	private static final String PERMISSION_RESET = "lunaauth.admin.reset";
+	private static final String PERMISSION_MODE_SELF = "lunaauth.mode";
+	private static final String PERMISSION_MODE_ADMIN = "lunaauth.admin.mode";
 
 	private static final int HISTORY_PAGE_SIZE = 10;
-	private static final List<String> SUBCOMMANDS = List.of("status", "session", "history", "resetpassword", "unlock", "logout", "invalidatesession", "changepassword", "forcelogin", "setspawn", "reset");
+	private static final List<String> SUBCOMMANDS = List.of("status", "session", "history", "resetpassword", "unlock", "logout", "invalidatesession", "changepassword", "forcelogin", "setspawn", "reset", "mode");
 
 	private final ProxyServer proxyServer;
 	private final AuthService authService;
 	private final Consumer<Player> authStateSync;
 	private final BiConsumer<Player, String> adminRequestSender;
+	private final BiFunction<String, String, ModePreferenceResult> modePreferenceSetter;
 	private final boolean premiumUuidEnabled;
 	private final int uuidOverrideRuleCount;
 
-	public AuthAdminCommand(ProxyServer proxyServer, AuthService authService, Consumer<Player> authStateSync, BiConsumer<Player, String> adminRequestSender, boolean premiumUuidEnabled, int uuidOverrideRuleCount) {
+	public AuthAdminCommand(
+		ProxyServer proxyServer,
+		AuthService authService,
+		Consumer<Player> authStateSync,
+		BiConsumer<Player, String> adminRequestSender,
+		BiFunction<String, String, ModePreferenceResult> modePreferenceSetter,
+		boolean premiumUuidEnabled,
+		int uuidOverrideRuleCount
+	) {
 		this.proxyServer = proxyServer;
 		this.authService = authService;
 		this.authStateSync = authStateSync;
 		this.adminRequestSender = adminRequestSender;
+		this.modePreferenceSetter = modePreferenceSetter;
 		this.premiumUuidEnabled = premiumUuidEnabled;
 		this.uuidOverrideRuleCount = Math.max(0, uuidOverrideRuleCount);
 	}
@@ -56,12 +70,17 @@ public final class AuthAdminCommand implements SimpleCommand {
 	@Override
 	public void execute(Invocation invocation) {
 		CommandSource source = invocation.source();
+		String[] args = invocation.arguments();
+		if (args.length > 0 && "mode".equalsIgnoreCase(args[0])) {
+			handleMode(source, args);
+			return;
+		}
+
 		if (!source.hasPermission(PERMISSION_BASE)) {
 			source.sendRichMessage(error("❌ Bạn không có quyền dùng lệnh này."));
 			return;
 		}
 
-		String[] args = invocation.arguments();
 		if (args.length == 0) {
 			source.sendRichMessage(info("ℹ Danh sách lệnh quản trị auth:"));
 			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("status"), CommandStrings.required("player", "player")));
@@ -73,12 +92,13 @@ public final class AuthAdminCommand implements SimpleCommand {
 			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("invalidatesession"), CommandStrings.required("player", "player")));
 			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("changepassword"), CommandStrings.required("player", "player"), CommandStrings.required("mat_khau_moi", "text")));
 			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("forcelogin"), CommandStrings.required("player", "player")));
+			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("reset"), CommandStrings.required("player", "player")));
+			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("mode"), CommandStrings.required("online|offline|unset", "text"), CommandStrings.optional("player", "player")));
 			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("setspawn")));
 			return;
 		}
 
 		String sub = args[0].toLowerCase();
-		sub = "reset".equals(sub) ? "resetpassword" : sub;
 
 		if (!checkPermission(source, permissionFor(sub), sub)) {
 			return;
@@ -200,6 +220,13 @@ public final class AuthAdminCommand implements SimpleCommand {
 				target.disconnect(net.kyori.adventure.text.Component.text("Mật khẩu đã được quản trị viên reset. Hãy kết nối lại để /register."));
 				source.sendRichMessage(success(result.message()));
 			}
+			case "reset" -> {
+				AuthService.AuthResult result = authService.adminResetAll(target.getUniqueId(), target.getUsername(), ipAddress, actorName(source));
+				modePreferenceSetter.apply(target.getUsername(), "unset");
+				authStateSync.accept(target);
+				target.disconnect(net.kyori.adventure.text.Component.text("Dữ liệu auth của bạn đã được reset bởi quản trị viên. Hãy kết nối lại để đăng ký từ đầu."));
+				source.sendRichMessage(result.success() ? success(result.message()) : error(result.message()));
+			}
 			case "unlock" -> {
 				AuthService.AuthResult result = authService.adminUnlock(target.getUniqueId(), target.getUsername(), ipAddress, actorName(source));
 				source.sendRichMessage(result.success() ? success(result.message()) : error(result.message()));
@@ -233,11 +260,21 @@ public final class AuthAdminCommand implements SimpleCommand {
 			if ("setspawn".equalsIgnoreCase(args[0])) {
 				return List.of();
 			}
+			if ("mode".equalsIgnoreCase(args[0])) {
+				return CommandCompletions.filterPrefix(List.of("online", "offline", "unset"), args[1]);
+			}
 			List<String> onlineNames = new ArrayList<>();
 			for (Player player : proxyServer.getAllPlayers()) {
 				onlineNames.add(player.getUsername());
 			}
 			return CommandCompletions.filterPrefix(onlineNames, args[1]);
+		}
+		if (args.length == 3 && "mode".equalsIgnoreCase(args[0])) {
+			List<String> onlineNames = new ArrayList<>();
+			for (Player player : proxyServer.getAllPlayers()) {
+				onlineNames.add(player.getUsername());
+			}
+			return CommandCompletions.filterPrefix(onlineNames, args[2]);
 		}
 		if (args.length == 3 && "history".equalsIgnoreCase(args[0])) {
 			return CommandCompletions.filterPrefix(List.of("1", "2", "3", "4", "5"), args[2]);
@@ -328,6 +365,7 @@ public final class AuthAdminCommand implements SimpleCommand {
 			case "session" -> PERMISSION_SESSION;
 			case "history" -> PERMISSION_HISTORY;
 			case "resetpassword" -> PERMISSION_RESETPASSWORD;
+			case "reset" -> PERMISSION_RESET;
 			case "unlock" -> PERMISSION_UNLOCK;
 			case "logout" -> PERMISSION_LOGOUT;
 			case "invalidatesession" -> PERMISSION_INVALIDATESESSION;
@@ -336,6 +374,65 @@ public final class AuthAdminCommand implements SimpleCommand {
 			case "setspawn" -> PERMISSION_SETSPAWN;
 			default -> "";
 		};
+	}
+
+	private void handleMode(CommandSource source, String[] args) {
+		if (args.length < 2) {
+			source.sendRichMessage(CommandStrings.usage("/auth", CommandStrings.literal("mode"), CommandStrings.required("online|offline|unset", "text"), CommandStrings.optional("player", "player")));
+			return;
+		}
+
+		String mode = args[1].toLowerCase();
+		if (!"online".equals(mode) && !"offline".equals(mode) && !"unset".equals(mode)) {
+			source.sendRichMessage(error("❌ Mode phải là online | offline | unset."));
+			return;
+		}
+
+		if (args.length >= 3) {
+			if (!source.hasPermission(PERMISSION_MODE_ADMIN)) {
+				source.sendRichMessage(error("❌ Bạn thiếu quyền " + PERMISSION_MODE_ADMIN + "."));
+				return;
+			}
+
+			Optional<Player> targetOptional = proxyServer.getPlayer(args[2]);
+			if (targetOptional.isEmpty()) {
+				source.sendRichMessage(error("❌ Người chơi đang không online."));
+				return;
+			}
+
+			Player target = targetOptional.get();
+			ModePreferenceResult result = modePreferenceSetter.apply(target.getUsername(), mode);
+			source.sendRichMessage(result.success() ? success(result.message()) : error(result.message()));
+			if (!result.success()) {
+				return;
+			}
+
+			authStateSync.accept(target);
+			if ("online".equals(mode)) {
+				target.disconnect(net.kyori.adventure.text.Component.text("Chế độ tài khoản đã đổi sang Premium. Hãy kết nối lại để xác thực online."));
+			}
+			return;
+		}
+
+		if (!(source instanceof Player player)) {
+			source.sendRichMessage(error("❌ Console phải chỉ định player: /auth mode <online|offline|unset> <player>"));
+			return;
+		}
+		if (!source.hasPermission(PERMISSION_MODE_SELF)) {
+			source.sendRichMessage(error("❌ Bạn thiếu quyền " + PERMISSION_MODE_SELF + "."));
+			return;
+		}
+
+		ModePreferenceResult result = modePreferenceSetter.apply(player.getUsername(), mode);
+		source.sendRichMessage(result.success() ? success(result.message()) : error(result.message()));
+		if (!result.success()) {
+			return;
+		}
+
+		authStateSync.accept(player);
+		if ("online".equals(mode)) {
+			player.disconnect(net.kyori.adventure.text.Component.text("Chế độ tài khoản đã đổi sang Premium. Hãy kết nối lại để xác thực online."));
+		}
 	}
 
 	private boolean checkPermission(CommandSource source, String permission, String subcommand) {
@@ -374,5 +471,8 @@ public final class AuthAdminCommand implements SimpleCommand {
 
 	private String accent(String text) {
 		return "<color:" + LunaPalette.PRIMARY_300 + ">" + text + "</color>";
+	}
+
+	public record ModePreferenceResult(boolean success, String message) {
 	}
 }

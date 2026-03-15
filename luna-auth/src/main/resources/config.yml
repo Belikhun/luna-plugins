@@ -22,6 +22,8 @@ auth:
   quick-login:
     mixed-mode:
       enabled: true
+      mode-selector-gui-enabled: true
+      mode-preference-hours: 24
       premium-uuid: true
       uuid-override-map: {}
       # uuid-override-map:

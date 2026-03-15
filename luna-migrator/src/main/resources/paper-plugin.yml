@@ -9,9 +9,6 @@ commands:
   migrate:
     description: Đánh dấu trạng thái migrate UUID một lần.
     usage: /migrate [tên_cũ]
-  migration:
-    description: Xem trạng thái migrate UUID.
-    usage: /migration
 dependencies:
   server:
     LunaCore:
