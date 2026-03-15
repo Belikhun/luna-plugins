@@ -14,7 +14,9 @@ import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
@@ -23,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,6 +42,8 @@ public final class PaperServerSelectorController implements Listener {
 	private final GuiManager guiManager;
 	private final Map<UUID, Integer> openPages;
 	private final Map<UUID, SelectorPayload> payloadByPlayer;
+	private final Map<UUID, Inventory> selectorInventoryByPlayer;
+	private final Set<UUID> suppressCloseCleanup;
 
 	public PaperServerSelectorController(
 		JavaPlugin plugin,
@@ -57,6 +62,8 @@ public final class PaperServerSelectorController implements Listener {
 		this.guiManager = new GuiManager();
 		this.openPages = new ConcurrentHashMap<>();
 		this.payloadByPlayer = new ConcurrentHashMap<>();
+		this.selectorInventoryByPlayer = new ConcurrentHashMap<>();
+		this.suppressCloseCleanup = ConcurrentHashMap.newKeySet();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -75,16 +82,38 @@ public final class PaperServerSelectorController implements Listener {
 
 	@EventHandler
 	public void onQuit(PlayerQuitEvent event) {
-		openPages.remove(event.getPlayer().getUniqueId());
-		payloadByPlayer.remove(event.getPlayer().getUniqueId());
+		UUID playerId = event.getPlayer().getUniqueId();
+		openPages.remove(playerId);
+		payloadByPlayer.remove(playerId);
+		selectorInventoryByPlayer.remove(playerId);
+		suppressCloseCleanup.remove(playerId);
+	}
+
+	@EventHandler
+	public void onClose(InventoryCloseEvent event) {
+		if (!(event.getPlayer() instanceof Player player)) {
+			return;
+		}
+
+		UUID playerId = player.getUniqueId();
+		if (suppressCloseCleanup.remove(playerId)) {
+			return;
+		}
+
+		Inventory trackedInventory = selectorInventoryByPlayer.get(playerId);
+		if (trackedInventory != null && trackedInventory.equals(event.getInventory())) {
+			openPages.remove(playerId);
+			selectorInventoryByPlayer.remove(playerId);
+		}
 	}
 
 	public void open(Player player, int page) {
+		UUID playerId = player.getUniqueId();
 		SelectorPayload payload = payloadByPlayer.get(player.getUniqueId());
 		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 		int currentPage = Math.max(0, Math.min(page, maxPage));
-		openPages.put(player.getUniqueId(), currentPage);
+		openPages.put(playerId, currentPage);
 
 		String title = payload == null ? "Danh Sách Máy Chủ" : payload.guiTitle();
 		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
@@ -119,7 +148,10 @@ public final class PaperServerSelectorController implements Listener {
 		}
 		view.setItem(49, LunaUi.item(Material.BARRIER, "<red>Đóng</red>", List.of()), (clicker, event, gui) -> clicker.closeInventory());
 
+		suppressCloseCleanup.add(playerId);
 		player.openInventory(view.getInventory());
+		selectorInventoryByPlayer.put(playerId, view.getInventory());
+		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
 	}
 
 	private void refreshOpenMenus() {
@@ -130,11 +162,28 @@ public final class PaperServerSelectorController implements Listener {
 			Player player = plugin.getServer().getPlayer(entry.getKey());
 			if (player == null || !player.isOnline()) {
 				openPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
 				continue;
 			}
+
+			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
+			if (trackedInventory == null) {
+				openPages.remove(entry.getKey());
+				continue;
+			}
+
 			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
+				openPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
 				continue;
 			}
+
+			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
+				openPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				continue;
+			}
+
 			open(player, entry.getValue());
 			refreshed++;
 		}
