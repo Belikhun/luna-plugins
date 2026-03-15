@@ -9,12 +9,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.Set;
 
 public final class PaperBackendStatusView implements BackendStatusView {
 	private final ConcurrentMap<String, BackendServerStatus> statuses;
+	private final Set<Runnable> updateListeners;
 
 	public PaperBackendStatusView() {
 		this.statuses = new ConcurrentHashMap<>();
+		this.updateListeners = ConcurrentHashMap.newKeySet();
 	}
 
 	public void updateSnapshot(Map<String, BackendServerStatus> snapshot) {
@@ -29,6 +32,36 @@ public final class PaperBackendStatusView implements BackendStatusView {
 			}
 			statuses.put(normalize(entry.getKey()), entry.getValue());
 		}
+		notifyUpdated();
+	}
+
+	public void applyDelta(Map<String, BackendServerStatus> delta) {
+		if (delta == null || delta.isEmpty()) {
+			return;
+		}
+
+		for (Map.Entry<String, BackendServerStatus> entry : delta.entrySet()) {
+			BackendServerStatus status = entry.getValue();
+			if (status == null) {
+				continue;
+			}
+			statuses.put(normalize(entry.getKey()), status);
+		}
+		notifyUpdated();
+	}
+
+	public void addUpdateListener(Runnable listener) {
+		if (listener == null) {
+			return;
+		}
+		updateListeners.add(listener);
+	}
+
+	public void removeUpdateListener(Runnable listener) {
+		if (listener == null) {
+			return;
+		}
+		updateListeners.remove(listener);
 	}
 
 	@Override
@@ -46,5 +79,14 @@ public final class PaperBackendStatusView implements BackendStatusView {
 
 	private String normalize(String serverName) {
 		return serverName == null ? "" : serverName.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private void notifyUpdated() {
+		for (Runnable listener : updateListeners) {
+			try {
+				listener.run();
+			} catch (Exception ignored) {
+			}
+		}
 	}
 }

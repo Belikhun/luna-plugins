@@ -19,9 +19,126 @@ http:
 heartbeat:
   timeoutSeconds: 20
 
+diagnostics:
+  selector:
+    enabled: true
+    fail-on-validation-error: true
+    unknown-placeholder-as-error: false
+
 logging:
   ansi: true
   defaultScope: "LunaCoreVelocity"
   level: "INFO"
   pluginMessaging:
     enabled: false
+
+# Luna placeholders (Velocity, MiniPlaceholders):
+#   format: <luna:key>
+#   examples:
+#     <luna:online_servers>
+#     <luna:total_players>
+#     <luna:server_status_survival>
+#     <luna:server_online_survival>
+#     <luna:server_max_survival>
+#     <luna:server_tps_survival>
+#     <luna:server_version_survival>
+#     <luna:server_display_survival>
+#     <luna:server_color_survival>
+#     <luna:server_whitelist_survival>
+
+server-selector:
+  enabled: true
+  fail-on-server-command-override-failure: true
+  template:
+    name: "<b>%server_display%</b>"
+    header: "<gray>Máy chủ: <white>%server_name%</white></gray>"
+    body-line: "<gray>▍</gray> <white>%line%</white>"
+    footer: "<gray>Trạng thái:</gray> <white>%server_status%</white> <gray>| Online:</gray> <white>%online%/%max%</white>"
+  messages:
+    opening: "<yellow>Đang mở danh sách máy chủ...</yellow>"
+    player-only: "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"
+    not-found: "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"
+    offline: "<red>❌ %server_display% hiện đang ngoại tuyến.</red>"
+    maint: "<yellow>⚠ %server_display% đang bảo trì.</yellow>"
+    no-permission: "<red>❌ Bạn không có quyền vào %server_display%.</red>"
+    connecting: "<yellow>⌛ Đang kết nối đến %server_display%...</yellow>"
+  status-colors:
+    ONLINE: "<green>"
+    OFFLINE: "<red>"
+    MAINT: "<yellow>"
+    NOP: "<gray>"
+  servers:
+    survival:
+      backend-name: "survival"
+      display: "SMP"
+      accent-color: "#25EED0"
+      permission: ""
+      connect-message: ""
+      description-key: "survival"
+    infdun:
+      backend-name: "infdun"
+      display: "INFINITY DUNGEONS"
+      accent-color: "#8CE67C"
+      permission: ""
+      connect-message: ""
+      description-key: "infdun"
+    sandbox:
+      backend-name: "sandbox"
+      display: "SANDBOX"
+      accent-color: "#FF61BB"
+      permission: ""
+      connect-message: ""
+      description-key: "sandbox"
+    event:
+      backend-name: "event"
+      display: "EVENT1"
+      accent-color: "#9BC1F9"
+      permission: ""
+      connect-message: ""
+      description-key: "event"
+    event2:
+      backend-name: "event2"
+      display: "EVENT2"
+      accent-color: "#5FE2C5"
+      permission: ""
+      connect-message: ""
+      description-key: "event2"
+    manhunt:
+      backend-name: "manhunt"
+      display: "MANHUNT"
+      accent-color: "#EEA0FF"
+      permission: ""
+      connect-message: ""
+      description-key: "manhunt"
+    iceboat:
+      backend-name: "iceboat"
+      display: "BOAT RACING"
+      accent-color: "#1EA9FB"
+      permission: ""
+      connect-message: ""
+      description-key: "iceboat"
+  descriptions:
+    survival:
+      - "Máy chủ sinh tồn vanilla lifesteal"
+      - "với các tính năng đặc biệt"
+      - "khám phá cấu trúc khắp bản đồ"
+    infdun:
+      - "Chế độ rogue-like hầm ngục"
+      - "được tạo ngẫu nhiên vô tận"
+      - "boss, vật phẩm và phù phép tùy chỉnh"
+    sandbox:
+      - "Hộp cát sáng tạo thế giới phẳng"
+      - "thử nghiệm ý tưởng xây dựng"
+      - "và cỗ máy đá đỏ"
+    event:
+      - "Máy chủ chạy sự kiện"
+    event2:
+      - "Máy chủ chạy sự kiện"
+    manhunt:
+      - "Truy đuổi speedrunner"
+      - "qua Overworld, Nether và End"
+      - "chế độ đối kháng nhiều người chơi"
+    iceboat:
+      - "Đua thuyền tốc độ cao"
+      - "vượt checkpoint và giữ đường đua"
+      - "bứt tốc về đích nhanh nhất"

@@ -4,6 +4,7 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import net.kyori.adventure.text.Component;
@@ -17,15 +18,18 @@ public final class DiscordLinkServerProtectionListener {
 	private final LunaLogger logger;
 	private final Supplier<VelocityMessengerConfig> configSupplier;
 	private final Supplier<DiscordAccountLinkService> linkServiceSupplier;
+	private final Supplier<ServerDisplayResolver> serverDisplayResolverSupplier;
 
 	public DiscordLinkServerProtectionListener(
 		LunaLogger logger,
 		Supplier<VelocityMessengerConfig> configSupplier,
-		Supplier<DiscordAccountLinkService> linkServiceSupplier
+		Supplier<DiscordAccountLinkService> linkServiceSupplier,
+		Supplier<ServerDisplayResolver> serverDisplayResolverSupplier
 	) {
 		this.logger = logger.scope("DiscordLinkProtection");
 		this.configSupplier = configSupplier;
 		this.linkServiceSupplier = linkServiceSupplier;
+		this.serverDisplayResolverSupplier = serverDisplayResolverSupplier;
 	}
 
 	@Subscribe
@@ -45,7 +49,10 @@ public final class DiscordLinkServerProtectionListener {
 		if (!config.serverProtection().requiresDiscordLink(targetServerName)) {
 			return;
 		}
-		String targetServerDisplayRich = config.serverDisplay(targetServerName);
+		ServerDisplayResolver displayResolver = serverDisplayResolverSupplier.get();
+		String targetServerDisplayRich = displayResolver == null
+			? config.serverDisplay(targetServerName)
+			: displayResolver.serverDisplay(targetServerName);
 		String targetServerDisplayPlain = Formatters.stripFormats(targetServerDisplayRich);
 		if (targetServerDisplayPlain.isBlank()) {
 			targetServerDisplayPlain = targetServerName;

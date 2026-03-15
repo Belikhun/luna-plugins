@@ -7,9 +7,11 @@ import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.api.http.HttpResponse;
 import dev.belikhun.luna.core.api.http.Router;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class VelocityHeartbeatHttpEndpoints {
@@ -18,17 +20,20 @@ public final class VelocityHeartbeatHttpEndpoints {
 	private final LunaLogger logger;
 	private final VelocityBackendStatusRegistry statusRegistry;
 	private final VelocityBackendNameResolver nameResolver;
+	private final VelocityServerSelectorConfig selectorConfig;
 	private final String forwardingSecret;
 
 	public VelocityHeartbeatHttpEndpoints(
 		LunaLogger logger,
 		VelocityBackendStatusRegistry statusRegistry,
 		VelocityBackendNameResolver nameResolver,
+		VelocityServerSelectorConfig selectorConfig,
 		String forwardingSecret
 	) {
 		this.logger = logger.scope("HeartbeatHttp");
 		this.statusRegistry = statusRegistry;
 		this.nameResolver = nameResolver;
+		this.selectorConfig = selectorConfig;
 		this.forwardingSecret = forwardingSecret == null ? "" : forwardingSecret;
 	}
 
@@ -49,16 +54,24 @@ public final class VelocityHeartbeatHttpEndpoints {
 			BackendHeartbeatStats stats = HeartbeatFormCodec.decodeStats(payload);
 			boolean online = ConfigValues.booleanValue(payload, "online", true);
 			String resolvedServerName = nameResolver.resolve(serverName, request.headers(), stats.serverPort());
+			VelocityServerSelectorConfig.ServerDefinition definition = selectorConfig.server(resolvedServerName);
+			String serverDisplay = ConfigValues.string(payload, "server_display", definition != null ? definition.displayName() : resolvedServerName);
+			String serverAccentColor = ConfigValues.string(payload, "server_accent_color", definition != null ? definition.accentColor() : "");
+			long sinceRevision = parseSinceRevision(request.queryParam("since", "-1"));
 			BackendServerStatus status = online
-				? statusRegistry.upsert(resolvedServerName, stats, System.currentTimeMillis())
-				: statusRegistry.markOffline(resolvedServerName, stats, System.currentTimeMillis());
+				? statusRegistry.upsert(resolvedServerName, serverDisplay, serverAccentColor, stats, System.currentTimeMillis())
+				: statusRegistry.markOffline(resolvedServerName, serverDisplay, serverAccentColor, stats, System.currentTimeMillis());
 			logger.debug("Heartbeat endpoint: source=" + serverName
 				+ " resolved=" + resolvedServerName
 				+ " online=" + status.online()
 				+ " players=" + stats.onlinePlayers() + "/" + stats.maxPlayers()
 				+ " port=" + stats.serverPort());
 
-			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot());
+			Map<String, BackendServerStatus> responseRows = sinceRevision < 0
+				? buildInitialFullRows()
+				: statusRegistry.deltaSince(sinceRevision);
+			boolean fullSync = sinceRevision < 0;
+			byte[] body = HeartbeatFormCodec.encodeSnapshot(responseRows, statusRegistry.currentRevision(), resolvedServerName, fullSync);
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
 
@@ -69,7 +82,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 			}
 			logger.debug("Yêu cầu snapshot toàn bộ backend statuses.");
 
-			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot());
+			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot(), statusRegistry.currentRevision(), null, true);
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
 
@@ -88,9 +101,68 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 			Map<String, BackendServerStatus> single = new LinkedHashMap<>();
 			statusRegistry.status(serverName).ifPresent(status -> single.put(serverName.toLowerCase(), status));
-			byte[] body = HeartbeatFormCodec.encodeSnapshot(single);
+			byte[] body = HeartbeatFormCodec.encodeSnapshot(single, statusRegistry.currentRevision(), serverName, true);
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
+	}
+
+	private long parseSinceRevision(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return -1L;
+		}
+
+		try {
+			return Long.parseLong(raw.trim());
+		} catch (NumberFormatException ignored) {
+			return -1L;
+		}
+	}
+
+	private Map<String, BackendServerStatus> buildInitialFullRows() {
+		Map<String, BackendServerStatus> merged = new LinkedHashMap<>();
+		Map<String, BackendServerStatus> current = statusRegistry.snapshot();
+
+		for (VelocityServerSelectorConfig.ServerDefinition definition : selectorConfig.servers().values()) {
+			String key = normalize(definition.backendName());
+			BackendServerStatus currentStatus = current.get(key);
+			if (currentStatus == null) {
+				merged.put(key, new BackendServerStatus(
+					definition.backendName(),
+					definition.displayName(),
+					definition.accentColor(),
+					false,
+					0L,
+					emptyStats()
+				));
+				continue;
+			}
+
+			merged.put(key, new BackendServerStatus(
+				currentStatus.serverName(),
+				definition.displayName(),
+				definition.accentColor().isBlank() ? currentStatus.serverAccentColor() : definition.accentColor(),
+				currentStatus.online(),
+				currentStatus.lastHeartbeatEpochMillis(),
+				currentStatus.stats()
+			));
+		}
+
+		for (Map.Entry<String, BackendServerStatus> entry : current.entrySet()) {
+			merged.putIfAbsent(entry.getKey(), entry.getValue());
+		}
+
+		return merged;
+	}
+
+	private BackendHeartbeatStats emptyStats() {
+		return new BackendHeartbeatStats("unknown", "unknown", 0, 0L, 0D, 0, 0, "", false, 0L, 0L, 0L);
+	}
+
+	private String normalize(String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.trim().toLowerCase(Locale.ROOT);
 	}
 
 	private boolean isAuthorized(Map<String, java.util.List<String>> headers) {

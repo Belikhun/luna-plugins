@@ -18,6 +18,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
@@ -57,6 +58,7 @@ public final class VelocityMessengerRouter {
 	private final ProxyMessageTemplateRenderer renderer;
 	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
 	private final LuckPermsService luckPermsService;
+	private final ServerDisplayResolver serverDisplayResolver;
 	private volatile DiscordBridgeGateway discordBridge;
 	private final Map<UUID, MessagingContext> contextByPlayer;
 	private final Map<UUID, UUID> lastReplyByPlayer;
@@ -78,6 +80,7 @@ public final class VelocityMessengerRouter {
 		VelocityMessengerConfig config,
 		ProxyMessageTemplateRenderer renderer,
 		LuckPermsService luckPermsService,
+		ServerDisplayResolver serverDisplayResolver,
 		DiscordBridgeGateway discordBridge
 	) {
 		this.proxyServer = proxyServer;
@@ -87,6 +90,7 @@ public final class VelocityMessengerRouter {
 		this.renderer = renderer;
 		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
 		this.luckPermsService = luckPermsService;
+		this.serverDisplayResolver = serverDisplayResolver;
 		this.discordBridge = discordBridge;
 		this.contextByPlayer = new ConcurrentHashMap<>();
 		this.lastReplyByPlayer = new ConcurrentHashMap<>();
@@ -499,8 +503,8 @@ public final class VelocityMessengerRouter {
 
 	private void routeNetwork(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
 		String serverName = sender.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
-		String serverDisplay = config.serverDisplay(serverName);
-		String serverColor = config.serverColor(serverName);
+		String serverDisplay = serverDisplay(serverName);
+		String serverColor = serverColor(serverName);
 		String senderPrefix = resolvePresencePlayerPrefix(sender);
 		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
@@ -554,8 +558,8 @@ public final class VelocityMessengerRouter {
 		}
 
 		String serverName = senderServer.getServerInfo().getName();
-		String serverDisplay = config.serverDisplay(serverName);
-		String serverColor = config.serverColor(serverName);
+		String serverDisplay = serverDisplay(serverName);
+		String serverColor = serverColor(serverName);
 		String senderPrefix = resolvePresencePlayerPrefix(sender);
 		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
@@ -594,8 +598,8 @@ public final class VelocityMessengerRouter {
 
 	private void sendDirect(Player sender, Player target, String message, Map<String, String> resolvedValues, UUID correlationId, boolean replyMode) {
 		String senderServer = sender.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
-		String senderServerDisplay = config.serverDisplay(senderServer);
-		String senderServerColor = config.serverColor(senderServer);
+		String senderServerDisplay = serverDisplay(senderServer);
+		String senderServerColor = serverColor(senderServer);
 		String senderPrefix = resolvePresencePlayerPrefix(sender);
 		String targetPrefix = resolvePresencePlayerPrefix(target);
 		String senderDisplay = resolvePlayerDisplay(sender, senderPrefix, sender.getUsername(), resolvedValues);
@@ -710,8 +714,8 @@ public final class VelocityMessengerRouter {
 		// Discord -> network mặc định theo yêu cầu.
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer("");
 		String channelName = config.discord().networkChannelName();
-		String serverColor = config.serverColor("");
-		String serverDisplay = config.serverDisplay("");
+		String serverColor = serverColor("");
+		String serverDisplay = serverDisplay("");
 		String rendered = renderWithStack(profile.discordInboundNetworkFormat(), Map.ofEntries(
 			Map.entry("discord_author", authorName),
 			Map.entry("user_name", authorName),
@@ -748,11 +752,11 @@ public final class VelocityMessengerRouter {
 			firstJoin
 		));
 
-		String serverColor = config.serverColor(serverName);
+		String serverColor = serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
 		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
-		String serverDisplay = config.serverDisplay(serverName);
+		String serverDisplay = serverDisplay(serverName);
 		String presenceMessage = firstJoin
 			? player.getUsername() + " đã vào mạng lần đầu"
 			: player.getUsername() + " đã vào mạng";
@@ -849,11 +853,11 @@ public final class VelocityMessengerRouter {
 			false
 		));
 
-		String serverColor = config.serverColor(serverName);
+		String serverColor = serverColor(serverName);
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
 		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
-		String serverDisplay = config.serverDisplay(serverName);
+		String serverDisplay = serverDisplay(serverName);
 		String presenceMessage = player.getUsername() + " đã rời mạng";
 		String leaveRendered = renderWithStack(
 			profile.leaveNetworkFormat(),
@@ -931,9 +935,9 @@ public final class VelocityMessengerRouter {
 			false
 		));
 
-		String toDisplay = config.serverDisplay(toServerName);
-		String fromDisplay = config.serverDisplay(previousServerName);
-		String toServerColor = config.serverColor(toServerName);
+		String toDisplay = serverDisplay(toServerName);
+		String fromDisplay = serverDisplay(previousServerName);
+		String toServerColor = serverColor(toServerName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
 		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(toServerName);
@@ -1169,13 +1173,13 @@ public final class VelocityMessengerRouter {
 		}
 
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer("proxy");
-		String serverColor = config.serverColor("");
+		String serverColor = serverColor("");
 		String rendered = renderWithStack(
 			profile.broadcastFormat(),
 			Map.of(
 				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
 				"server_name", "proxy",
-				"server_display", Formatters.stripFormats(config.serverDisplay("proxy")),
+				"server_display", Formatters.stripFormats(serverDisplay("proxy")),
 				"channel_name", "broadcast",
 				"server_color", serverColor
 			),
@@ -1439,7 +1443,7 @@ public final class VelocityMessengerRouter {
 		String serverName = output.getOrDefault("server_name", "");
 		String serverDisplay = output.getOrDefault("server_display", "");
 		if ((serverDisplay == null || serverDisplay.isBlank()) && !serverName.isBlank()) {
-			serverDisplay = Formatters.stripFormats(config.serverDisplay(serverName));
+			serverDisplay = Formatters.stripFormats(serverDisplay(serverName));
 		}
 
 		output.put("player_name", playerName);
@@ -1514,6 +1518,28 @@ public final class VelocityMessengerRouter {
 			logger.debug("Không thể lấy prefix từ LuckPerms cho " + player.getUsername() + ": " + throwable.getMessage());
 			return "";
 		}
+	}
+
+	private String serverDisplay(String serverName) {
+		if (serverDisplayResolver != null) {
+			String resolved = serverDisplayResolver.serverDisplay(serverName);
+			if (resolved != null && !resolved.isBlank()) {
+				return resolved;
+			}
+		}
+
+		return config.serverDisplay(serverName);
+	}
+
+	private String serverColor(String serverName) {
+		if (serverDisplayResolver != null) {
+			String resolved = serverDisplayResolver.serverColor(serverName);
+			if (resolved != null && !resolved.isBlank()) {
+				return resolved;
+			}
+		}
+
+		return config.serverColor(serverName);
 	}
 
 	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {

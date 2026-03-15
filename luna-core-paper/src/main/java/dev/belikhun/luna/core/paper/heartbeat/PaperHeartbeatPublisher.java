@@ -27,6 +27,10 @@ public final class PaperHeartbeatPublisher {
 	private String heartbeatSecret;
 	private int heartbeatReadTimeoutMillis;
 	private volatile int lastReportedPlayerCount;
+	private volatile long lastSnapshotRevision;
+	private volatile boolean diagnosticsEnabled;
+	private volatile long revisionLagWarnThreshold;
+	private volatile long responseWarnThresholdMs;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -39,6 +43,10 @@ public final class PaperHeartbeatPublisher {
 		this.heartbeatSecret = "";
 		this.heartbeatReadTimeoutMillis = 3000;
 		this.lastReportedPlayerCount = -1;
+		this.lastSnapshotRevision = -1L;
+		this.diagnosticsEnabled = true;
+		this.revisionLagWarnThreshold = 25L;
+		this.responseWarnThresholdMs = 250L;
 	}
 
 	public void start() {
@@ -74,6 +82,10 @@ public final class PaperHeartbeatPublisher {
 		heartbeatSecret = secret;
 		heartbeatReadTimeoutMillis = readTimeoutMillis;
 		lastReportedPlayerCount = Bukkit.getOnlinePlayers().size();
+		lastSnapshotRevision = -1L;
+		diagnosticsEnabled = configStore.get("diagnostics.heartbeat.enabled").asBoolean(true);
+		revisionLagWarnThreshold = Math.max(0L, configStore.get("diagnostics.heartbeat.revisionLagWarnThreshold").asLong(25L));
+		responseWarnThresholdMs = Math.max(1L, configStore.get("diagnostics.heartbeat.responseWarnThresholdMs").asLong(250L));
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis), 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
 	}
@@ -123,13 +135,15 @@ public final class PaperHeartbeatPublisher {
 		}
 
 		try {
+			long startedAt = System.currentTimeMillis();
+			URI requestUri = withSinceQuery(uri, lastSnapshotRevision);
 			BackendHeartbeatStats stats = collectStats();
 			lastReportedPlayerCount = stats.onlinePlayers();
 			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
 			bodyFields.put("online", String.valueOf(online));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
 
-			HttpRequest request = HttpRequest.newBuilder(uri)
+			HttpRequest request = HttpRequest.newBuilder(requestUri)
 				.header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 				.header("X-Luna-Forwarding-Secret", secret)
 				.timeout(Duration.ofMillis(readTimeoutMillis))
@@ -142,10 +156,35 @@ public final class PaperHeartbeatPublisher {
 				return;
 			}
 
-			statusView.updateSnapshot(HeartbeatFormCodec.decodeSnapshot(response.body()));
+			HeartbeatFormCodec.HeartbeatSnapshotPayload payload = HeartbeatFormCodec.decodeSnapshotPayload(response.body());
+			if (payload.fullSync()) {
+				statusView.updateSnapshot(payload.statuses());
+			} else {
+				statusView.applyDelta(payload.statuses());
+			}
+
+			long revisionLag = computeRevisionLag(payload.revision(), lastSnapshotRevision);
+			long responseMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+			if (diagnosticsEnabled && revisionLag > revisionLagWarnThreshold) {
+				logger.warn("Heartbeat diagnostics: revision lag=" + revisionLag + " (local=" + lastSnapshotRevision + ", remote=" + payload.revision() + ")");
+			}
+			if (diagnosticsEnabled && responseMs > responseWarnThresholdMs) {
+				logger.warn("Heartbeat diagnostics: slow response " + responseMs + "ms, rows=" + payload.statuses().size() + ", fullSync=" + payload.fullSync());
+			}
+
+			lastSnapshotRevision = Math.max(lastSnapshotRevision, payload.revision());
 		} catch (Exception exception) {
 			logger.debug("Heartbeat lỗi online=" + online + ": " + exception.getMessage());
 		}
+	}
+
+	private long computeRevisionLag(long remoteRevision, long localRevision) {
+		if (remoteRevision <= 0L || localRevision < 0L) {
+			return 0L;
+		}
+
+		long lag = remoteRevision - localRevision - 1L;
+		return Math.max(0L, lag);
 	}
 
 	private void publishNowAsync() {
@@ -221,5 +260,14 @@ public final class PaperHeartbeatPublisher {
 			}
 		}
 		return out.toString();
+	}
+
+	private URI withSinceQuery(URI baseUri, long sinceRevision) {
+		if (baseUri == null) {
+			return null;
+		}
+
+		String separator = baseUri.toString().contains("?") ? "&" : "?";
+		return URI.create(baseUri + separator + "since=" + sinceRevision);
 	}
 }

@@ -16,6 +16,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
@@ -70,6 +71,7 @@ public final class LunaMessengerVelocityPlugin {
 	private DiscordAccountLinkService discordAccountLinkService;
 	private DiscordCommandRegistry discordCommandRegistry;
 	private BackendStatusView backendStatusView;
+	private ServerDisplayResolver serverDisplayResolver;
 
 	@Inject
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -89,15 +91,30 @@ public final class LunaMessengerVelocityPlugin {
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
 		currentConfig = config;
+		serverDisplayResolver = LunaCoreVelocity.services().dependencyManager()
+			.resolveOptional(ServerDisplayResolver.class)
+			.orElse(new ServerDisplayResolver() {
+				@Override
+				public String serverDisplay(String serverName) {
+					VelocityMessengerConfig activeConfig = currentConfig;
+					return activeConfig == null ? "" : activeConfig.serverDisplay(serverName);
+				}
+
+				@Override
+				public String serverColor(String serverName) {
+					VelocityMessengerConfig activeConfig = currentConfig;
+					return activeConfig == null ? "#F1FF68" : activeConfig.serverColor(serverName);
+				}
+			});
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		discordBridge = createDiscordGateway(config, discordCommandRegistry);
-		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, discordBridge);
+		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, serverDisplayResolver, discordBridge);
 		stateStore = new VelocityMessengerStateStore(dataDirectory.resolve("state.bin"), logger);
 		router.restorePersistentState(stateStore.load());
 		router.registerChannels();
 		registerCommand();
 		proxyServer.getEventManager().register(this, new MessengerPresenceListener(router));
-		proxyServer.getEventManager().register(this, new DiscordLinkServerProtectionListener(logger, () -> currentConfig, () -> discordAccountLinkService));
+		proxyServer.getEventManager().register(this, new DiscordLinkServerProtectionListener(logger, () -> currentConfig, () -> discordAccountLinkService, () -> serverDisplayResolver));
 		router.publishPresenceSnapshot();
 		logger.audit("Thư mục dữ liệu messenger: " + dataDirectory.toAbsolutePath());
 		logger.audit("Discord bridge enabled: " + config.discord().enabled());

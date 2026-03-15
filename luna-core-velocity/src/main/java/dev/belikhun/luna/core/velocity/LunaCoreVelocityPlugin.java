@@ -6,10 +6,12 @@ import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
+import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
 import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
@@ -25,12 +27,20 @@ import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityStatusCommand;
+import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
+import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityHeartbeatHttpEndpoints;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaMiniPlaceholders;
+import dev.belikhun.luna.core.velocity.serverselector.VelocitySelectorServerDisplayResolver;
+import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
+import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidationReport;
+import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidator;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -44,6 +54,9 @@ import java.util.logging.Logger;
 	name = "LunaCore",
 	version = BuildConstants.VERSION,
 	description = "Luna core utilities for Velocity",
+	dependencies = {
+		@Dependency(id = "miniplaceholders", optional = true)
+	},
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
@@ -54,6 +67,9 @@ public final class LunaCoreVelocityPlugin {
 	private final DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private VelocityBackendStatusRegistry backendStatusRegistry;
+	private VelocityServerSelectorConfig serverSelectorConfig;
+	private VelocityServerConnectCommand selectorConnectCommand;
+	private VelocityLunaMiniPlaceholders lunaMiniPlaceholders;
 	private ScheduledExecutorService heartbeatSweepExecutor;
 	private Database sharedDatabase;
 
@@ -75,11 +91,14 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> pluginMessagingConfig = ConfigValues.map(loggingConfig, "pluginMessaging");
 		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
 		Map<String, Object> databaseConfig = ConfigValues.map(rootConfig, "database");
+		serverSelectorConfig = VelocityServerSelectorConfig.from(rootConfig);
+		runSelectorValidation(rootConfig, serverSelectorConfig);
 		boolean pluginMessagingLogsEnabled = ConfigValues.booleanValue(pluginMessagingConfig, "enabled", false);
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
 		sharedDatabase = createSharedDatabase(databaseConfig);
 		backendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis, logger);
+		ServerDisplayResolver serverDisplayResolver = new VelocitySelectorServerDisplayResolver(serverSelectorConfig, backendStatusRegistry);
 		heartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-heartbeat-timeout-sweep");
 			thread.setDaemon(true);
@@ -95,6 +114,7 @@ public final class LunaCoreVelocityPlugin {
 			logger,
 			backendStatusRegistry,
 			new VelocityBackendNameResolver(proxyServer),
+			serverSelectorConfig,
 			forwardingSecret
 		).register(httpServerManager.router());
 
@@ -110,10 +130,28 @@ public final class LunaCoreVelocityPlugin {
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
+		pluginMessagingBus.registerIncoming(CoreServerSelectorMessageChannels.CONNECT_REQUEST, context -> {
+			PluginMessageReader reader = PluginMessageReader.of(context.payload());
+			String playerIdRaw = reader.readUtf();
+			String backendName = reader.readUtf();
+			if (selectorConnectCommand == null) {
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
+			try {
+				java.util.UUID playerId = java.util.UUID.fromString(playerIdRaw);
+				proxyServer.getPlayer(playerId).ifPresent(player -> selectorConnectCommand.connectByName(player, backendName));
+			} catch (IllegalArgumentException ignored) {
+			}
+
+			return PluginMessageDispatchResult.HANDLED;
+		});
 		dependencyManager.registerSingleton(ProxyServer.class, proxyServer);
 		dependencyManager.registerSingleton(LunaLogger.class, logger);
 		dependencyManager.registerSingleton(VelocityHttpServerManager.class, httpServerManager);
 		dependencyManager.registerSingleton(VelocityPluginMessagingBus.class, pluginMessagingBus);
+		dependencyManager.registerSingleton(VelocityServerSelectorConfig.class, serverSelectorConfig);
+		dependencyManager.registerSingleton(ServerDisplayResolver.class, serverDisplayResolver);
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
@@ -121,7 +159,8 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
-		registerCommands();
+		registerCommands(serverSelectorConfig);
+		registerMiniPlaceholders(serverDisplayResolver);
 		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
@@ -131,6 +170,10 @@ public final class LunaCoreVelocityPlugin {
 		if (sharedDatabase != null) {
 			sharedDatabase.close();
 			sharedDatabase = null;
+		}
+		if (lunaMiniPlaceholders != null) {
+			lunaMiniPlaceholders.unregister();
+			lunaMiniPlaceholders = null;
 		}
 		dependencyManager.clear();
 		LunaCoreVelocity.clear();
@@ -154,12 +197,82 @@ public final class LunaCoreVelocityPlugin {
 		}
 	}
 
-	private void registerCommands() {
+	private void registerCommands(VelocityServerSelectorConfig selectorConfig) {
 		CommandManager manager = proxyServer.getCommandManager();
 		CommandMeta meta = manager.metaBuilder("lunacoreproxy")
 			.aliases("lcv", "luna")
 			.build();
 		manager.register(meta, new LunaCoreVelocityStatusCommand(backendStatusRegistry));
+
+		if (!selectorConfig.enabled()) {
+			logger.warn("Server selector đang tắt trong cấu hình Velocity.");
+			return;
+		}
+
+		pluginMessagingBus.registerOutgoing(CoreServerSelectorMessageChannels.OPEN_MENU);
+		selectorConnectCommand = new VelocityServerConnectCommand(proxyServer, backendStatusRegistry, pluginMessagingBus, selectorConfig, true);
+
+		try {
+			CommandMeta serverMeta = manager.metaBuilder("server").build();
+			manager.register(serverMeta, selectorConnectCommand);
+			if (selectorConfig.diagnostics().enabled()) {
+				logger.audit("Selector diagnostics: /server override mode=OVERRIDDEN");
+			}
+		} catch (Exception exception) {
+			if (selectorConfig.failOnServerOverrideFailure()) {
+				throw new IllegalStateException("Không thể override lệnh /server. Dừng khởi động theo cấu hình fail-fast.", exception);
+			}
+			logger.warn("Không thể override lệnh /server: " + exception.getMessage());
+			if (selectorConfig.diagnostics().enabled()) {
+				logger.warn("Selector diagnostics: /server override mode=FALLBACK_DISABLED (/connect + /servers vẫn hoạt động).");
+			}
+		}
+
+		CommandMeta connectMeta = manager.metaBuilder("connect").build();
+		manager.register(connectMeta, new VelocityServerConnectCommand(proxyServer, backendStatusRegistry, pluginMessagingBus, selectorConfig, false));
+
+		CommandMeta serversMeta = manager.metaBuilder("servers").build();
+		manager.register(serversMeta, new VelocityServersCommand(pluginMessagingBus, selectorConfig));
+	}
+
+	private void runSelectorValidation(Map<String, Object> rootConfig, VelocityServerSelectorConfig selectorConfig) {
+		VelocityServerSelectorValidationReport report = VelocityServerSelectorValidator.validate(rootConfig, selectorConfig);
+
+		if (report.hasWarnings()) {
+			for (String warning : report.warnings()) {
+				logger.warn("[SelectorValidation] " + warning);
+			}
+		}
+
+		if (!report.hasErrors()) {
+			if (selectorConfig.diagnostics().enabled()) {
+				logger.audit("Selector validation hoàn tất: không có lỗi cấu hình.");
+			}
+			return;
+		}
+
+		for (String error : report.errors()) {
+			logger.error("[SelectorValidation] " + error);
+		}
+
+		if (selectorConfig.enabled() && selectorConfig.diagnostics().failOnValidationError()) {
+			throw new IllegalStateException("Phát hiện lỗi cấu hình server-selector. Dừng khởi động theo diagnostics.fail-on-validation-error=true.");
+		}
+	}
+
+	private void registerMiniPlaceholders(ServerDisplayResolver serverDisplayResolver) {
+		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
+			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace luna.");
+			return;
+		}
+
+		try {
+			lunaMiniPlaceholders = new VelocityLunaMiniPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver);
+			lunaMiniPlaceholders.register();
+		} catch (Throwable throwable) {
+			logger.warn("Không thể đăng ký MiniPlaceholders namespace luna: " + throwable.getMessage());
+			lunaMiniPlaceholders = null;
+		}
 	}
 
 	private Database createSharedDatabase(Map<String, Object> databaseConfig) {

@@ -6,6 +6,7 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public final class HeartbeatFormCodec {
@@ -108,18 +109,30 @@ public final class HeartbeatFormCodec {
 	}
 
 	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot) {
+		return encodeSnapshot(snapshot, 0L, null, true);
+	}
+
+	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot, long revision, String selfServerName, boolean fullSync) {
 		Map<String, String> out = new LinkedHashMap<>();
+		out.put("revision", String.valueOf(Math.max(0L, revision)));
+		out.put("fullSync", String.valueOf(fullSync));
 		out.put("serverCount", String.valueOf(snapshot == null ? 0 : snapshot.size()));
 		if (snapshot == null || snapshot.isEmpty()) {
 			return encode(out);
 		}
 
+		String normalizedSelf = normalize(selfServerName);
+
 		int index = 0;
 		for (BackendServerStatus status : snapshot.values()) {
 			String prefix = "server." + index + ".";
+			out.put(prefix + "server_name", emptySafe(status.serverName()));
+			out.put(prefix + "server_display", emptySafe(status.serverDisplay()));
+			out.put(prefix + "server_accent_color", emptySafe(status.serverAccentColor()));
 			out.put(prefix + "name", emptySafe(status.serverName()));
 			out.put(prefix + "online", String.valueOf(status.online()));
 			out.put(prefix + "lastHeartbeatEpochMillis", String.valueOf(status.lastHeartbeatEpochMillis()));
+			out.put(prefix + "self", String.valueOf(normalize(status.serverName()).equals(normalizedSelf)));
 			Map<String, String> stats = encodeStats(status.stats());
 			for (Map.Entry<String, String> entry : stats.entrySet()) {
 				out.put(prefix + entry.getKey(), entry.getValue());
@@ -131,12 +144,18 @@ public final class HeartbeatFormCodec {
 	}
 
 	public static Map<String, BackendServerStatus> decodeSnapshot(byte[] body) {
+		return decodeSnapshotPayload(body).statuses();
+	}
+
+	public static HeartbeatSnapshotPayload decodeSnapshotPayload(byte[] body) {
 		Map<String, String> fields = decode(body);
 		Map<String, BackendServerStatus> out = new LinkedHashMap<>();
+		long revision = longValue(fields, "revision", 0L);
+		boolean fullSync = boolValue(fields, "fullSync", true);
 		int count = intValue(fields, "serverCount", 0);
 		for (int index = 0; index < count; index++) {
 			String prefix = "server." + index + ".";
-			String name = string(fields, prefix + "name", "").trim();
+			String name = string(fields, prefix + "server_name", string(fields, prefix + "name", "")).trim();
 			if (name.isBlank()) {
 				continue;
 			}
@@ -144,6 +163,8 @@ public final class HeartbeatFormCodec {
 			BackendHeartbeatStats stats = decodeStats(withPrefix(fields, prefix));
 			BackendServerStatus status = new BackendServerStatus(
 				name,
+				string(fields, prefix + "server_display", name),
+				string(fields, prefix + "server_accent_color", ""),
 				boolValue(fields, prefix + "online", false),
 				longValue(fields, prefix + "lastHeartbeatEpochMillis", 0L),
 				stats
@@ -151,7 +172,14 @@ public final class HeartbeatFormCodec {
 			out.put(name.toLowerCase(), status);
 		}
 
-		return out;
+		return new HeartbeatSnapshotPayload(Math.max(0L, revision), fullSync, out);
+	}
+
+	public record HeartbeatSnapshotPayload(
+		long revision,
+		boolean fullSync,
+		Map<String, BackendServerStatus> statuses
+	) {
 	}
 
 	private static Map<String, String> withPrefix(Map<String, String> fields, String prefix) {
@@ -226,5 +254,12 @@ public final class HeartbeatFormCodec {
 
 	private static String emptySafe(String value) {
 		return value == null ? "" : value;
+	}
+
+	private static String normalize(String value) {
+		if (value == null) {
+			return "";
+		}
+		return value.trim().toLowerCase(Locale.ROOT);
 	}
 }

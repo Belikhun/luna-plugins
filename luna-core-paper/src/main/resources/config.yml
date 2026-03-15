@@ -24,6 +24,15 @@ heartbeat:
   connectTimeoutMillis: 3000
   readTimeoutMillis: 3000
 
+diagnostics:
+  heartbeat:
+    enabled: true
+    revisionLagWarnThreshold: 25
+    responseWarnThresholdMs: 250
+  selector:
+    enabled: true
+    refreshWarnThresholdMs: 200
+
 help:
   gui:
     title: "<gold>Hướng Dẫn Lệnh"
@@ -47,3 +56,17 @@ logging:
   level: "INFO"
   pluginMessaging:
     enabled: false
+
+# Luna placeholders (Paper, PlaceholderAPI):
+#   format: %luna_key%
+#   examples:
+#     %luna_online_servers%
+#     %luna_total_players%
+#     %luna_server_status_survival%
+#     %luna_server_online_survival%
+#     %luna_server_max_survival%
+#     %luna_server_tps_survival%
+#     %luna_server_version_survival%
+#     %luna_server_display_survival%
+#     %luna_server_color_survival%
+#     %luna_server_whitelist_survival%

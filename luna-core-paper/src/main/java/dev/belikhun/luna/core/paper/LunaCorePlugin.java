@@ -26,6 +26,8 @@ import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPlayerListener;
 import dev.belikhun.luna.core.paper.migration.CoreConfigMigrations;
 import dev.belikhun.luna.core.paper.migration.CoreDatabaseMigrations;
 import dev.belikhun.luna.core.paper.messaging.PaperPluginMessagingBus;
+import dev.belikhun.luna.core.paper.placeholder.PaperLunaPlaceholderExpansion;
+import dev.belikhun.luna.core.paper.serverselector.PaperServerSelectorController;
 import dev.belikhun.luna.core.paper.toast.AdvancementToastService;
 import dev.belikhun.luna.core.paper.toast.ToastService;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
@@ -36,6 +38,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LunaCorePlugin extends JavaPlugin {
 	private LunaCoreServices services;
+	private PaperLunaPlaceholderExpansion lunaPlaceholderExpansion;
 
 	@Override
 	public void onEnable() {
@@ -73,6 +76,16 @@ public final class LunaCorePlugin extends JavaPlugin {
 		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger, pluginMessagingLogsEnabled);
 		ToastService toastService = new AdvancementToastService(this);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
+		boolean selectorDiagnosticsEnabled = configStore.get("diagnostics.selector.enabled").asBoolean(true);
+		long selectorRefreshWarnThresholdMs = Math.max(1L, configStore.get("diagnostics.selector.refreshWarnThresholdMs").asLong(200L));
+		PaperServerSelectorController selectorController = new PaperServerSelectorController(
+			this,
+			backendStatusView,
+			pluginMessaging,
+			logger,
+			selectorDiagnosticsEnabled,
+			selectorRefreshWarnThresholdMs
+		);
 
 		UserProfileRepository userProfileRepository = new UserProfileRepository(databaseManager.getDatabase());
 		DependencyManager dependencyManager = new DependencyManager();
@@ -93,6 +106,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusView);
 		dependencyManager.registerSingleton(PaperBackendStatusView.class, backendStatusView);
 		dependencyManager.registerSingleton(PaperHeartbeatPublisher.class, heartbeatPublisher);
+		dependencyManager.registerSingleton(PaperServerSelectorController.class, selectorController);
 		dependencyManager.registerSingleton(MigrationManager.class, migrationManager);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		coreLogger.success("Đã đăng ký dependency container cho Luna Core.");
@@ -118,6 +132,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		HelpCommandListener helpCommandListener = new HelpCommandListener(services);
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
 		Bukkit.getPluginManager().registerEvents(new PaperHeartbeatPlayerListener(heartbeatPublisher), this);
+		registerPlaceholderExpansion(coreLogger, backendStatusView);
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
 				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));
@@ -147,6 +162,10 @@ public final class LunaCorePlugin extends JavaPlugin {
 		LunaLogger logger = services != null ? services.logger().scope("Core") : LunaLogger.forPlugin(this, true).scope("Core");
 		logger.audit("Đang tắt Luna Core.");
 		if (services != null) {
+			if (lunaPlaceholderExpansion != null && lunaPlaceholderExpansion.isRegistered()) {
+				lunaPlaceholderExpansion.unregister();
+				lunaPlaceholderExpansion = null;
+			}
 			services.heartbeatPublisher().shutdown();
 			services.pluginMessaging().close();
 			services.httpServerManager().stop();
@@ -156,6 +175,22 @@ public final class LunaCorePlugin extends JavaPlugin {
 
 		LunaCore.clear();
 		logger.success("Luna Core đã tắt hoàn tất.");
+	}
+
+	private void registerPlaceholderExpansion(LunaLogger logger, BackendStatusView statusView) {
+		if (!Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+			logger.warn("PlaceholderAPI không hoạt động. Bỏ qua đăng ký namespace luna.");
+			return;
+		}
+
+		try {
+			lunaPlaceholderExpansion = new PaperLunaPlaceholderExpansion(this, statusView);
+			lunaPlaceholderExpansion.register();
+			logger.success("Đã đăng ký PlaceholderAPI namespace %luna_...%.");
+		} catch (Throwable throwable) {
+			lunaPlaceholderExpansion = null;
+			logger.error("Không thể đăng ký PlaceholderAPI expansion luna.", throwable);
+		}
 	}
 }
 
