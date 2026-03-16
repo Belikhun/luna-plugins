@@ -56,6 +56,7 @@ public final class PaperServerSelectorController implements Listener {
 	private final long refreshWarnThresholdMs;
 	private final GuiManager guiManager;
 	private final Map<UUID, Integer> openPages;
+	private final Map<UUID, Integer> openDashboardReturnPages;
 	private final Map<UUID, SelectorPayload> payloadByPlayer;
 	private final Map<UUID, Inventory> selectorInventoryByPlayer;
 	private final Map<UUID, GuiView> selectorViewByPlayer;
@@ -78,6 +79,7 @@ public final class PaperServerSelectorController implements Listener {
 		this.refreshWarnThresholdMs = Math.max(1L, refreshWarnThresholdMs);
 		this.guiManager = new GuiManager();
 		this.openPages = new ConcurrentHashMap<>();
+		this.openDashboardReturnPages = new ConcurrentHashMap<>();
 		this.payloadByPlayer = new ConcurrentHashMap<>();
 		this.selectorInventoryByPlayer = new ConcurrentHashMap<>();
 		this.selectorViewByPlayer = new ConcurrentHashMap<>();
@@ -114,6 +116,7 @@ public final class PaperServerSelectorController implements Listener {
 	public void onQuit(PlayerQuitEvent event) {
 		UUID playerId = event.getPlayer().getUniqueId();
 		openPages.remove(playerId);
+		openDashboardReturnPages.remove(playerId);
 		payloadByPlayer.remove(playerId);
 		selectorInventoryByPlayer.remove(playerId);
 		selectorViewByPlayer.remove(playerId);
@@ -134,6 +137,7 @@ public final class PaperServerSelectorController implements Listener {
 		Inventory trackedInventory = selectorInventoryByPlayer.get(playerId);
 		if (trackedInventory != null && trackedInventory.equals(event.getInventory())) {
 			openPages.remove(playerId);
+			openDashboardReturnPages.remove(playerId);
 			selectorInventoryByPlayer.remove(playerId);
 			selectorViewByPlayer.remove(playerId);
 		}
@@ -141,6 +145,7 @@ public final class PaperServerSelectorController implements Listener {
 
 	public void open(Player player, int page) {
 		UUID playerId = player.getUniqueId();
+		openDashboardReturnPages.remove(playerId);
 		SelectorPayload payload = payloadByPlayer.getOrDefault(player.getUniqueId(), syncedPayload);
 		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
@@ -249,20 +254,34 @@ public final class PaperServerSelectorController implements Listener {
 	}
 
 	private void openDashboard(Player player, int returnPage) {
-		Map<String, BackendServerStatus> snapshot = statusView.snapshot();
-		List<BackendServerStatus> all = new ArrayList<>(snapshot.values());
-		all.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
-
-		double avgTps = average(all, status -> status.stats() == null ? 0D : status.stats().tps());
-		double avgCpu = average(all, status -> status.stats() == null ? 0D : status.stats().systemCpuUsagePercent());
-		double avgLatency = average(all, status -> status.stats() == null ? 0D : status.stats().heartbeatLatencyMillis());
-		long totalRamUsed = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
-		long totalRamMax = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
-		long maxUptimeMillis = maxLong(all, status -> status.stats() == null ? 0L : status.stats().uptimeMillis());
-
+		UUID playerId = player.getUniqueId();
 		String title = "<gradient:#6DFFD4:#4EA3FF>Thống Kê Toàn Mạng</gradient>";
 		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(title));
 		guiManager.track(view);
+		renderDashboardPage(player, view, returnPage);
+
+		openPages.remove(playerId);
+		openDashboardReturnPages.put(playerId, returnPage);
+		selectorViewByPlayer.put(playerId, view);
+
+		suppressCloseCleanup.add(playerId);
+		player.openInventory(view.getInventory());
+		selectorInventoryByPlayer.put(playerId, view.getInventory());
+		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
+	}
+
+	private void renderDashboardPage(Player player, GuiView view, int returnPage) {
+		Map<String, BackendServerStatus> snapshot = statusView.snapshot();
+		List<BackendServerStatus> all = new ArrayList<>(snapshot.values());
+		all.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
+		List<BackendServerStatus> onlineOnly = all.stream().filter(BackendServerStatus::online).toList();
+
+		double avgTps = average(onlineOnly, status -> status.stats() == null ? 0D : status.stats().tps());
+		double avgCpu = average(onlineOnly, status -> status.stats() == null ? 0D : status.stats().systemCpuUsagePercent());
+		double avgLatency = average(onlineOnly, status -> status.stats() == null ? 0D : status.stats().heartbeatLatencyMillis());
+		long totalRamUsed = sumLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
+		long totalRamMax = sumLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
+		long maxUptimeMillis = maxLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().uptimeMillis());
 
 		fillDashboardBackground(view);
 		view.setItem(10, LunaUi.item(Material.CLOCK, "<yellow>TPS Tổng Thể</yellow>", List.of(
@@ -292,19 +311,12 @@ public final class PaperServerSelectorController implements Listener {
 			LunaUi.mini("<white>" + onlineServers + "</white><gray>/</gray><white>" + all.size() + "</white>")
 		)));
 		view.setItem(32, LunaUi.item(Material.PLAYER_HEAD, "<color:#9EE6A3>Người Chơi Toàn Mạng</color>", List.of(
-			LunaUi.mini("<white>" + sumLong(all, status -> status.stats() == null ? 0L : status.stats().onlinePlayers()) + "</white>")
+			LunaUi.mini("<white>" + sumLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().onlinePlayers()) + "</white>")
 		)));
 
 		view.setItem(49, LunaUi.item(Material.ARROW, "<yellow>Quay Lại Danh Sách Server</yellow>", List.of(
 			LunaUi.mini("<gray>Trở về trang trước đó</gray>")
 		)), (clicker, event, gui) -> open(clicker, returnPage));
-		openPages.remove(player.getUniqueId());
-		selectorViewByPlayer.remove(player.getUniqueId());
-
-		suppressCloseCleanup.add(player.getUniqueId());
-		player.openInventory(view.getInventory());
-		selectorInventoryByPlayer.put(player.getUniqueId(), view.getInventory());
-		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(player.getUniqueId()));
 	}
 
 	private void sendConnectRequest(Player player, String backendName) {
@@ -424,11 +436,12 @@ public final class PaperServerSelectorController implements Listener {
 	private void refreshOpenMenus() {
 		long startedAt = System.currentTimeMillis();
 		int refreshed = 0;
-		int openCount = openPages.size();
+		int openCount = openPages.size() + openDashboardReturnPages.size();
 		for (Map.Entry<UUID, Integer> entry : new LinkedHashMap<>(openPages).entrySet()) {
 			Player player = plugin.getServer().getPlayer(entry.getKey());
 			if (player == null || !player.isOnline()) {
 				openPages.remove(entry.getKey());
+				openDashboardReturnPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
 				selectorViewByPlayer.remove(entry.getKey());
 				continue;
@@ -437,12 +450,14 @@ public final class PaperServerSelectorController implements Listener {
 			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
 			if (trackedInventory == null) {
 				openPages.remove(entry.getKey());
+				openDashboardReturnPages.remove(entry.getKey());
 				selectorViewByPlayer.remove(entry.getKey());
 				continue;
 			}
 
 			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
 				openPages.remove(entry.getKey());
+				openDashboardReturnPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
 				selectorViewByPlayer.remove(entry.getKey());
 				continue;
@@ -450,6 +465,7 @@ public final class PaperServerSelectorController implements Listener {
 
 			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
 				openPages.remove(entry.getKey());
+				openDashboardReturnPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
 				selectorViewByPlayer.remove(entry.getKey());
 				continue;
@@ -458,6 +474,7 @@ public final class PaperServerSelectorController implements Listener {
 			GuiView view = selectorViewByPlayer.get(entry.getKey());
 			if (view == null || !view.getInventory().equals(trackedInventory)) {
 				openPages.remove(entry.getKey());
+				openDashboardReturnPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
 				selectorViewByPlayer.remove(entry.getKey());
 				continue;
@@ -469,6 +486,48 @@ public final class PaperServerSelectorController implements Listener {
 			int currentPage = Math.max(0, Math.min(entry.getValue(), maxPage));
 			openPages.put(entry.getKey(), currentPage);
 			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
+			refreshed++;
+		}
+
+		for (Map.Entry<UUID, Integer> entry : new LinkedHashMap<>(openDashboardReturnPages).entrySet()) {
+			Player player = plugin.getServer().getPlayer(entry.getKey());
+			if (player == null || !player.isOnline()) {
+				openDashboardReturnPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
+			if (trackedInventory == null) {
+				openDashboardReturnPages.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
+				openDashboardReturnPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
+				openDashboardReturnPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			GuiView view = selectorViewByPlayer.get(entry.getKey());
+			if (view == null || !view.getInventory().equals(trackedInventory)) {
+				openDashboardReturnPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			renderDashboardPage(player, view, entry.getValue());
 			refreshed++;
 		}
 
