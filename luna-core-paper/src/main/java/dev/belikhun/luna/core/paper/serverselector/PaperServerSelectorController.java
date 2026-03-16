@@ -8,6 +8,7 @@ import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import dev.belikhun.luna.core.api.ui.LunaUi;
 import dev.belikhun.luna.core.paper.heartbeat.PaperBackendStatusView;
 import net.kyori.adventure.text.Component;
@@ -136,7 +137,7 @@ public final class PaperServerSelectorController implements Listener {
 			&& player.getOpenInventory() != null
 			&& player.getOpenInventory().getTopInventory() != null
 			&& view.getInventory().equals(player.getOpenInventory().getTopInventory());
-		if (canUpdateInPlace) {
+		if (canUpdateInPlace && view != null) {
 			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
 			selectorInventoryByPlayer.put(playerId, view.getInventory());
 			return;
@@ -242,7 +243,6 @@ public final class PaperServerSelectorController implements Listener {
 		double avgLatency = average(all, status -> status.stats() == null ? 0D : status.stats().heartbeatLatencyMillis());
 		long totalRamUsed = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
 		long totalRamMax = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
-		double ramPercent = totalRamMax <= 0L ? 0D : Math.min(100D, (totalRamUsed * 100D) / totalRamMax);
 		long maxUptimeMillis = maxLong(all, status -> status.stats() == null ? 0L : status.stats().uptimeMillis());
 
 		String title = "<gradient:#6DFFD4:#4EA3FF>Thống Kê Toàn Mạng</gradient>";
@@ -252,20 +252,20 @@ public final class PaperServerSelectorController implements Listener {
 		fillDashboardBackground(view);
 		view.setItem(10, LunaUi.item(Material.CLOCK, "<yellow>TPS Tổng Thể</yellow>", List.of(
 			LunaUi.mini("<gray>Giá trị trung bình toàn mạng</gray>"),
-			LunaUi.mini(coloredBar(tpsPercent(avgTps), "tps") + " <white>" + String.format(Locale.US, "%.2f", avgTps) + " TPS</white>")
+			LunaUi.mini(LunaProgressBarPresets.tps("TPS", avgTps).render())
 		)));
 		view.setItem(12, LunaUi.item(Material.REDSTONE, "<color:#FF9A4D>CPU Trung Bình</color>", List.of(
 			LunaUi.mini("<gray>Tải CPU theo heartbeat backend</gray>"),
-			LunaUi.mini(coloredBar(avgCpu, "cpu") + " <white>" + String.format(Locale.US, "%.1f", avgCpu) + "%</white>")
+			LunaUi.mini(LunaProgressBarPresets.cpu("CPU", avgCpu).render())
 		)));
 		view.setItem(14, LunaUi.item(Material.IRON_BLOCK, "<color:#7FDBFF>RAM Tổng</color>", List.of(
 			LunaUi.mini("<gray>Sử dụng bộ nhớ toàn mạng</gray>"),
-			LunaUi.mini(coloredBar(ramPercent, "ram") + " <white>" + String.format(Locale.US, "%.1f", ramPercent) + "%</white>"),
+			LunaUi.mini(LunaProgressBarPresets.ram("RAM", totalRamUsed, totalRamMax).render()),
 			LunaUi.mini("<gray>" + formatMb(totalRamUsed) + "MB / " + formatMb(totalRamMax) + "MB</gray>")
 		)));
 		view.setItem(16, LunaUi.item(Material.REPEATER, "<aqua>Latency Heartbeat</aqua>", List.of(
 			LunaUi.mini("<gray>Độ trễ backend → proxy</gray>"),
-			LunaUi.mini(coloredBar(latencyPercent(avgLatency), "latency") + " <white>" + String.format(Locale.US, "%.0f", avgLatency) + "ms</white>")
+			LunaUi.mini(LunaProgressBarPresets.latency("Latency", avgLatency).render())
 		)));
 		view.setItem(31, LunaUi.item(Material.CHEST, "<gold>Uptime Cao Nhất</gold>", List.of(
 			LunaUi.mini("<gray>Máy chủ chạy lâu nhất</gray>"),
@@ -315,7 +315,7 @@ public final class PaperServerSelectorController implements Listener {
 		};
 		List<Integer> borderSlots = borderSlots();
 		int borderIndex = 0;
-		for (int slot : borderSlots()) {
+		for (int slot : borderSlots) {
 			if (occupiedSlots.contains(slot)) {
 				continue;
 			}
@@ -386,38 +386,6 @@ public final class PaperServerSelectorController implements Listener {
 			return 0L;
 		}
 		return Math.max(0L, bytes / 1024L / 1024L);
-	}
-
-	private double tpsPercent(double tps) {
-		return Math.max(0D, Math.min(100D, (tps / 20D) * 100D));
-	}
-
-	private double latencyPercent(double latencyMs) {
-		return Math.max(0D, Math.min(100D, (latencyMs / 250D) * 100D));
-	}
-
-	private String coloredBar(double percent, String metric) {
-		double clamped = Math.max(0D, Math.min(100D, percent));
-		int filled = (int) Math.round((clamped / 100D) * 14D);
-		filled = Math.max(0, Math.min(14, filled));
-		String color = switch (metric) {
-			case "tps" -> clamped >= 80D ? "<green>" : (clamped >= 60D ? "<yellow>" : "<red>");
-			case "cpu", "ram", "latency" -> clamped <= 55D ? "<green>" : (clamped <= 75D ? "<yellow>" : "<red>");
-			default -> "<white>";
-		};
-
-		StringBuilder builder = new StringBuilder();
-		builder.append(color);
-		for (int i = 0; i < filled; i++) {
-			builder.append("█");
-		}
-		builder.append("</").append(color.substring(1));
-		builder.append("<dark_gray>");
-		for (int i = filled; i < 14; i++) {
-			builder.append("█");
-		}
-		builder.append("</dark_gray>");
-		return builder.toString();
 	}
 
 	private String shortVersion(String full) {
@@ -495,27 +463,6 @@ public final class PaperServerSelectorController implements Listener {
 				logger.warn("Selector diagnostics: refresh mất " + elapsedMs + "ms, viewers=" + refreshed + "/" + openCount);
 			}
 		}
-	}
-
-	private List<BackendServerStatus> sortedStatuses(SelectorPayload payload) {
-		List<BackendServerStatus> statuses = new ArrayList<>();
-		if (payload != null && !payload.servers().isEmpty()) {
-			for (ServerPayload item : payload.servers().values()) {
-				BackendServerStatus status = statusView.status(item.backendName()).orElseGet(() -> new BackendServerStatus(
-					item.backendName(),
-					item.displayName(),
-					item.accentColor(),
-					false,
-					0L,
-					null
-				));
-				statuses.add(status);
-			}
-		} else {
-			statuses = new ArrayList<>(statusView.snapshot().values());
-		}
-		statuses.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
-		return statuses;
 	}
 
 	private Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage(SelectorPayload payload) {
@@ -848,13 +795,6 @@ public final class PaperServerSelectorController implements Listener {
 	) {
 		static SelectorPayload empty() {
 			return new SelectorPayload("Danh Sách Máy Chủ", TemplatePayload.defaultTemplate(), defaultStatusColors(), defaultStatusIcons(), Map.of());
-		}
-
-		ServerPayload server(String backendName) {
-			if (backendName == null) {
-				return null;
-			}
-			return servers.get(backendName.toLowerCase(Locale.ROOT));
 		}
 
 		TemplatePayload resolveTemplate(ServerPayload serverPayload, String status) {
