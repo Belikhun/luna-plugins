@@ -51,7 +51,7 @@ public final class DiscordLinkServerProtectionListener {
 		}
 		ServerDisplayResolver displayResolver = serverDisplayResolverSupplier.get();
 		String targetServerDisplayRich = displayResolver == null
-			? config.serverDisplay(targetServerName)
+			? targetServerName
 			: displayResolver.serverDisplay(targetServerName);
 		String targetServerDisplayPlain = Formatters.stripFormats(targetServerDisplayRich);
 		if (targetServerDisplayPlain.isBlank()) {

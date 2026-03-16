@@ -1527,8 +1527,7 @@ public final class VelocityMessengerRouter {
 				return resolved;
 			}
 		}
-
-		return config.serverDisplay(serverName);
+		return serverName == null ? "" : serverName;
 	}
 
 	private String serverColor(String serverName) {
@@ -1538,8 +1537,7 @@ public final class VelocityMessengerRouter {
 				return resolved;
 			}
 		}
-
-		return config.serverColor(serverName);
+		return "#F1FF68";
 	}
 
 	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {

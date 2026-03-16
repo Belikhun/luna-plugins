@@ -22,6 +22,7 @@ public record VelocityServerSelectorConfig(
 	String noPermissionMessage,
 	String connectingMessage,
 	Map<ServerSelectorStatus, String> statusColors,
+	Map<ServerSelectorStatus, String> statusIcons,
 	Map<String, ServerDefinition> servers
 ) {
 	public static VelocityServerSelectorConfig from(Map<String, Object> rootConfig) {
@@ -29,7 +30,9 @@ public record VelocityServerSelectorConfig(
 		Map<String, Object> templateSection = ConfigValues.map(section, "template");
 		Map<String, Object> messages = ConfigValues.map(section, "messages");
 		Map<String, Object> statusColorSection = ConfigValues.map(section, "status-colors");
+		Map<String, Object> statusIconSection = ConfigValues.map(section, "status-icons");
 		Map<String, Object> serversSection = ConfigValues.map(section, "servers");
+		Map<String, Object> serverInfoSection = ConfigValues.map(rootConfig, "server-info");
 		Map<String, Object> descriptionsSection = ConfigValues.map(section, "descriptions");
 		Map<String, Object> diagnosticsSection = ConfigValues.map(section, "diagnostics");
 
@@ -39,17 +42,33 @@ public record VelocityServerSelectorConfig(
 		statusColors.put(ServerSelectorStatus.MAINT, ConfigValues.string(statusColorSection, "MAINT", "<yellow>"));
 		statusColors.put(ServerSelectorStatus.NOP, ConfigValues.string(statusColorSection, "NOP", "<gray>"));
 
+		Map<ServerSelectorStatus, String> statusIcons = new LinkedHashMap<>();
+		statusIcons.put(ServerSelectorStatus.ONLINE, ConfigValues.string(statusIconSection, "ONLINE", "✔"));
+		statusIcons.put(ServerSelectorStatus.OFFLINE, ConfigValues.string(statusIconSection, "OFFLINE", "✘"));
+		statusIcons.put(ServerSelectorStatus.MAINT, ConfigValues.string(statusIconSection, "MAINT", "⚠"));
+		statusIcons.put(ServerSelectorStatus.NOP, ConfigValues.string(statusIconSection, "NOP", "🔒"));
+
 		Map<String, ServerDefinition> servers = new LinkedHashMap<>();
 		for (Map.Entry<String, Object> entry : serversSection.entrySet()) {
 			Map<String, Object> item = ConfigValues.map(entry.getValue());
-			String key = entry.getKey().trim();
-			String backendName = ConfigValues.string(item, "backend-name", key).trim();
+			String key = normalize(entry.getKey());
+			String backendName = key;
 			if (backendName.isBlank()) {
 				continue;
 			}
 
-			String displayName = ConfigValues.string(item, "display", backendName);
-			String accentColor = ConfigValues.string(item, "accent-color", "");
+			Map<String, Object> infoNode = ConfigValues.map(serverInfoSection, backendName);
+
+			String displayName = ConfigValues.string(
+				infoNode,
+				"display",
+				ConfigValues.string(item, "display", backendName)
+			);
+			String accentColor = ConfigValues.string(
+				infoNode,
+				"accent-color",
+				ConfigValues.string(item, "accent-color", "")
+			);
 			String permission = ConfigValues.string(item, "permission", "");
 			String connectMessage = ConfigValues.string(item, "connect-message", "");
 			Integer slot = ConfigValues.integerValue(item.get("slot"), null);
@@ -90,6 +109,7 @@ public record VelocityServerSelectorConfig(
 			ConfigValues.string(messages, "no-permission", "<red>❌ Bạn không có quyền vào %server_display%.</red>"),
 			ConfigValues.string(messages, "connecting", "<yellow>⌛ Đang kết nối đến %server_display%...</yellow>"),
 			Map.copyOf(statusColors),
+			Map.copyOf(statusIcons),
 			Map.copyOf(servers)
 		);
 	}
@@ -103,6 +123,10 @@ public record VelocityServerSelectorConfig(
 
 	public String color(ServerSelectorStatus status) {
 		return statusColors.getOrDefault(status, "<white>");
+	}
+
+	public String icon(ServerSelectorStatus status) {
+		return statusIcons.getOrDefault(status, "●");
 	}
 
 	private static String normalize(String value) {

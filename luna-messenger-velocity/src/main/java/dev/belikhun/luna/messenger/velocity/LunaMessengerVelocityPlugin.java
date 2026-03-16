@@ -96,14 +96,12 @@ public final class LunaMessengerVelocityPlugin {
 			.orElse(new ServerDisplayResolver() {
 				@Override
 				public String serverDisplay(String serverName) {
-					VelocityMessengerConfig activeConfig = currentConfig;
-					return activeConfig == null ? "" : activeConfig.serverDisplay(serverName);
+					return serverName == null ? "" : serverName;
 				}
 
 				@Override
 				public String serverColor(String serverName) {
-					VelocityMessengerConfig activeConfig = currentConfig;
-					return activeConfig == null ? "#F1FF68" : activeConfig.serverColor(serverName);
+					return "#F1FF68";
 				}
 			});
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);

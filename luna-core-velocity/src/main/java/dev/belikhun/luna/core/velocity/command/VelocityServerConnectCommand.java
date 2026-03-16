@@ -171,6 +171,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		values.put("server_accent_color", accent);
 		values.put("server_status", status.name());
 		values.put("server_status_color", config.color(status));
+		values.put("server_status_icon", config.icon(status));
 		values.put("online", String.valueOf(online));
 		values.put("max", String.valueOf(max));
 		values.put("tps", String.format(Locale.US, "%.2f", tps));

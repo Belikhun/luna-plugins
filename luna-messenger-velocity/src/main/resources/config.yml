@@ -46,8 +46,8 @@ server-protection:
 #    - %sender_display%: Tên hiển thị người gửi theo formats.user-display-format
 #    - %receiver_display%: Tên hiển thị người nhận theo formats.user-display-format
 #    - %server_name%: Tên backend server hiện tại (Velocity)
-#    - %server_display%: Tên hiển thị server (map từ server-displays)
-#    - %server_color%: Màu nhấn của server (map từ server-colors)
+#    - %server_display%: Tên hiển thị server (resolve từ LunaCore selector)
+#    - %server_color%: Màu nhấn của server (resolve từ LunaCore selector)
 #    - %channel_name%: Tên kênh (ví dụ: network/server/direct)
 #    - %message%: Nội dung tin nhắn
 #    - %player_avatar_url%: URL avatar đã render từ webhook.avatar-url-format
@@ -124,28 +124,6 @@ silent-broadcast:
   enabled: true
   permission: "lunamessenger.silentbroadcast"
   prefix: "<dark_gray>[xuỵt]</dark_gray> "
-
-# Alias hiển thị cho server backend. Có thể dùng MiniMessage.
-server-displays:
-  lobby: "<gradient:#FFDE9A:#FFBC53:#FFDF47>SẢNH</gradient>"
-  survival: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
-  event: "<gradient:#bafdc1:#9BC1F9>EVENT1</gradient>"
-  event2: "<gradient:#9863E7:#FCD05C>EV</gradient><gradient:#FCD05C:#5FE2C5>ENT2</gradient>"
-  iceboat: "<gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient>"
-  infdun: "<gradient:#31ADAD:#8CE67C>INFINITY DUNGEONS</gradient>"
-  manhunt: "<gradient:#EC8C8C:#FFC58B>M</gradient><gradient:#FFC58B:#FFFF9E>A</gradient><gradient:#FFFF9E:#9AFF9A>NH</gradient><gradient:#9AFF9A:#97CFF5>U</gradient><gradient:#97CFF5:#A39AFF>N</gradient><gradient:#A39AFF:#EEA0FF>T</gradient>"
-
-# Màu nhấn cho từng backend server.
-# Dùng với placeholder %server_color% trong format khi cần.
-server-colors:
-  default: "#F1FF68"
-  lobby: "#F1FF68"
-  survival: "#AC92FE"
-  event: "#B3E5FF"
-  event2: "#9863E7"
-  iceboat: "#E5C09A"
-  infdun: "#31ADAD"
-  manhunt: "#A39AFF"
 
 formats:
   # Format tập trung để hiển thị người chơi, dùng cho %player_display%/%sender_display%/%receiver_display%.

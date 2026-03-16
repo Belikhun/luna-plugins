@@ -7,13 +7,14 @@ public final class ServerSelectorOpenPayloadWriter {
 	}
 
 	public static void write(PluginMessageWriter writer, VelocityServerSelectorConfig config) {
-		writer.writeUtf("open-v3");
+		writer.writeUtf("open-v4");
 		writer.writeUtf(config.guiTitle());
 		writer.writeUtf(config.template().name());
 		writeLines(writer, config.template().headerLines());
 		writer.writeUtf(config.template().bodyLine());
 		writeLines(writer, config.template().footerLines());
 		writeTemplateOverrides(writer, config.template().byStatus());
+		writeStatusStyles(writer, config);
 
 		writer.writeInt(config.servers().size());
 		for (VelocityServerSelectorConfig.ServerDefinition server : config.servers().values()) {
@@ -82,6 +83,16 @@ public final class ServerSelectorOpenPayloadWriter {
 			if (override.footerLines() != null) {
 				writeLines(writer, override.footerLines());
 			}
+		}
+	}
+
+	private static void writeStatusStyles(PluginMessageWriter writer, VelocityServerSelectorConfig config) {
+		ServerSelectorStatus[] statuses = ServerSelectorStatus.values();
+		writer.writeInt(statuses.length);
+		for (ServerSelectorStatus status : statuses) {
+			writer.writeUtf(status.name());
+			writer.writeUtf(config.color(status));
+			writer.writeUtf(config.icon(status));
 		}
 	}
 }

@@ -20,7 +20,7 @@ public final class LunaUi {
 	}
 
 	public static Component guiTitle(String text) {
-		return mini("<color:" + LunaPalette.GUI_TITLE_PRIMARY + "><b>" + text + "</b></color>");
+		return mini("<color:" + LunaPalette.GUI_TITLE_PRIMARY + ">" + text + "</color>");
 	}
 
 	public static Component guiTitleBreadcrumb(String... segments) {
@@ -45,11 +45,6 @@ public final class LunaUi {
 				case 1 -> LunaPalette.GUI_TITLE_SECONDARY;
 				default -> LunaPalette.GUI_TITLE_TERTIARY;
 			};
-
-			if (i == 0) {
-				builder.append("<color:").append(color).append("><b>").append(segment).append("</b></color>");
-				continue;
-			}
 
 			builder.append("<color:").append(color).append(">" + segment + "</color>");
 		}

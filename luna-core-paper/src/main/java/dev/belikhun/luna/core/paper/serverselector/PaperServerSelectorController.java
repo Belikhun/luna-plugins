@@ -294,6 +294,8 @@ public final class PaperServerSelectorController implements Listener {
 		boolean noPermission
 	) {
 		String statusText = resolveStatus(status, noPermission);
+		String statusColor = payload == null ? "<white>" : payload.statusColor(statusText);
+		String statusIcon = payload == null ? "●" : payload.statusIcon(statusText);
 		Material material = resolveMaterial(statusText);
 
 		int onlinePlayers = status.stats() == null ? 0 : status.stats().onlinePlayers();
@@ -306,7 +308,7 @@ public final class PaperServerSelectorController implements Listener {
 			? TemplatePayload.defaultTemplate()
 			: payload.resolveTemplate(serverPayload, statusText);
 
-		Map<String, String> values = placeholderValues(status, display, statusText, onlinePlayers, maxPlayers);
+		Map<String, String> values = placeholderValues(status, display, statusText, statusColor, statusIcon, onlinePlayers, maxPlayers);
 		List<Component> lore = new ArrayList<>();
 		for (String headerLine : template.headerLines()) {
 			lore.add(LunaUi.mini(applyTemplate(headerLine == null ? "" : headerLine, values)));
@@ -322,9 +324,6 @@ public final class PaperServerSelectorController implements Listener {
 		for (String footerLine : template.footerLines()) {
 			lore.add(LunaUi.mini(applyTemplate(footerLine == null ? "" : footerLine, values)));
 		}
-		lore.add(LunaUi.mini("<gray>Trạng thái: <white>" + statusText + "</white></gray>"));
-		lore.add(LunaUi.mini("<gray>Người chơi: <white>" + onlinePlayers + "/" + maxPlayers + "</white></gray>"));
-		lore.add(LunaUi.mini(noPermission ? "<red>Không có quyền truy cập</red>" : "<yellow>Nhấn để kết nối</yellow>"));
 
 		return LunaUi.item(material, applyTemplate(template.nameTemplate(), values), lore);
 	}
@@ -359,6 +358,8 @@ public final class PaperServerSelectorController implements Listener {
 		BackendServerStatus status,
 		String display,
 		String statusText,
+		String statusColor,
+		String statusIcon,
 		int online,
 		int max
 	) {
@@ -367,6 +368,8 @@ public final class PaperServerSelectorController implements Listener {
 		values.put("server_display", display);
 		values.put("server_accent_color", status.serverAccentColor() == null ? "" : status.serverAccentColor());
 		values.put("server_status", statusText);
+		values.put("server_status_color", statusColor);
+		values.put("server_status_icon", statusIcon);
 		values.put("online", String.valueOf(online));
 		values.put("max", String.valueOf(max));
 		values.put("version", status.stats() == null ? "unknown" : status.stats().version());
@@ -386,7 +389,9 @@ public final class PaperServerSelectorController implements Listener {
 	private SelectorPayload parsePayload(PluginMessageReader reader) {
 		try {
 			String mode = reader.readUtf();
-			if (!"open-v3".equalsIgnoreCase(mode)) {
+			boolean v3 = "open-v3".equalsIgnoreCase(mode);
+			boolean v4 = "open-v4".equalsIgnoreCase(mode);
+			if (!v3 && !v4) {
 				return SelectorPayload.empty();
 			}
 
@@ -398,6 +403,25 @@ public final class PaperServerSelectorController implements Listener {
 			Map<String, TemplateOverridePayload> globalTemplateByStatus = readTemplateOverrides(reader);
 
 			TemplatePayload baseTemplate = new TemplatePayload(name, header, bodyLine, footer, globalTemplateByStatus);
+			Map<String, String> statusColors = defaultStatusColors();
+			Map<String, String> statusIcons = defaultStatusIcons();
+			if (v4) {
+				Map<String, String> payloadColors = new LinkedHashMap<>();
+				Map<String, String> payloadIcons = new LinkedHashMap<>();
+				int count = Math.max(0, reader.readInt());
+				for (int i = 0; i < count; i++) {
+					String statusKey = reader.readUtf().toUpperCase(Locale.ROOT);
+					payloadColors.put(statusKey, reader.readUtf());
+					payloadIcons.put(statusKey, reader.readUtf());
+				}
+				if (!payloadColors.isEmpty()) {
+					statusColors = Map.copyOf(payloadColors);
+				}
+				if (!payloadIcons.isEmpty()) {
+					statusIcons = Map.copyOf(payloadIcons);
+				}
+			}
+
 			int serverCount = Math.max(0, reader.readInt());
 			Map<String, ServerPayload> servers = new LinkedHashMap<>();
 			for (int i = 0; i < serverCount; i++) {
@@ -442,10 +466,28 @@ public final class PaperServerSelectorController implements Listener {
 					serverTemplate
 				));
 			}
-			return new SelectorPayload(guiTitle, baseTemplate, servers);
+			return new SelectorPayload(guiTitle, baseTemplate, statusColors, statusIcons, servers);
 		} catch (Exception ignored) {
 			return SelectorPayload.empty();
 		}
+	}
+
+	private static Map<String, String> defaultStatusColors() {
+		Map<String, String> values = new LinkedHashMap<>();
+		values.put("ONLINE", "<green>");
+		values.put("OFFLINE", "<red>");
+		values.put("MAINT", "<yellow>");
+		values.put("NOP", "<gray>");
+		return Map.copyOf(values);
+	}
+
+	private static Map<String, String> defaultStatusIcons() {
+		Map<String, String> values = new LinkedHashMap<>();
+		values.put("ONLINE", "✔");
+		values.put("OFFLINE", "✘");
+		values.put("MAINT", "⚠");
+		values.put("NOP", "🔒");
+		return Map.copyOf(values);
 	}
 
 	private List<String> readLines(PluginMessageReader reader) {
@@ -488,10 +530,12 @@ public final class PaperServerSelectorController implements Listener {
 	private record SelectorPayload(
 		String guiTitle,
 		TemplatePayload template,
+		Map<String, String> statusColors,
+		Map<String, String> statusIcons,
 		Map<String, ServerPayload> servers
 	) {
 		static SelectorPayload empty() {
-			return new SelectorPayload("Danh Sách Máy Chủ", TemplatePayload.defaultTemplate(), Map.of());
+			return new SelectorPayload("Danh Sách Máy Chủ", TemplatePayload.defaultTemplate(), defaultStatusColors(), defaultStatusIcons(), Map.of());
 		}
 
 		ServerPayload server(String backendName) {
@@ -508,6 +552,20 @@ public final class PaperServerSelectorController implements Listener {
 			}
 			resolved = resolved.merge(serverPayload.template());
 			return resolved.applyOverride(serverPayload.template().byStatus().get(status));
+		}
+
+		String statusColor(String status) {
+			if (status == null) {
+				return "<white>";
+			}
+			return statusColors.getOrDefault(status.toUpperCase(Locale.ROOT), "<white>");
+		}
+
+		String statusIcon(String status) {
+			if (status == null) {
+				return "●";
+			}
+			return statusIcons.getOrDefault(status.toUpperCase(Locale.ROOT), "●");
 		}
 	}
 

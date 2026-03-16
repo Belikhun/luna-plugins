@@ -16,9 +16,6 @@ public final class VelocityMessengerConfig {
 	private final FormatProfile defaults;
 	private final Map<String, FormatProfile> perServer;
 	private final String userDisplayFormat;
-	private final Map<String, String> serverDisplays;
-	private final String defaultServerColor;
-	private final Map<String, String> serverColors;
 	private final MentionConfig mentions;
 	private final SilentBroadcastConfig silentBroadcast;
 	private final DiscordConfig discord;
@@ -29,9 +26,6 @@ public final class VelocityMessengerConfig {
 		FormatProfile defaults,
 		Map<String, FormatProfile> perServer,
 		String userDisplayFormat,
-		Map<String, String> serverDisplays,
-		String defaultServerColor,
-		Map<String, String> serverColors,
 		MentionConfig mentions,
 		SilentBroadcastConfig silentBroadcast,
 		DiscordConfig discord,
@@ -41,9 +35,6 @@ public final class VelocityMessengerConfig {
 		this.defaults = defaults;
 		this.perServer = perServer;
 		this.userDisplayFormat = userDisplayFormat;
-		this.serverDisplays = serverDisplays;
-		this.defaultServerColor = defaultServerColor;
-		this.serverColors = serverColors;
 		this.mentions = mentions;
 		this.silentBroadcast = silentBroadcast;
 		this.discord = discord;
@@ -64,22 +55,6 @@ public final class VelocityMessengerConfig {
 			perServer.put(serverName, profile);
 		}
 
-		Map<String, String> serverDisplays = new HashMap<>();
-		Map<String, Object> displayMap = map(root.get("server-displays"));
-		for (Map.Entry<String, Object> entry : displayMap.entrySet()) {
-			serverDisplays.put(entry.getKey().toLowerCase(Locale.ROOT), String.valueOf(entry.getValue()));
-		}
-
-		Map<String, Object> colorMap = map(root.get("server-colors"));
-		String defaultServerColor = str(colorMap.get("default"), "#F1FF68");
-		Map<String, String> serverColors = new HashMap<>();
-		for (Map.Entry<String, Object> entry : colorMap.entrySet()) {
-			if ("default".equalsIgnoreCase(entry.getKey())) {
-				continue;
-			}
-			serverColors.put(entry.getKey().toLowerCase(Locale.ROOT), String.valueOf(entry.getValue()));
-		}
-
 		MentionConfig mentions = parseMentionConfig(map(root.get("mentions")));
 		SilentBroadcastConfig silentBroadcast = parseSilentBroadcastConfig(map(root.get("silent-broadcast")));
 		DiscordConfig discord = parseDiscordConfig(map(root.get("discord")));
@@ -89,9 +64,6 @@ public final class VelocityMessengerConfig {
 			defaults,
 			Map.copyOf(perServer),
 			str(formats.get("user-display-format"), "%player_prefix% %displayname%"),
-			Map.copyOf(serverDisplays),
-			defaultServerColor,
-			Map.copyOf(serverColors),
 			mentions,
 			silentBroadcast,
 			discord,
@@ -129,20 +101,6 @@ public final class VelocityMessengerConfig {
 
 	public ServerProtectionConfig serverProtection() {
 		return serverProtection;
-	}
-
-	public String serverDisplay(String serverName) {
-		if (serverName == null || serverName.isBlank()) {
-			return "";
-		}
-		return serverDisplays.getOrDefault(serverName.toLowerCase(Locale.ROOT), serverName);
-	}
-
-	public String serverColor(String serverName) {
-		if (serverName == null || serverName.isBlank()) {
-			return defaultServerColor;
-		}
-		return serverColors.getOrDefault(serverName.toLowerCase(Locale.ROOT), defaultServerColor);
 	}
 
 	private static MentionConfig parseMentionConfig(Map<String, Object> mentions) {

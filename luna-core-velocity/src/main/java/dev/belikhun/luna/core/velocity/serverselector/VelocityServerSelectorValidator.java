@@ -22,6 +22,7 @@ public final class VelocityServerSelectorValidator {
 		"server_accent_color",
 		"server_status",
 		"server_status_color",
+		"server_status_icon",
 		"online",
 		"max",
 		"uptime",
@@ -44,6 +45,7 @@ public final class VelocityServerSelectorValidator {
 
 		Map<String, Object> section = ConfigValues.map(rootConfig, "server-selector");
 		Map<String, Object> serversSection = ConfigValues.map(section, "servers");
+		Map<String, Object> serverInfoSection = ConfigValues.map(rootConfig, "server-info");
 		Map<String, Object> descriptionsSection = ConfigValues.map(section, "descriptions");
 
 		if (config.enabled() && config.servers().isEmpty()) {
@@ -53,19 +55,36 @@ public final class VelocityServerSelectorValidator {
 		Set<String> seenBackends = new HashSet<>();
 		Set<String> seenSlotPages = new HashSet<>();
 		Set<String> usedDescriptionKeys = new LinkedHashSet<>();
+		Set<String> usedServerInfoKeys = new LinkedHashSet<>();
 
 		for (Map.Entry<String, Object> entry : serversSection.entrySet()) {
 			String nodeName = entry.getKey();
 			Map<String, Object> serverNode = ConfigValues.map(entry.getValue());
-			String backendName = ConfigValues.string(serverNode, "backend-name", nodeName).trim();
+			String backendName = nodeName == null ? "" : nodeName.trim();
 			if (backendName.isBlank()) {
-				errors.add("Server node '" + nodeName + "' có backend-name rỗng.");
+				errors.add("Server node có key rỗng trong server-selector.servers.");
 				continue;
+			}
+
+			String legacyBackend = ConfigValues.string(serverNode, "backend-name", "").trim();
+			if (!legacyBackend.isBlank()) {
+				if (!normalize(legacyBackend).equals(normalize(backendName))) {
+					errors.add("servers.'" + nodeName + "'.backend-name phải trùng key server (legacy field): " + legacyBackend);
+				} else {
+					warnings.add("servers.'" + nodeName + "'.backend-name là legacy field, có thể xóa.");
+				}
 			}
 
 			String normalizedBackend = normalize(backendName);
 			if (!seenBackends.add(normalizedBackend)) {
-				errors.add("Trùng backend-name sau khi normalize: '" + backendName + "'.");
+				errors.add("Trùng server key sau khi normalize: '" + backendName + "'.");
+			}
+
+			Map<String, Object> infoNode = ConfigValues.map(serverInfoSection, normalizedBackend);
+			if (infoNode.isEmpty()) {
+				warnings.add("Thiếu root.server-info.'" + normalizedBackend + "'. Sẽ dùng fallback từ servers node (legacy). ");
+			} else {
+				usedServerInfoKeys.add(normalizedBackend);
 			}
 
 			String permission = ConfigValues.string(serverNode, "permission", "");
@@ -97,6 +116,16 @@ public final class VelocityServerSelectorValidator {
 			String material = ConfigValues.string(serverNode, "material", "");
 			if (!material.isBlank() && !MATERIAL_PATTERN.matcher(material).matches()) {
 				warnings.add("Material có định dạng lạ tại server '" + backendName + "': " + material);
+			}
+
+			String display = ConfigValues.string(infoNode, "display", ConfigValues.string(serverNode, "display", ""));
+			if (display.isBlank()) {
+				errors.add("Thiếu display cho server '" + backendName + "' (khai báo tại root.server-info). ");
+			}
+
+			String accentColor = ConfigValues.string(infoNode, "accent-color", ConfigValues.string(serverNode, "accent-color", ""));
+			if (accentColor.isBlank()) {
+				warnings.add("Thiếu accent-color cho server '" + backendName + "'.");
 			}
 
 			String descriptionKey = backendName.trim();
@@ -146,6 +175,16 @@ public final class VelocityServerSelectorValidator {
 		for (String key : descriptionsSection.keySet()) {
 			if (!usedDescriptionKeys.contains(key)) {
 				warnings.add("Descriptions key không được server nào tham chiếu: '" + key + "'.");
+			}
+		}
+
+		for (String key : serverInfoSection.keySet()) {
+			String normalized = normalize(key);
+			if (!serversSection.containsKey(key) && !serversSection.containsKey(normalized)) {
+				warnings.add("root.server-info key không có server tương ứng trong servers: '" + key + "'.");
+			}
+			if (!usedServerInfoKeys.contains(normalized) && serversSection.containsKey(key)) {
+				usedServerInfoKeys.add(normalized);
 			}
 		}
 
