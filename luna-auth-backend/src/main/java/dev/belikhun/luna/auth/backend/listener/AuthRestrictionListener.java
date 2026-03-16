@@ -1,5 +1,6 @@
 package dev.belikhun.luna.auth.backend.listener;
 
+import dev.belikhun.luna.auth.backend.api.AuthLobbyItemRegistry;
 import dev.belikhun.luna.auth.backend.service.BackendAuthStateRegistry;
 import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -26,18 +27,27 @@ import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -46,8 +56,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.List;
+import java.util.stream.Collectors;
 
-public final class AuthRestrictionListener implements Listener {
+public final class AuthRestrictionListener implements Listener, AuthLobbyItemRegistry {
 	private static final long RESTRICTION_LOG_THROTTLE_MS = 3000L;
 	private static final long SYNC_REQUEST_THROTTLE_MS = 1500L;
 	private static final Component MODE_SELECTOR_TITLE = Component.text("Chọn kiểu tài khoản");
@@ -80,6 +91,9 @@ public final class AuthRestrictionListener implements Listener {
 	private final ConcurrentMap<UUID, Long> lastSyncRequestLog;
 	private final ConcurrentMap<UUID, MovementProfile> movementProfiles;
 	private final Set<UUID> authLockedPlayers;
+	private final Set<UUID> lobbyItemsAppliedPlayers;
+	private final ConcurrentMap<String, LobbyItem> registeredLobbyItems;
+	private final NamespacedKey lobbyItemKey;
 
 	public AuthRestrictionListener(
 		JavaPlugin plugin,
@@ -120,6 +134,9 @@ public final class AuthRestrictionListener implements Listener {
 		this.lastSyncRequestLog = new ConcurrentHashMap<>();
 		this.movementProfiles = new ConcurrentHashMap<>();
 		this.authLockedPlayers = ConcurrentHashMap.newKeySet();
+		this.lobbyItemsAppliedPlayers = ConcurrentHashMap.newKeySet();
+		this.registeredLobbyItems = new ConcurrentHashMap<>();
+		this.lobbyItemKey = new NamespacedKey(plugin, "auth_lobby_item");
 	}
 
 	public void startPromptTask() {
@@ -141,6 +158,13 @@ public final class AuthRestrictionListener implements Listener {
 			player.hideBossBar(bar);
 			flow("Ẩn prompt player=" + player.getName() + " uuid=" + player.getUniqueId());
 		}
+	}
+
+	public void refreshPlayerState(Player player) {
+		if (player == null || !player.isOnline()) {
+			return;
+		}
+		syncAuthLockState(player);
 	}
 
 	@EventHandler
@@ -179,6 +203,7 @@ public final class AuthRestrictionListener implements Listener {
 		modePreferencePresent.remove(event.getPlayer().getUniqueId());
 		modeRememberSelection.remove(event.getPlayer().getUniqueId());
 		authLockedPlayers.remove(event.getPlayer().getUniqueId());
+		lobbyItemsAppliedPlayers.remove(event.getPlayer().getUniqueId());
 		movementProfiles.remove(event.getPlayer().getUniqueId());
 		flow("Quit clear state player=" + event.getPlayer().getName() + " uuid=" + event.getPlayer().getUniqueId());
 	}
@@ -253,9 +278,29 @@ public final class AuthRestrictionListener implements Listener {
 	@EventHandler(priority = EventPriority.HIGHEST)
 	public void onModeSelectorDrag(InventoryDragEvent event) {
 		if (!(event.getView().getTopInventory().getHolder() instanceof ModeSelectorHolder)) {
+			if (event.getWhoClicked() instanceof Player player && stateRegistry.isAuthenticated(player.getUniqueId()) && dragTouchesProtectedLobbyItem(event)) {
+				event.setCancelled(true);
+			}
 			return;
 		}
 		event.setCancelled(true);
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onInventoryClick(InventoryClickEvent event) {
+		if (!(event.getWhoClicked() instanceof Player player)) {
+			return;
+		}
+		if (!stateRegistry.isAuthenticated(player.getUniqueId())) {
+			return;
+		}
+		if (event.getView().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
+			return;
+		}
+
+		if (clickTouchesProtectedLobbyItem(player, event)) {
+			event.setCancelled(true);
+		}
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -353,14 +398,68 @@ public final class AuthRestrictionListener implements Listener {
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onInteract(PlayerInteractEvent event) {
-		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+		Player player = event.getPlayer();
+		if (!stateRegistry.isAuthenticated(player.getUniqueId())) {
 			event.setCancelled(true);
+			return;
+		}
+
+		if (event.getHand() != EquipmentSlot.HAND) {
+			return;
+		}
+
+		ItemStack used = event.getItem();
+		if (!isProtectedLobbyItem(used)) {
+			return;
+		}
+
+		AuthLobbyItemRegistry.ClickType clickType = switch (event.getAction()) {
+			case LEFT_CLICK_AIR, LEFT_CLICK_BLOCK -> AuthLobbyItemRegistry.ClickType.LEFT;
+			case RIGHT_CLICK_AIR, RIGHT_CLICK_BLOCK -> AuthLobbyItemRegistry.ClickType.RIGHT;
+			default -> null;
+		};
+		if (clickType == null) {
+			return;
+		}
+
+		event.setCancelled(true);
+		String key = lobbyItemId(used);
+		LobbyItem lobbyItem = key == null ? null : registeredLobbyItems.get(key);
+		if (lobbyItem != null && lobbyItem.action() != null) {
+			lobbyItem.action().onUse(player, clickType);
 		}
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
 	public void onDrop(PlayerDropItemEvent event) {
 		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			event.setCancelled(true);
+			return;
+		}
+
+		if (isProtectedLobbyItem(event.getItemDrop().getItemStack())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onSwapHands(PlayerSwapHandItemsEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			return;
+		}
+
+		if (isProtectedLobbyItem(event.getMainHandItem()) || isProtectedLobbyItem(event.getOffHandItem())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	public void onItemDamage(PlayerItemDamageEvent event) {
+		if (!stateRegistry.isAuthenticated(event.getPlayer().getUniqueId())) {
+			return;
+		}
+
+		if (isProtectedLobbyItem(event.getItem())) {
 			event.setCancelled(true);
 		}
 	}
@@ -464,12 +563,149 @@ public final class AuthRestrictionListener implements Listener {
 			if (authLockedPlayers.remove(playerUuid)) {
 				releaseAuthLock(player);
 			}
+			if (lobbyItemsAppliedPlayers.add(playerUuid)) {
+				applyLobbyItems(player);
+			}
 			return;
 		}
 
+		lobbyItemsAppliedPlayers.remove(playerUuid);
+
 		if (authLockedPlayers.add(playerUuid)) {
+			clearUnauthorizedInventory(player);
 			applyAuthLock(player);
 		}
+	}
+
+	@Override
+	public void registerLobbyItem(LobbyItem item) {
+		if (item == null || item.key() == null || item.key().isBlank() || item.item() == null) {
+			return;
+		}
+
+		int slot = Math.max(0, Math.min(8, item.hotbarSlot()));
+		LobbyItem normalized = new LobbyItem(item.key().trim().toLowerCase(java.util.Locale.ROOT), slot, item.item().clone(), item.action());
+		registeredLobbyItems.put(normalized.key(), normalized);
+
+		for (Player online : Bukkit.getOnlinePlayers()) {
+			if (stateRegistry.isAuthenticated(online.getUniqueId())) {
+				applyLobbyItems(online);
+			}
+		}
+	}
+
+	@Override
+	public void unregisterLobbyItem(String key) {
+		if (key == null || key.isBlank()) {
+			return;
+		}
+
+		String normalized = key.trim().toLowerCase(java.util.Locale.ROOT);
+		registeredLobbyItems.remove(normalized);
+		for (Player online : Bukkit.getOnlinePlayers()) {
+			removeLobbyItemByKey(online, normalized);
+		}
+	}
+
+	@Override
+	public Map<String, LobbyItem> lobbyItems() {
+		return Collections.unmodifiableMap(new LinkedHashMap<>(registeredLobbyItems));
+	}
+
+	@Override
+	public void applyLobbyItems(Player player) {
+		if (player == null || !stateRegistry.isAuthenticated(player.getUniqueId())) {
+			return;
+		}
+
+		PlayerInventory inventory = player.getInventory();
+		inventory.clear();
+		inventory.setArmorContents(new ItemStack[4]);
+		inventory.setItemInOffHand(null);
+		for (LobbyItem lobbyItem : registeredLobbyItems.values().stream().sorted(java.util.Comparator.comparingInt(LobbyItem::hotbarSlot)).collect(Collectors.toList())) {
+			ItemStack stack = lobbyItem.item().clone();
+			tagLobbyItem(stack, lobbyItem.key());
+			inventory.setItem(lobbyItem.hotbarSlot(), stack);
+		}
+		player.updateInventory();
+	}
+
+	private void clearUnauthorizedInventory(Player player) {
+		PlayerInventory inventory = player.getInventory();
+		inventory.clear();
+		inventory.setArmorContents(new ItemStack[4]);
+		inventory.setItemInOffHand(null);
+		player.updateInventory();
+	}
+
+	private void tagLobbyItem(ItemStack stack, String key) {
+		if (stack == null || key == null || key.isBlank()) {
+			return;
+		}
+		ItemMeta meta = stack.getItemMeta();
+		meta.getPersistentDataContainer().set(lobbyItemKey, PersistentDataType.STRING, key);
+		meta.setUnbreakable(true);
+		stack.setItemMeta(meta);
+	}
+
+	private String lobbyItemId(ItemStack stack) {
+		if (stack == null || !stack.hasItemMeta()) {
+			return null;
+		}
+		return stack.getItemMeta().getPersistentDataContainer().get(lobbyItemKey, PersistentDataType.STRING);
+	}
+
+	private boolean isProtectedLobbyItem(ItemStack stack) {
+		String key = lobbyItemId(stack);
+		return key != null && registeredLobbyItems.containsKey(key);
+	}
+
+	private void removeLobbyItemByKey(Player player, String key) {
+		PlayerInventory inventory = player.getInventory();
+		for (int slot = 0; slot < inventory.getSize(); slot++) {
+			ItemStack stack = inventory.getItem(slot);
+			String itemKey = lobbyItemId(stack);
+			if (key.equals(itemKey)) {
+				inventory.setItem(slot, null);
+			}
+		}
+		if (key.equals(lobbyItemId(inventory.getItemInOffHand()))) {
+			inventory.setItemInOffHand(null);
+		}
+		player.updateInventory();
+	}
+
+	private boolean clickTouchesProtectedLobbyItem(Player player, InventoryClickEvent event) {
+		if (isProtectedLobbyItem(event.getCurrentItem()) || isProtectedLobbyItem(event.getCursor())) {
+			return true;
+		}
+
+		if (event.getHotbarButton() >= 0 && event.getHotbarButton() <= 8) {
+			ItemStack hotbarItem = player.getInventory().getItem(event.getHotbarButton());
+			if (isProtectedLobbyItem(hotbarItem)) {
+				return true;
+			}
+		}
+
+		if (event.getClick().name().contains("SWAP_OFFHAND") && isProtectedLobbyItem(player.getInventory().getItemInOffHand())) {
+			return true;
+		}
+
+		return false;
+	}
+
+	private boolean dragTouchesProtectedLobbyItem(InventoryDragEvent event) {
+		if (isProtectedLobbyItem(event.getOldCursor())) {
+			return true;
+		}
+
+		for (ItemStack stack : event.getNewItems().values()) {
+			if (isProtectedLobbyItem(stack)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private PromptSet promptFor(UUID playerUuid) {

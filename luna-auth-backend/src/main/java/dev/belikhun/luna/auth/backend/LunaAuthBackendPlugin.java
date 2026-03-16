@@ -1,5 +1,6 @@
 package dev.belikhun.luna.auth.backend;
 
+import dev.belikhun.luna.auth.backend.api.AuthLobbyItemRegistry;
 import dev.belikhun.luna.auth.backend.command.BackendAuthProxyCommand;
 import dev.belikhun.luna.auth.backend.listener.AuthRestrictionListener;
 import dev.belikhun.luna.auth.backend.messaging.AuthChannels;
@@ -9,11 +10,16 @@ import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
+import dev.belikhun.luna.core.api.ui.LunaUi;
+import dev.belikhun.luna.core.paper.serverselector.PaperServerSelectorController;
 import dev.belikhun.luna.core.paper.LunaCore;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.bukkit.Material;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.plugin.ServicePriority;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -73,6 +79,8 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			authFlowLogsEnabled
 		);
 		getServer().getPluginManager().registerEvents(restrictionListener, this);
+		getServer().getServicesManager().register(AuthLobbyItemRegistry.class, restrictionListener, this, ServicePriority.Normal);
+		registerDefaultLobbyItems();
 		restrictionListener.startPromptTask();
 		flow("Plugin enable complete, authFlowLogs=" + authFlowLogsEnabled + " modeSelectorGuiEnabled=" + modeSelectorGuiEnabled + " allowedCommands=" + readAllowedCommands());
 		LunaCore.services().pluginMessaging().registerOutgoing(AuthChannels.COMMAND_REQUEST);
@@ -131,12 +139,14 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			if (authenticated) {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
+				restrictionListener.refreshPlayerState(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 				if (!wasAuthenticated) {
 					flow("Skip authenticated feedback on AUTH_STATE to avoid overriding method-specific feedback from COMMAND_RESPONSE.");
 				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
+				restrictionListener.refreshPlayerState(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 			}
 			return PluginMessageDispatchResult.HANDLED;
@@ -178,12 +188,14 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			if (authenticated) {
 				stateRegistry.markAuthenticated(playerUuid);
 				restrictionListener.hidePrompt(source);
+				restrictionListener.refreshPlayerState(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 				if (success) {
 					sendAuthenticatedFeedback(source, authMethod);
 				}
 			} else {
 				stateRegistry.markUnauthenticated(playerUuid, needsRegister);
+				restrictionListener.refreshPlayerState(source);
 				flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 			}
 			return PluginMessageDispatchResult.HANDLED;
@@ -203,6 +215,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 	@Override
 	public void onDisable() {
+		getServer().getServicesManager().unregister(AuthLobbyItemRegistry.class, restrictionListener);
 		if (getServer().getPluginManager().isPluginEnabled("LunaCore")) {
 			LunaCore.services().pluginMessaging().unregisterOutgoing(AuthChannels.COMMAND_REQUEST);
 			LunaCore.services().pluginMessaging().unregisterIncoming(AuthChannels.AUTH_STATE);
@@ -289,6 +302,30 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			writer.writeUtf(player.getName());
 		});
 		flow("TX command_request action=sync_state player=" + player.getName() + " uuid=" + player.getUniqueId() + " sent=" + sent + " at=" + Instant.now());
+	}
+
+	private void registerDefaultLobbyItems() {
+		ItemStack selectorItem = LunaUi.item(
+			Material.COMPASS,
+			"<gradient:#C6A9FF:#FF8AB9>Chọn máy chủ</gradient>",
+			List.of(
+				LunaUi.mini("<gray>ℹ Cầm item này và nhấn <aqua>chuột phải</aqua> để mở menu</gray>"),
+				LunaUi.mini(""),
+				LunaUi.mini("<dark_gray>> maylocnuoc</dark_gray>")
+			)
+		);
+
+		restrictionListener.registerLobbyItem(new AuthLobbyItemRegistry.LobbyItem(
+			"server_selector",
+			0,
+			selectorItem,
+			(player, clickType) -> LunaCore.services().dependencyManager()
+				.resolveOptional(PaperServerSelectorController.class)
+				.ifPresentOrElse(
+					controller -> controller.open(player, 0),
+					() -> player.performCommand("servers")
+				)
+		));
 	}
 
 	private boolean sendProbePreference(Player player, String mode) {
