@@ -1,6 +1,5 @@
 package dev.belikhun.luna.core.paper.placeholder;
 
-import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.string.Formatters;
@@ -10,13 +9,16 @@ import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import me.lucko.spark.api.Spark;
 import me.lucko.spark.api.SparkProvider;
 import me.lucko.spark.api.statistic.StatisticWindow.CpuUsage;
+import me.lucko.spark.api.statistic.StatisticWindow.TicksPerSecond;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.function.IntFunction;
 
 public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
@@ -64,75 +66,74 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	}
 
 	private String resolveCurrent(OfflinePlayer player, String normalized) {
-		String currentServer = currentServerName();
 		String value = switch (normalized) {
-			case "current_server" -> currentServer;
-			case "status" -> statusText(currentServer);
-			case "online" -> Integer.toString(onlinePlayers(currentServer));
-			case "max" -> Integer.toString(maxPlayers(currentServer));
-			case "tps" -> tps(currentServer);
+			case "current_server" -> currentServerName();
+			case "status" -> statusText();
+			case "online" -> Integer.toString(Bukkit.getOnlinePlayers().size());
+			case "max" -> Integer.toString(Bukkit.getMaxPlayers());
+			case "tps" -> String.format(Locale.US, "%.2f", currentTps());
 			case "player_ping" -> Long.toString(playerPing(player));
-			case "latency" -> latency(currentServer);
-			case "uptime" -> uptime(currentServer);
-			case "uptime_ms" -> Long.toString(uptimeMillis(currentServer));
-			case "system_cpu" -> formatPercent(systemCpuPercent(currentServer));
+			case "latency" -> Long.toString(currentLatencyMillis());
+			case "uptime" -> Formatters.duration(Duration.ofMillis(currentUptimeMillis()));
+			case "uptime_ms" -> Long.toString(currentUptimeMillis());
+			case "system_cpu" -> formatPercent(systemCpuPercent());
 			case "process_cpu" -> formatPercent(processCpuPercent());
-			case "version" -> version(currentServer);
-			case "display" -> displayName(currentServer);
-			case "color" -> accentColor(currentServer);
-			case "whitelist" -> Boolean.toString(whitelist(currentServer));
+			case "version" -> Bukkit.getVersion();
+			case "display" -> currentDisplayName();
+			case "color" -> currentAccentColor();
+			case "whitelist" -> Boolean.toString(Bukkit.hasWhitelist());
 			default -> null;
 		};
 		if (value != null) {
 			return value;
 		}
 
-		value = resolveCurrentBar(normalized, "tps_bar", width -> tpsBar(currentServer, width));
+		value = resolveCurrentBar(normalized, "tps_bar", width -> buildBar(LunaProgressBarPresets.tps("tps", currentTps()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "player_ping_bar", width -> playerPingBar(player, width));
+		value = resolveCurrentBar(normalized, "player_ping_bar", width -> buildBar(LunaProgressBarPresets.latency("ping", playerPing(player)), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "latency_bar", width -> latencyBar(currentServer, width));
+		value = resolveCurrentBar(normalized, "latency_bar", width -> buildBar(LunaProgressBarPresets.latency("latency", currentLatencyMillis()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "system_cpu_bar", width -> systemCpuBar(currentServer, width));
+		value = resolveCurrentBar(normalized, "system_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "process_cpu_bar", width -> processCpuBar(currentServer, width));
+		value = resolveCurrentBar(normalized, "process_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "ram_bar", width -> ramBar(currentServer, width));
+		value = resolveCurrentBar(normalized, "ram_bar", width -> buildBar(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), width));
 		if (value != null) {
 			return value;
 		}
 
-		value = resolveCurrentBar(normalized, "tps_bar_only", width -> tpsBarOnly(currentServer, width));
+		value = resolveCurrentBar(normalized, "tps_bar_only", width -> buildBarOnly(LunaProgressBarPresets.tps("tps", currentTps()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "player_ping_bar_only", width -> playerPingBarOnly(player, width));
+		value = resolveCurrentBar(normalized, "player_ping_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("ping", playerPing(player)), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "latency_bar_only", width -> latencyBarOnly(currentServer, width));
+		value = resolveCurrentBar(normalized, "latency_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("latency", currentLatencyMillis()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "system_cpu_bar_only", width -> systemCpuBarOnly(currentServer, width));
+		value = resolveCurrentBar(normalized, "system_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(normalized, "process_cpu_bar_only", width -> processCpuBarOnly(currentServer, width));
+		value = resolveCurrentBar(normalized, "process_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		return resolveCurrentBar(normalized, "ram_bar_only", width -> ramBarOnly(currentServer, width));
+		return resolveCurrentBar(normalized, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), width));
 	}
 
 	private String resolveCurrentBar(String key, String baseKey, IntFunction<String> renderer) {
@@ -147,166 +148,105 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (key.equals(baseKey)) {
 			return DEFAULT_BAR_WIDTH;
 		}
+
 		String prefix = baseKey + "_";
 		if (!key.startsWith(prefix)) {
 			return null;
 		}
+
 		String widthRaw = key.substring(prefix.length()).trim();
 		if (widthRaw.isEmpty()) {
 			return DEFAULT_BAR_WIDTH;
 		}
+
 		Integer parsed = parseWidth(widthRaw);
 		return parsed == null ? DEFAULT_BAR_WIDTH : parsed;
 	}
 
-	private String statusText(String serverName) {
-		BackendServerStatus status = status(serverName);
-		if (status == null || !status.online()) {
-			return "OFFLINE";
-		}
-		BackendHeartbeatStats stats = status.stats();
-		if (stats != null && stats.whitelistEnabled()) {
+	private String statusText() {
+		if (Bukkit.hasWhitelist()) {
 			return "MAINT";
 		}
 		return "ONLINE";
 	}
 
-	private int onlinePlayers(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null ? 0 : Math.max(0, stats.onlinePlayers());
-	}
-
-	private int maxPlayers(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null ? 0 : Math.max(0, stats.maxPlayers());
-	}
-
-	private String tps(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		double tps = stats == null ? 0D : stats.tps();
-		return String.format(Locale.US, "%.2f", tps);
-	}
-
-	private String latency(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		long latency = stats == null ? 0L : Math.max(0L, stats.heartbeatLatencyMillis());
-		return Long.toString(latency);
-	}
-
-	private String uptime(String serverName) {
-		return Formatters.duration(Duration.ofMillis(uptimeMillis(serverName)));
-	}
-
-	private long uptimeMillis(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null ? 0L : Math.max(0L, stats.uptimeMillis());
-	}
-
-	private String tpsBar(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		double tps = stats == null ? 0D : Math.max(0D, stats.tps());
-		return buildBar(LunaProgressBarPresets.tps("tps", tps), width);
-	}
-
-	private String tpsBarOnly(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		double tps = stats == null ? 0D : Math.max(0D, stats.tps());
-		return buildBarOnly(LunaProgressBarPresets.tps("tps", tps), width);
-	}
-
-	private String playerPingBar(OfflinePlayer player, int width) {
-		long ping = playerPing(player);
-		return buildBar(LunaProgressBarPresets.latency("ping", ping), width);
-	}
-
-	private String playerPingBarOnly(OfflinePlayer player, int width) {
-		long ping = playerPing(player);
-		return buildBarOnly(LunaProgressBarPresets.latency("ping", ping), width);
-	}
-
-	private String latencyBar(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		double latency = stats == null ? 0D : Math.max(0D, stats.heartbeatLatencyMillis());
-		return buildBar(LunaProgressBarPresets.latency("latency", latency), width);
-	}
-
-	private String latencyBarOnly(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		double latency = stats == null ? 0D : Math.max(0D, stats.heartbeatLatencyMillis());
-		return buildBarOnly(LunaProgressBarPresets.latency("latency", latency), width);
-	}
-
-	private String systemCpuBar(String serverName, int width) {
-		double cpu = systemCpuPercent(serverName);
-		return buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", cpu), width);
-	}
-
-	private String systemCpuBarOnly(String serverName, int width) {
-		double cpu = systemCpuPercent(serverName);
-		return buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", cpu), width);
-	}
-
-	private String processCpuBar(String serverName, int width) {
-		double cpu = processCpuPercent(serverName);
-		return buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", cpu), width);
-	}
-
-	private String processCpuBarOnly(String serverName, int width) {
-		double cpu = processCpuPercent(serverName);
-		return buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", cpu), width);
-	}
-
-	private String ramBar(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		long used = stats == null ? 0L : Math.max(0L, stats.ramUsedBytes());
-		long max = stats == null ? 0L : Math.max(0L, stats.ramMaxBytes());
-		return buildBar(LunaProgressBarPresets.ram("ram", used, max), width);
-	}
-
-	private String ramBarOnly(String serverName, int width) {
-		BackendHeartbeatStats stats = stats(serverName);
-		long used = stats == null ? 0L : Math.max(0L, stats.ramUsedBytes());
-		long max = stats == null ? 0L : Math.max(0L, stats.ramMaxBytes());
-		return buildBarOnly(LunaProgressBarPresets.ram("ram", used, max), width);
-	}
-
-	private String version(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null || stats.version() == null || stats.version().isBlank() ? "unknown" : stats.version();
-	}
-
-	private String displayName(String serverName) {
-		BackendServerStatus status = status(serverName);
-		if (status == null) {
-			return serverName;
+	private double currentTps() {
+		try {
+			Spark spark = SparkProvider.get();
+			double sparkTps = spark.tps().poll(TicksPerSecond.SECONDS_10);
+			if (sparkTps > 0D) {
+				return sparkTps;
+			}
+		} catch (Throwable ignored) {
 		}
-		String display = status.serverDisplay();
-		if (display == null || display.isBlank()) {
-			return status.serverName();
+
+		try {
+			double[] values = Bukkit.getTPS();
+			if (values.length > 0) {
+				return Math.max(0D, values[0]);
+			}
+		} catch (Throwable ignored) {
 		}
-		return display;
+
+		return 0D;
 	}
 
-	private String accentColor(String serverName) {
-		BackendServerStatus status = status(serverName);
-		if (status == null || status.serverAccentColor() == null || status.serverAccentColor().isBlank()) {
-			return "#F1FF68";
+	private long currentLatencyMillis() {
+		return currentSnapshotStatus()
+			.map(BackendServerStatus::stats)
+			.map(stats -> Math.max(0L, stats.heartbeatLatencyMillis()))
+			.orElse(0L);
+	}
+
+	private long currentUptimeMillis() {
+		long runtimeUptime = 0L;
+		try {
+			runtimeUptime = Math.max(0L, ManagementFactory.getRuntimeMXBean().getUptime());
+		} catch (Throwable ignored) {
 		}
-		return status.serverAccentColor();
+
+		long heartbeatUptime = currentSnapshotStatus()
+			.map(BackendServerStatus::stats)
+			.map(stats -> Math.max(0L, stats.uptimeMillis()))
+			.orElse(0L);
+		return Math.max(runtimeUptime, heartbeatUptime);
 	}
 
-	private boolean whitelist(String serverName) {
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats != null && stats.whitelistEnabled();
+	private long currentRamUsedBytes() {
+		Runtime runtime = Runtime.getRuntime();
+		return Math.max(0L, runtime.totalMemory() - runtime.freeMemory());
 	}
 
-	private BackendHeartbeatStats stats(String serverName) {
-		BackendServerStatus status = status(serverName);
-		return status == null ? null : status.stats();
+	private long currentRamMaxBytes() {
+		Runtime runtime = Runtime.getRuntime();
+		return Math.max(0L, runtime.maxMemory());
 	}
 
-	private BackendServerStatus status(String serverName) {
-		return statusView.status(serverName).orElse(null);
+	private String currentDisplayName() {
+		return currentSnapshotStatus()
+			.map(BackendServerStatus::serverDisplay)
+			.filter(value -> value != null && !value.isBlank())
+			.orElse(currentServerName());
+	}
+
+	private String currentAccentColor() {
+		return currentSnapshotStatus()
+			.map(BackendServerStatus::serverAccentColor)
+			.filter(value -> value != null && !value.isBlank())
+			.orElse("#F1FF68");
+	}
+
+	private Optional<BackendServerStatus> currentSnapshotStatus() {
+		int currentPort = plugin.getServer().getPort();
+		for (BackendServerStatus status : statusView.snapshot().values()) {
+			if (status == null || status.stats() == null) {
+				continue;
+			}
+			if (status.stats().serverPort() == currentPort) {
+				return Optional.of(status);
+			}
+		}
+		return Optional.empty();
 	}
 
 	private String buildBar(LunaProgressBar bar, int width) {
@@ -343,31 +283,28 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		return Math.max(0L, onlinePlayer.getPing());
 	}
 
-	private double systemCpuPercent(String serverName) {
-		if (serverName.equals(currentServerName())) {
-			double local = readSparkSystemCpuPercent();
-			if (local >= 0D) {
-				return local;
-			}
+	private double systemCpuPercent() {
+		double sparkCpu = readSparkSystemCpuPercent();
+		if (sparkCpu >= 0D) {
+			return sparkCpu;
 		}
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null ? 0D : Math.max(0D, Math.min(100D, stats.systemCpuUsagePercent()));
+
+		return currentSnapshotStatus()
+			.map(BackendServerStatus::stats)
+			.map(stats -> Math.max(0D, Math.min(100D, stats.systemCpuUsagePercent())))
+			.orElse(0D);
 	}
 
 	private double processCpuPercent() {
-		double cpu = readSparkProcessCpuPercent();
-		if (cpu >= 0D) {
-			return cpu;
+		double sparkCpu = readSparkProcessCpuPercent();
+		if (sparkCpu >= 0D) {
+			return sparkCpu;
 		}
-		return 0D;
-	}
 
-	private double processCpuPercent(String serverName) {
-		if (serverName.equals(currentServerName())) {
-			return processCpuPercent();
-		}
-		BackendHeartbeatStats stats = stats(serverName);
-		return stats == null ? 0D : Math.max(0D, Math.min(100D, stats.processCpuUsagePercent()));
+		return currentSnapshotStatus()
+			.map(BackendServerStatus::stats)
+			.map(stats -> Math.max(0D, Math.min(100D, stats.processCpuUsagePercent())))
+			.orElse(0D);
 	}
 
 	private double readSparkSystemCpuPercent() {
@@ -394,7 +331,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (Double.isNaN(raw) || Double.isInfinite(raw) || raw < 0D) {
 			return -1D;
 		}
-		double percent = raw <= 1D ? (raw * 100D) : raw;
+		double percent = raw <= 1D ? raw * 100D : raw;
 		return Math.max(0D, Math.min(100D, percent));
 	}
 

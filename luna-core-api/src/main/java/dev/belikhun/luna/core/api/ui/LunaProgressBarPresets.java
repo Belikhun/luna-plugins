@@ -103,7 +103,7 @@ public final class LunaProgressBarPresets {
 	}
 
 	private static String tpsText(double tps) {
-		return String.format(Locale.US, "%.2f TPS", Math.max(0D, tps));
+		return String.format(Locale.US, "%.1f", Math.max(0D, tps));
 	}
 
 	private static String latencyText(double latencyMs) {
