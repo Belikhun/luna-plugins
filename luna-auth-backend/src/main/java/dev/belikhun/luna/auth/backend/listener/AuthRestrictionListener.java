@@ -34,6 +34,9 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
 
 import java.util.Map;
 import java.util.Set;
@@ -75,6 +78,8 @@ public final class AuthRestrictionListener implements Listener {
 	private final ConcurrentMap<UUID, Long> lastCommandRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastChatRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastSyncRequestLog;
+	private final ConcurrentMap<UUID, MovementProfile> movementProfiles;
+	private final Set<UUID> authLockedPlayers;
 
 	public AuthRestrictionListener(
 		JavaPlugin plugin,
@@ -113,11 +118,14 @@ public final class AuthRestrictionListener implements Listener {
 		this.lastCommandRestrictionLog = new ConcurrentHashMap<>();
 		this.lastChatRestrictionLog = new ConcurrentHashMap<>();
 		this.lastSyncRequestLog = new ConcurrentHashMap<>();
+		this.movementProfiles = new ConcurrentHashMap<>();
+		this.authLockedPlayers = ConcurrentHashMap.newKeySet();
 	}
 
 	public void startPromptTask() {
 		Bukkit.getScheduler().runTaskTimer(plugin, () -> {
 			for (Player player : Bukkit.getOnlinePlayers()) {
+				syncAuthLockState(player);
 				if (stateRegistry.isAuthenticated(player.getUniqueId())) {
 					hidePrompt(player);
 					continue;
@@ -153,6 +161,7 @@ public final class AuthRestrictionListener implements Listener {
 		if (spawnService.hasSpawn()) {
 			Bukkit.getScheduler().runTask(plugin, () -> spawnService.teleportToSpawn(event.getPlayer()));
 		}
+		syncAuthLockState(event.getPlayer());
 		showModeSelectorIfNeeded(event.getPlayer());
 	}
 
@@ -169,6 +178,8 @@ public final class AuthRestrictionListener implements Listener {
 		modeSelectorEligible.remove(event.getPlayer().getUniqueId());
 		modePreferencePresent.remove(event.getPlayer().getUniqueId());
 		modeRememberSelection.remove(event.getPlayer().getUniqueId());
+		authLockedPlayers.remove(event.getPlayer().getUniqueId());
+		movementProfiles.remove(event.getPlayer().getUniqueId());
 		flow("Quit clear state player=" + event.getPlayer().getName() + " uuid=" + event.getPlayer().getUniqueId());
 	}
 
@@ -276,8 +287,10 @@ public final class AuthRestrictionListener implements Listener {
 		Player player = event.getPlayer();
 		UUID playerUuid = player.getUniqueId();
 		if (stateRegistry.isAuthenticated(playerUuid)) {
+			syncAuthLockState(player);
 			return;
 		}
+		syncAuthLockState(player);
 		Location from = event.getFrom();
 		Location to = event.getTo();
 		if (to == null) {
@@ -287,10 +300,8 @@ public final class AuthRestrictionListener implements Listener {
 			return;
 		}
 
-		Location corrected = from.clone();
-		corrected.setYaw(to.getYaw());
-		corrected.setPitch(to.getPitch());
-		event.setTo(corrected);
+		event.setCancelled(true);
+		player.setVelocity(new Vector(0D, 0D, 0D));
 
 		throttledFlow(lastMoveRestrictionLog, playerUuid,
 			"BlockMove player=" + player.getName()
@@ -418,6 +429,47 @@ public final class AuthRestrictionListener implements Listener {
 		player.showBossBar(bar);
 		player.sendActionBar(prompt.actionbar());
 		flow("ShowPrompt player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + stateRegistry.state(player.getUniqueId()).promptMode());
+	}
+
+	private void applyAuthLock(Player player) {
+		UUID playerUuid = player.getUniqueId();
+		movementProfiles.computeIfAbsent(playerUuid, ignored -> new MovementProfile(player.getWalkSpeed(), player.getFlySpeed(), player.getAllowFlight()));
+
+		player.setWalkSpeed(0F);
+		player.setFlySpeed(0F);
+		player.setVelocity(new Vector(0D, 0D, 0D));
+		player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 220, 0, false, false, false));
+		player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 220, 10, false, false, false));
+		player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 220, 128, false, false, false));
+	}
+
+	private void releaseAuthLock(Player player) {
+		UUID playerUuid = player.getUniqueId();
+		MovementProfile profile = movementProfiles.remove(playerUuid);
+		if (profile != null) {
+			player.setWalkSpeed(profile.walkSpeed());
+			player.setFlySpeed(profile.flySpeed());
+			player.setAllowFlight(profile.allowFlight());
+		}
+
+		player.removePotionEffect(PotionEffectType.BLINDNESS);
+		player.removePotionEffect(PotionEffectType.SLOWNESS);
+		player.removePotionEffect(PotionEffectType.JUMP_BOOST);
+	}
+
+	private void syncAuthLockState(Player player) {
+		UUID playerUuid = player.getUniqueId();
+		boolean authenticated = stateRegistry.isAuthenticated(playerUuid);
+		if (authenticated) {
+			if (authLockedPlayers.remove(playerUuid)) {
+				releaseAuthLock(player);
+			}
+			return;
+		}
+
+		if (authLockedPlayers.add(playerUuid)) {
+			applyAuthLock(player);
+		}
 	}
 
 	private PromptSet promptFor(UUID playerUuid) {
@@ -636,5 +688,8 @@ public final class AuthRestrictionListener implements Listener {
 	}
 
 	public record PromptSet(Component bossbar, Component actionbar, Component chat) {
+	}
+
+	private record MovementProfile(float walkSpeed, float flySpeed, boolean allowFlight) {
 	}
 }

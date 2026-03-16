@@ -30,6 +30,11 @@ public final class VelocitySelectorServerDisplayResolver implements ServerDispla
 			return selectorDefinition.displayName();
 		}
 
+		VelocityServerSelectorConfig.ServerInfo serverInfo = selectorConfig.serverInfo(normalized);
+		if (serverInfo != null && serverInfo.displayName() != null && !serverInfo.displayName().isBlank()) {
+			return serverInfo.displayName();
+		}
+
 		BackendServerStatus status = status(normalized);
 		if (status != null && status.serverDisplay() != null && !status.serverDisplay().isBlank()) {
 			return status.serverDisplay();
@@ -48,6 +53,11 @@ public final class VelocitySelectorServerDisplayResolver implements ServerDispla
 		VelocityServerSelectorConfig.ServerDefinition selectorDefinition = selectorConfig.server(normalized);
 		if (selectorDefinition != null && selectorDefinition.accentColor() != null && !selectorDefinition.accentColor().isBlank()) {
 			return selectorDefinition.accentColor();
+		}
+
+		VelocityServerSelectorConfig.ServerInfo serverInfo = selectorConfig.serverInfo(normalized);
+		if (serverInfo != null && serverInfo.accentColor() != null && !serverInfo.accentColor().isBlank()) {
+			return serverInfo.accentColor();
 		}
 
 		BackendServerStatus status = status(normalized);

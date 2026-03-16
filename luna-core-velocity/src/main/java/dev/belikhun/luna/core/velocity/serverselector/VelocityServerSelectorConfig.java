@@ -23,7 +23,8 @@ public record VelocityServerSelectorConfig(
 	String connectingMessage,
 	Map<ServerSelectorStatus, String> statusColors,
 	Map<ServerSelectorStatus, String> statusIcons,
-	Map<String, ServerDefinition> servers
+	Map<String, ServerDefinition> servers,
+	Map<String, ServerInfo> serverInfo
 ) {
 	public static VelocityServerSelectorConfig from(Map<String, Object> rootConfig) {
 		Map<String, Object> section = ConfigValues.map(rootConfig, "server-selector");
@@ -47,6 +48,19 @@ public record VelocityServerSelectorConfig(
 		statusIcons.put(ServerSelectorStatus.OFFLINE, ConfigValues.string(statusIconSection, "OFFLINE", "✘"));
 		statusIcons.put(ServerSelectorStatus.MAINT, ConfigValues.string(statusIconSection, "MAINT", "⚠"));
 		statusIcons.put(ServerSelectorStatus.NOP, ConfigValues.string(statusIconSection, "NOP", "🔒"));
+
+		Map<String, ServerInfo> serverInfo = new LinkedHashMap<>();
+		for (Map.Entry<String, Object> entry : serverInfoSection.entrySet()) {
+			String key = normalize(entry.getKey());
+			if (key.isBlank()) {
+				continue;
+			}
+
+			Map<String, Object> infoNode = ConfigValues.map(entry.getValue());
+			String displayName = ConfigValues.string(infoNode, "display", key);
+			String accentColor = ConfigValues.string(infoNode, "accent-color", "");
+			serverInfo.put(key, new ServerInfo(displayName, accentColor));
+		}
 
 		Map<String, ServerDefinition> servers = new LinkedHashMap<>();
 		for (Map.Entry<String, Object> entry : serversSection.entrySet()) {
@@ -118,7 +132,8 @@ public record VelocityServerSelectorConfig(
 			ConfigValues.string(messages, "connecting", "<yellow>⌛ Đang kết nối đến %server_display%...</yellow>"),
 			Map.copyOf(statusColors),
 			Map.copyOf(statusIcons),
-			Map.copyOf(servers)
+			Map.copyOf(servers),
+			Map.copyOf(serverInfo)
 		);
 	}
 
@@ -135,6 +150,19 @@ public record VelocityServerSelectorConfig(
 
 	public String icon(ServerSelectorStatus status) {
 		return statusIcons.getOrDefault(status, "●");
+	}
+
+	public ServerInfo serverInfo(String backendName) {
+		if (backendName == null || backendName.isBlank()) {
+			return null;
+		}
+		return serverInfo.get(normalize(backendName));
+	}
+
+	public List<String> knownServerNames() {
+		java.util.Set<String> names = new java.util.LinkedHashSet<>(serverInfo.keySet());
+		names.addAll(servers.keySet());
+		return List.copyOf(names);
 	}
 
 	private static String normalize(String value) {
@@ -374,6 +402,12 @@ public record VelocityServerSelectorConfig(
 		boolean enabled,
 		boolean failOnValidationError,
 		boolean unknownPlaceholderAsError
+	) {
+	}
+
+	public record ServerInfo(
+		String displayName,
+		String accentColor
 	) {
 	}
 }

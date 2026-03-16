@@ -75,13 +75,34 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 
 	@Override
 	public List<String> suggest(Invocation invocation) {
+		if (!(invocation.source() instanceof Player player)) {
+			return List.of();
+		}
+
 		String[] args = invocation.arguments();
 		if (args.length > 1) {
 			return List.of();
 		}
 
 		String input = args.length == 0 ? "" : args[0];
-		List<String> names = new ArrayList<>(config.servers().keySet());
+		java.util.Set<String> candidateNames = new java.util.LinkedHashSet<>(config.knownServerNames());
+		for (RegisteredServer server : proxyServer.getAllServers()) {
+			candidateNames.add(normalize(server.getServerInfo().getName()));
+		}
+
+		List<String> names = new ArrayList<>();
+		for (String name : candidateNames) {
+			if (name == null || name.isBlank()) {
+				continue;
+			}
+
+			VelocityServerSelectorConfig.ServerDefinition definition = config.server(name);
+			ServerSelectorStatus status = resolveStatus(player, name, definition == null ? "" : definition.permission());
+			if (status == ServerSelectorStatus.ONLINE) {
+				names.add(name);
+			}
+		}
+
 		names.sort(String.CASE_INSENSITIVE_ORDER);
 		String lower = input.toLowerCase(Locale.ROOT);
 		return names.stream().filter(name -> name.startsWith(lower)).toList();
@@ -184,6 +205,17 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		BackendServerStatus backendStatus = statusRegistry.status(backendName).orElse(null);
 		String display = definition != null ? definition.displayName() : backendName;
 		String accent = definition != null ? definition.accentColor() : "";
+		if (definition == null) {
+			VelocityServerSelectorConfig.ServerInfo info = config.serverInfo(backendName);
+			if (info != null) {
+				if (info.displayName() != null && !info.displayName().isBlank()) {
+					display = info.displayName();
+				}
+				if (accent.isBlank() && info.accentColor() != null && !info.accentColor().isBlank()) {
+					accent = info.accentColor();
+				}
+			}
+		}
 		if (backendStatus != null) {
 			display = backendStatus.serverDisplay();
 			if (accent.isBlank()) {
