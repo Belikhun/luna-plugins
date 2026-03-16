@@ -58,7 +58,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -73,7 +72,6 @@ import java.util.logging.Logger;
 )
 public final class LunaAuthVelocityPlugin {
 	private static final int BACKEND_SYNC_RETRY_MAX_ATTEMPTS = 20;
-	private static final long BACKEND_SYNC_RETRY_DELAY_MILLIS = 250L;
 	private static final long MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS = 90_000L;
 	private static final long MIXED_MODE_MANUAL_PROBE_WINDOW_MILLIS = 300_000L;
 	private static final long MODE_PREFERENCE_MIN_TTL_MILLIS = 60_000L;
@@ -473,13 +471,38 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		Player player = event.getPlayer();
-		ServerConnection connection = player.getCurrentServer().orElse(null);
-		if (connection == null) {
+		UUID playerUuid = player.getUniqueId();
+		ServerConnection targetConnection = player.getCurrentServer().orElse(null);
+		if (targetConnection == null) {
+			return;
+		}
+		String targetServerName = targetConnection.getServerInfo().getName();
+		flow("ServerPostConnect immediate-sync player=" + player.getUsername() + " server=" + targetServerName);
+		runInitialPostConnectSync(playerUuid, targetServerName);
+	}
+
+	private void runInitialPostConnectSync(UUID playerUuid, String targetServerName) {
+		if (!isReady()) {
 			return;
 		}
 
-		flow("ServerPostConnect player=" + player.getUsername() + " server=" + connection.getServerInfo().getName());
-		UUID playerUuid = player.getUniqueId();
+		Player player = proxyServer.getPlayer(playerUuid).orElse(null);
+		if (player == null) {
+			return;
+		}
+
+		ServerConnection connection = player.getCurrentServer().orElse(null);
+		if (connection == null) {
+			scheduleBackendSyncRetry(playerUuid, 1);
+			return;
+		}
+
+		if (!connection.getServerInfo().getName().equals(targetServerName)) {
+			flow("ServerPostConnect skip-sync player=" + player.getUsername() + " reason=SERVER_CHANGED expected=" + targetServerName + " actual=" + connection.getServerInfo().getName());
+			return;
+		}
+
+		flow("ServerPostConnect sync player=" + player.getUsername() + " server=" + connection.getServerInfo().getName());
 		boolean authStateSent = sendAuthState(connection, player, authService.isAuthenticated(playerUuid));
 		if (authStateSent && authService.isAuthenticated(playerUuid)) {
 			player.sendActionBar(Component.text("Bạn đã xác thực."));
@@ -641,9 +664,7 @@ public final class LunaAuthVelocityPlugin {
 			return;
 		}
 
-		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
-			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
-			.schedule();
+		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt)).schedule();
 	}
 
 	private void runBackendSyncRetry(UUID playerUuid, int attempt) {
@@ -701,9 +722,7 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private void scheduleNextBackendSyncRetry(UUID playerUuid, int nextAttempt) {
-		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
-			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
-			.schedule();
+		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt)).schedule();
 	}
 
 	private String authMethodForCommandAction(String action, boolean success) {

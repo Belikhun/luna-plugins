@@ -1,10 +1,7 @@
 package dev.belikhun.luna.core.velocity.messaging;
 
 import com.velocitypowered.api.event.Subscribe;
-import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PluginMessageEvent;
-import com.velocitypowered.api.event.player.ServerConnectedEvent;
-import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
@@ -19,14 +16,13 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageContext;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageHandler;
 
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.UUID;
 
 public final class VelocityPluginMessagingBus implements PluginMessageBus<Object, Object> {
-	private static final long INITIAL_CONNECTION_THROTTLE_MILLIS = 1000L;
+	private static final HexFormat HEX_FORMAT = HexFormat.of();
 
 	private final ProxyServer proxyServer;
 	private final Object plugin;
@@ -34,8 +30,6 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 	private final boolean loggingEnabled;
 	private final Map<String, PluginMessageHandler<Object>> incomingHandlers;
 	private final Set<String> outgoingChannels;
-	private final Map<UUID, UnsafeBackendWindow> unsafeBackendWindows;
-	private final Map<String, Long> unsafeServerUntil;
 
 	public VelocityPluginMessagingBus(ProxyServer proxyServer, Object plugin, LunaLogger logger) {
 		this(proxyServer, plugin, logger, false);
@@ -48,8 +42,6 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		this.loggingEnabled = loggingEnabled;
 		this.incomingHandlers = new ConcurrentHashMap<>();
 		this.outgoingChannels = ConcurrentHashMap.newKeySet();
-		this.unsafeBackendWindows = new ConcurrentHashMap<>();
-		this.unsafeServerUntil = new ConcurrentHashMap<>();
 		this.proxyServer.getEventManager().register(plugin, this);
 	}
 
@@ -108,32 +100,25 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		}
 
 		if (target instanceof Player player) {
-			return sendToPlayer(identifier, payload, player, false);
+			return sendToPlayer(identifier, payload, player);
 		}
 
 		if (target instanceof RegisteredServer registeredServer) {
-			String serverName = registeredServer.getServerInfo().getName();
-			long remainingThrottleMillis = remainingServerThrottleMillis(serverName);
-			if (remainingThrottleMillis > 0L) {
-				scheduleServerSend(serverName, identifier, payload, remainingThrottleMillis);
-				logThrottle("proxy->backend", identifier.getId(), serverName, payload.length, remainingThrottleMillis);
-				return true;
+			ServerConnection relay = resolveRelayConnection(registeredServer);
+			if (relay == null) {
+				if (isChannelLoggingEnabled(identifier.getId())) {
+					logger.audit("[TX] proxy->backend channel=" + identifier.getId()
+						+ " target=" + registeredServer.getServerInfo().getName()
+						+ " bytes=" + payload.length
+						+ " sent=false reason=NO_CONNECTION");
+				}
+				return false;
 			}
-
-			return sendToRegisteredServer(identifier, payload, registeredServer, false);
+			return sendToServerConnection(identifier, payload, relay);
 		}
 
 		if (target instanceof ServerConnection serverConnection) {
-			UUID playerUuid = serverConnection.getPlayer().getUniqueId();
-			String serverName = serverConnection.getServerInfo().getName();
-			long remainingThrottleMillis = remainingConnectionThrottleMillis(playerUuid, serverName);
-			if (remainingThrottleMillis > 0L) {
-				scheduleConnectionSend(playerUuid, serverName, identifier, payload, remainingThrottleMillis);
-				logThrottle("proxy->backend-connection", identifier.getId(), serverName + "/" + serverConnection.getPlayer().getUsername(), payload.length, remainingThrottleMillis);
-				return true;
-			}
-
-			return sendToServerConnection(identifier, payload, serverConnection, false);
+			return sendToServerConnection(identifier, payload, serverConnection);
 		}
 
 		throw new PluginMessagingException("Không hỗ trợ target type cho plugin messaging: " + target.getClass().getName());
@@ -153,28 +138,6 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 
 		incomingHandlers.clear();
 		outgoingChannels.clear();
-		unsafeBackendWindows.clear();
-		unsafeServerUntil.clear();
-	}
-
-	@Subscribe
-	public void onServerConnected(ServerConnectedEvent event) {
-		markBackendWindowUnsafe(event.getPlayer(), event.getServer().getServerInfo().getName());
-	}
-
-	@Subscribe
-	public void onServerPostConnect(ServerPostConnectEvent event) {
-		ServerConnection connection = event.getPlayer().getCurrentServer().orElse(null);
-		if (connection == null) {
-			return;
-		}
-
-		markBackendWindowUnsafe(event.getPlayer(), connection.getServerInfo().getName());
-	}
-
-	@Subscribe
-	public void onDisconnect(DisconnectEvent event) {
-		unsafeBackendWindows.remove(event.getPlayer().getUniqueId());
 	}
 
 	@Subscribe
@@ -215,10 +178,10 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		return MinecraftChannelIdentifier.from(channel.value());
 	}
 
-	private boolean sendToPlayer(ChannelIdentifier identifier, byte[] payload, Player player, boolean delayed) {
+	private boolean sendToPlayer(ChannelIdentifier identifier, byte[] payload, Player player) {
 		boolean sent = player.sendPluginMessage(identifier, payload);
 		if (isChannelLoggingEnabled(identifier.getId())) {
-			logger.audit((delayed ? "[TX:DELAYED]" : "[TX]") + " proxy->player channel=" + identifier.getId()
+			logger.audit("[TX] proxy->player channel=" + identifier.getId()
 				+ " target=" + player.getUsername()
 				+ " bytes=" + payload.length
 				+ " sent=" + sent);
@@ -226,21 +189,17 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		return sent;
 	}
 
-	private boolean sendToRegisteredServer(ChannelIdentifier identifier, byte[] payload, RegisteredServer registeredServer, boolean delayed) {
-		boolean sent = registeredServer.sendPluginMessage(identifier, payload);
-		if (isChannelLoggingEnabled(identifier.getId())) {
-			logger.audit((delayed ? "[TX:DELAYED]" : "[TX]") + " proxy->backend channel=" + identifier.getId()
-				+ " target=" + registeredServer.getServerInfo().getName()
+	private boolean sendToServerConnection(ChannelIdentifier identifier, byte[] payload, ServerConnection serverConnection) {
+		if (loggingEnabled) {
+			logger.audit("[TX:CUSTOM_PAYLOAD] proxy->backend channel=" + identifier.getId()
+				+ " target=" + serverConnection.getServerInfo().getName() + "/" + serverConnection.getPlayer().getUsername()
 				+ " bytes=" + payload.length
-				+ " sent=" + sent);
+				+ " payloadHex=" + payloadHex(payload));
 		}
-		return sent;
-	}
 
-	private boolean sendToServerConnection(ChannelIdentifier identifier, byte[] payload, ServerConnection serverConnection, boolean delayed) {
 		boolean sent = serverConnection.sendPluginMessage(identifier, payload);
 		if (isChannelLoggingEnabled(identifier.getId())) {
-			logger.audit((delayed ? "[TX:DELAYED]" : "[TX]") + " proxy->backend-connection channel=" + identifier.getId()
+			logger.audit("[TX] proxy->backend-connection channel=" + identifier.getId()
 				+ " target=" + serverConnection.getServerInfo().getName()
 				+ " bytes=" + payload.length
 				+ " sent=" + sent);
@@ -248,97 +207,18 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		return sent;
 	}
 
-	private long remainingConnectionThrottleMillis(UUID playerUuid, String serverName) {
-		UnsafeBackendWindow window = unsafeBackendWindows.get(playerUuid);
-		if (window == null || !window.serverName().equals(serverName)) {
-			return 0L;
+	private ServerConnection resolveRelayConnection(RegisteredServer registeredServer) {
+		for (Player connectedPlayer : registeredServer.getPlayersConnected()) {
+			ServerConnection currentConnection = connectedPlayer.getCurrentServer().orElse(null);
+			if (currentConnection == null) {
+				continue;
+			}
+
+			if (currentConnection.getServerInfo().getName().equals(registeredServer.getServerInfo().getName())) {
+				return currentConnection;
+			}
 		}
-
-		long remaining = window.unsafeUntilEpochMillis() - System.currentTimeMillis();
-		if (remaining <= 0L) {
-			unsafeBackendWindows.remove(playerUuid, window);
-			return 0L;
-		}
-
-		return remaining;
-	}
-
-	private long remainingServerThrottleMillis(String serverName) {
-		Long unsafeUntil = unsafeServerUntil.get(serverName);
-		if (unsafeUntil == null) {
-			return 0L;
-		}
-
-		long remaining = unsafeUntil - System.currentTimeMillis();
-		if (remaining <= 0L) {
-			unsafeServerUntil.remove(serverName, unsafeUntil);
-			return 0L;
-		}
-
-		return remaining;
-	}
-
-	private void scheduleConnectionSend(UUID playerUuid, String expectedServerName, ChannelIdentifier identifier, byte[] payload, long delayMillis) {
-		proxyServer.getScheduler().buildTask(plugin, () -> flushConnectionSend(playerUuid, expectedServerName, identifier, payload))
-			.delay(Math.max(1L, delayMillis), TimeUnit.MILLISECONDS)
-			.schedule();
-	}
-
-	private void scheduleServerSend(String serverName, ChannelIdentifier identifier, byte[] payload, long delayMillis) {
-		proxyServer.getScheduler().buildTask(plugin, () -> flushServerSend(serverName, identifier, payload))
-			.delay(Math.max(1L, delayMillis), TimeUnit.MILLISECONDS)
-			.schedule();
-	}
-
-	private void flushConnectionSend(UUID playerUuid, String expectedServerName, ChannelIdentifier identifier, byte[] payload) {
-		Player player = proxyServer.getPlayer(playerUuid).orElse(null);
-		if (player == null) {
-			return;
-		}
-
-		ServerConnection connection = player.getCurrentServer().orElse(null);
-		if (connection == null) {
-			return;
-		}
-
-		String currentServerName = connection.getServerInfo().getName();
-		if (!currentServerName.equals(expectedServerName)) {
-			return;
-		}
-
-		long remainingThrottleMillis = remainingConnectionThrottleMillis(playerUuid, expectedServerName);
-		if (remainingThrottleMillis > 0L) {
-			scheduleConnectionSend(playerUuid, expectedServerName, identifier, payload, remainingThrottleMillis);
-			return;
-		}
-
-		sendToServerConnection(identifier, payload, connection, true);
-	}
-
-	private void flushServerSend(String serverName, ChannelIdentifier identifier, byte[] payload) {
-		RegisteredServer registeredServer = proxyServer.getServer(serverName).orElse(null);
-		if (registeredServer == null) {
-			return;
-		}
-
-		long remainingThrottleMillis = remainingServerThrottleMillis(serverName);
-		if (remainingThrottleMillis > 0L) {
-			scheduleServerSend(serverName, identifier, payload, remainingThrottleMillis);
-			return;
-		}
-
-		sendToRegisteredServer(identifier, payload, registeredServer, true);
-	}
-
-	private void logThrottle(String direction, String channelId, String target, int payloadBytes, long delayMillis) {
-		if (!isChannelLoggingEnabled(channelId)) {
-			return;
-		}
-
-		logger.audit("[TX:THROTTLED] " + direction + " channel=" + channelId
-			+ " target=" + target
-			+ " bytes=" + payloadBytes
-			+ " delayMs=" + delayMillis);
+		return null;
 	}
 
 	private boolean isChannelLoggingEnabled(String channelId) {
@@ -349,22 +229,12 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		return channelId == null || !channelId.startsWith("tab:bridge-");
 	}
 
-	private void markBackendWindowUnsafe(Player player, String serverName) {
-		if (player == null || serverName == null || serverName.isBlank()) {
-			return;
+	private String payloadHex(byte[] payload) {
+		if (payload == null || payload.length == 0) {
+			return "<empty>";
 		}
 
-		long unsafeUntil = System.currentTimeMillis() + INITIAL_CONNECTION_THROTTLE_MILLIS;
-		unsafeBackendWindows.compute(player.getUniqueId(), (ignored, existing) -> {
-			if (existing != null && existing.serverName().equals(serverName) && existing.unsafeUntilEpochMillis() > unsafeUntil) {
-				return existing;
-			}
-
-			return new UnsafeBackendWindow(serverName, unsafeUntil);
-		});
-		unsafeServerUntil.merge(serverName, unsafeUntil, Math::max);
+		return HEX_FORMAT.formatHex(payload);
 	}
 
-	private record UnsafeBackendWindow(String serverName, long unsafeUntilEpochMillis) {
-	}
 }

@@ -61,6 +61,8 @@ import java.util.stream.Collectors;
 public final class AuthRestrictionListener implements Listener, AuthLobbyItemRegistry {
 	private static final long RESTRICTION_LOG_THROTTLE_MS = 3000L;
 	private static final long SYNC_REQUEST_THROTTLE_MS = 1500L;
+	private static final float DEFAULT_WALK_SPEED = 0.2F;
+	private static final float DEFAULT_FLY_SPEED = 0.1F;
 	private static final Component MODE_SELECTOR_TITLE = Component.text("Chọn kiểu tài khoản");
 	private static final int SLOT_PREMIUM = 3;
 	private static final int SLOT_OFFLINE = 5;
@@ -153,18 +155,30 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	}
 
 	public void hidePrompt(Player player) {
-		BossBar bar = activeBossbars.remove(player.getUniqueId());
-		if (bar != null) {
-			player.hideBossBar(bar);
-			flow("Ẩn prompt player=" + player.getName() + " uuid=" + player.getUniqueId());
+		if (player == null) {
+			return;
 		}
+
+		runOnMainThread(() -> {
+			BossBar bar = activeBossbars.remove(player.getUniqueId());
+			if (bar != null) {
+				player.hideBossBar(bar);
+				flow("Ẩn prompt player=" + player.getName() + " uuid=" + player.getUniqueId());
+			}
+		});
 	}
 
 	public void refreshPlayerState(Player player) {
 		if (player == null || !player.isOnline()) {
 			return;
 		}
-		syncAuthLockState(player);
+
+		runOnMainThread(() -> {
+			if (!player.isOnline()) {
+				return;
+			}
+			syncAuthLockState(player);
+		});
 	}
 
 	@EventHandler
@@ -345,9 +359,6 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 			return;
 		}
 
-		event.setCancelled(true);
-		player.setVelocity(new Vector(0D, 0D, 0D));
-
 		throttledFlow(lastMoveRestrictionLog, playerUuid,
 			"BlockMove player=" + player.getName()
 				+ " uuid=" + playerUuid
@@ -396,7 +407,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 			"BlockChat player=" + event.getPlayer().getName() + " uuid=" + playerUuid + " state=" + stateRegistry.state(playerUuid));
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
 	public void onInteract(PlayerInteractEvent event) {
 		Player player = event.getPlayer();
 		if (!stateRegistry.isAuthenticated(player.getUniqueId())) {
@@ -426,6 +437,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		String key = lobbyItemId(used);
 		LobbyItem lobbyItem = key == null ? null : registeredLobbyItems.get(key);
 		if (lobbyItem != null && lobbyItem.action() != null) {
+			flow("LobbyItemUse player=" + player.getName() + " uuid=" + player.getUniqueId() + " key=" + key + " click=" + clickType);
 			lobbyItem.action().onUse(player, clickType);
 		}
 	}
@@ -532,7 +544,11 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 	private void applyAuthLock(Player player) {
 		UUID playerUuid = player.getUniqueId();
-		movementProfiles.computeIfAbsent(playerUuid, ignored -> new MovementProfile(player.getWalkSpeed(), player.getFlySpeed(), player.getAllowFlight()));
+		movementProfiles.computeIfAbsent(playerUuid, ignored -> new MovementProfile(
+			normalizeSpeed(player.getWalkSpeed(), DEFAULT_WALK_SPEED),
+			normalizeSpeed(player.getFlySpeed(), DEFAULT_FLY_SPEED),
+			player.getAllowFlight()
+		));
 
 		player.setWalkSpeed(0F);
 		player.setFlySpeed(0F);
@@ -545,15 +561,26 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private void releaseAuthLock(Player player) {
 		UUID playerUuid = player.getUniqueId();
 		MovementProfile profile = movementProfiles.remove(playerUuid);
-		if (profile != null) {
-			player.setWalkSpeed(profile.walkSpeed());
-			player.setFlySpeed(profile.flySpeed());
-			player.setAllowFlight(profile.allowFlight());
-		}
+		float walkSpeed = profile != null ? normalizeSpeed(profile.walkSpeed(), DEFAULT_WALK_SPEED) : DEFAULT_WALK_SPEED;
+		float flySpeed = profile != null ? normalizeSpeed(profile.flySpeed(), DEFAULT_FLY_SPEED) : DEFAULT_FLY_SPEED;
+		boolean allowFlight = profile != null && profile.allowFlight();
+
+		player.setWalkSpeed(walkSpeed);
+		player.setFlySpeed(flySpeed);
+		player.setAllowFlight(allowFlight);
 
 		player.removePotionEffect(PotionEffectType.BLINDNESS);
 		player.removePotionEffect(PotionEffectType.SLOWNESS);
 		player.removePotionEffect(PotionEffectType.JUMP_BOOST);
+		flow("ReleaseAuthLock player=" + player.getName() + " uuid=" + playerUuid + " walkSpeed=" + walkSpeed + " flySpeed=" + flySpeed + " allowFlight=" + allowFlight);
+	}
+
+	private float normalizeSpeed(float value, float fallback) {
+		if (value > 0F) {
+			return value;
+		}
+
+		return fallback;
 	}
 
 	private void syncAuthLockState(Player player) {
@@ -627,7 +654,6 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 			tagLobbyItem(stack, lobbyItem.key());
 			inventory.setItem(lobbyItem.hotbarSlot(), stack);
 		}
-		player.updateInventory();
 	}
 
 	private void clearUnauthorizedInventory(Player player) {
@@ -635,7 +661,6 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		inventory.clear();
 		inventory.setArmorContents(new ItemStack[4]);
 		inventory.setItemInOffHand(null);
-		player.updateInventory();
 	}
 
 	private void tagLobbyItem(ItemStack stack, String key) {
@@ -672,7 +697,6 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		if (key.equals(lobbyItemId(inventory.getItemInOffHand()))) {
 			inventory.setItemInOffHand(null);
 		}
-		player.updateInventory();
 	}
 
 	private boolean clickTouchesProtectedLobbyItem(Player player, InventoryClickEvent event) {
@@ -774,34 +798,53 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	}
 
 	public void updateModeSelectorEligibility(Player player, boolean premiumNameCandidate, boolean hasModePreference) {
-		UUID playerUuid = player.getUniqueId();
-		modeSelectorEligible.put(playerUuid, premiumNameCandidate);
-		modePreferencePresent.put(playerUuid, hasModePreference);
-		if (!premiumNameCandidate) {
-			modeSelectedPlayers.add(playerUuid);
-			if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
-				player.closeInventory();
+		if (player == null) {
+			return;
+		}
+
+		runOnMainThread(() -> {
+			if (!player.isOnline()) {
+				return;
 			}
-			flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=false modePreference=" + hasModePreference);
-			return;
-		}
 
-		if (hasModePreference) {
-			modeSelectedPlayers.add(playerUuid);
-			if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
-				player.closeInventory();
+			UUID playerUuid = player.getUniqueId();
+			modeSelectorEligible.put(playerUuid, premiumNameCandidate);
+			modePreferencePresent.put(playerUuid, hasModePreference);
+			if (!premiumNameCandidate) {
+				modeSelectedPlayers.add(playerUuid);
+				if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
+					player.closeInventory();
+				}
+				flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=false modePreference=" + hasModePreference);
+				return;
 			}
-			flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=true -> skip selector");
+
+			if (hasModePreference) {
+				modeSelectedPlayers.add(playerUuid);
+				if (player.getOpenInventory().getTopInventory().getHolder() instanceof ModeSelectorHolder) {
+					player.closeInventory();
+				}
+				flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=true -> skip selector");
+				return;
+			}
+
+			if (stateRegistry.isAuthenticated(playerUuid)) {
+				return;
+			}
+
+			modeSelectedPlayers.remove(playerUuid);
+			showModeSelectorIfNeeded(player);
+			flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=false");
+		});
+	}
+
+	private void runOnMainThread(Runnable task) {
+		if (Bukkit.isPrimaryThread()) {
+			task.run();
 			return;
 		}
 
-		if (stateRegistry.isAuthenticated(playerUuid)) {
-			return;
-		}
-
-		modeSelectedPlayers.remove(playerUuid);
-		showModeSelectorIfNeeded(player);
-		flow("ModeSelectorEligibility player=" + player.getName() + " uuid=" + playerUuid + " premiumName=true modePreference=false");
+		Bukkit.getScheduler().runTask(plugin, task);
 	}
 
 	private boolean shouldShowModeSelector(UUID playerUuid) {
