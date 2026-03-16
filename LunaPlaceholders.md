@@ -65,6 +65,15 @@ Bar-only (no label, no value):
 - `%luna_ram_bar_only%`
 - `%luna_ram_bar_only_<width>%`
 
+Value-only (bar value text only):
+
+- `%luna_tps_bar_value_only%`
+- `%luna_player_ping_bar_value_only%`
+- `%luna_latency_bar_value_only%`
+- `%luna_system_cpu_bar_value_only%`
+- `%luna_process_cpu_bar_value_only%`
+- `%luna_ram_bar_value_only%`
+
 ## Return Values
 
 - `status` returns `ONLINE`, `OFFLINE`, or `MAINT`.

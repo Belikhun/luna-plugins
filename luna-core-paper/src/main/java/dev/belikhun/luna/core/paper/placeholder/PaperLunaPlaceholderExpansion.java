@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private static final int DEFAULT_BAR_WIDTH = 25;
@@ -117,7 +118,15 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (value != null) {
 			return value;
 		}
+		value = resolveExact(normalized, "tps_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.tps("tps", currentTps())));
+		if (value != null) {
+			return value;
+		}
 		value = resolveCurrentBar(normalized, "player_ping_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("ping", playerPing(player)), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(normalized, "player_ping_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("ping", playerPing(player))));
 		if (value != null) {
 			return value;
 		}
@@ -125,7 +134,15 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (value != null) {
 			return value;
 		}
+		value = resolveExact(normalized, "latency_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("latency", currentLatencyMillis())));
+		if (value != null) {
+			return value;
+		}
 		value = resolveCurrentBar(normalized, "system_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(normalized, "system_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent())));
 		if (value != null) {
 			return value;
 		}
@@ -133,7 +150,15 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (value != null) {
 			return value;
 		}
-		return resolveCurrentBar(normalized, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), width));
+		value = resolveExact(normalized, "process_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent())));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(normalized, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), width));
+		if (value != null) {
+			return value;
+		}
+		return resolveExact(normalized, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes())));
 	}
 
 	private String resolveCurrentBar(String key, String baseKey, IntFunction<String> renderer) {
@@ -142,6 +167,13 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			return null;
 		}
 		return renderer.apply(width);
+	}
+
+	private String resolveExact(String key, String exactKey, Supplier<String> renderer) {
+		if (!key.equals(exactKey)) {
+			return null;
+		}
+		return renderer.get();
 	}
 
 	private Integer parseCurrentWidth(String key, String baseKey) {
@@ -160,7 +192,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		}
 
 		Integer parsed = parseWidth(widthRaw);
-		return parsed == null ? DEFAULT_BAR_WIDTH : parsed;
+		return parsed == null ? null : parsed;
 	}
 
 	private String statusText() {
@@ -254,7 +286,11 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	}
 
 	private String buildBarOnly(LunaProgressBar bar, int width) {
-		return bar.width(clampWidth(width)).label("").value("").render();
+		return bar.width(clampWidth(width)).renderBar();
+	}
+
+	private String buildValueOnly(LunaProgressBar bar) {
+		return bar.renderValue();
 	}
 
 	private int clampWidth(int width) {

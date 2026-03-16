@@ -286,17 +286,23 @@ public final class LunaProgressBar {
 		));
 	}
 
+	public String renderValue() {
+		return valueRenderer.render(new TextRenderContext(valueText, resolveValueColor()));
+	}
+
+	public String resolveValueColor() {
+		if (valueColorFromFilledGradient && filledGradientEnabled) {
+			double ratio = clampPercent(progressPercent()) / 100D;
+			return lerpHexMultiStop(filledGradientColors, ratio);
+		}
+
+		return valueColor;
+	}
+
 	public String render() {
 		String renderedLabel = labelRenderer.render(new TextRenderContext(label, labelColor));
 		String renderedBar = renderBarWithFrame();
-
-		String effectiveValueColor = valueColor;
-		if (valueColorFromFilledGradient && filledGradientEnabled) {
-			double ratio = clampPercent(progressPercent()) / 100D;
-			effectiveValueColor = lerpHexMultiStop(filledGradientColors, ratio);
-		}
-
-		String renderedValue = valueRenderer.render(new TextRenderContext(valueText, effectiveValueColor));
+		String renderedValue = renderValue();
 
 		StringBuilder out = new StringBuilder();
 		switch (layout) {

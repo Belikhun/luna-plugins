@@ -63,9 +63,25 @@ public final class LunaProgressBarPresets {
 		long safeUsed = Math.max(0L, usedBytes);
 		long safeMax = Math.max(0L, maxBytes);
 		double percent = safeMax <= 0L ? 0D : clampPercent((safeUsed * 100D) / safeMax);
-		return metric(label, 0D, safeMax, safeUsed, percentText(percent))
-			.filledGradient(LunaPalette.SUCCESS_500, LunaPalette.WARNING_300, LunaPalette.DANGER_500)
-			.valueColorFromFilledGradient(true);
+		double usedMb = safeUsed / 1024D / 1024D;
+		double maxMb = safeMax / 1024D / 1024D;
+		return metric(label, 0D, safeMax, safeUsed, "")
+			.filledGradient(LunaPalette.SKY_300, LunaPalette.INFO_500, LunaPalette.VIOLET_500)
+			.valueColorFromFilledGradient(true)
+			.valueRenderer(context -> {
+				String valueColor = context == null || context.color() == null || context.color().isBlank()
+					? LunaPalette.NEUTRAL_50
+					: context.color();
+				return String.format(
+					Locale.US,
+					"<color:%s>%.1f%%</color> <gray>(<color:%s>%.0fmb</color> / %.0fmb)</gray>",
+					valueColor,
+					percent,
+					valueColor,
+					usedMb,
+					maxMb
+				);
+			});
 	}
 
 	public static LunaProgressBar latency(String label, double latencyMs) {
@@ -76,7 +92,7 @@ public final class LunaProgressBarPresets {
 		double safeWindow = warningWindowMs <= 0D ? 250D : warningWindowMs;
 		double safeLatency = Math.max(0D, latencyMs);
 		return metric(label, 0D, safeWindow, safeLatency, latencyText(safeLatency))
-			.filledGradient(LunaPalette.DANGER_500, LunaPalette.WARNING_300, LunaPalette.SUCCESS_500)
+			.filledGradient(LunaPalette.SUCCESS_500, LunaPalette.WARNING_300, LunaPalette.DANGER_500)
 			.valueColorFromFilledGradient(true);
 	}
 
