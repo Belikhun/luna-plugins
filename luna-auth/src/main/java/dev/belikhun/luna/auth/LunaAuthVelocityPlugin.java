@@ -4,11 +4,13 @@ import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.command.CommandExecuteEvent;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
@@ -75,6 +77,7 @@ public final class LunaAuthVelocityPlugin {
 	private static final long MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS = 90_000L;
 	private static final long MIXED_MODE_MANUAL_PROBE_WINDOW_MILLIS = 300_000L;
 	private static final long MODE_PREFERENCE_MIN_TTL_MILLIS = 60_000L;
+	private static final Set<String> UNAUTH_ALLOWED_PROXY_COMMANDS = Set.of("login", "register", "l", "reg", "help", "?");
 
 	private final ProxyServer proxyServer;
 	private final Path dataDirectory;
@@ -462,6 +465,71 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		flow("ServerConnected player=" + event.getPlayer().getUsername() + " server=" + event.getServer().getServerInfo().getName());
+	}
+
+	@Subscribe
+	public void onCommandExecute(CommandExecuteEvent event) {
+		if (!(event.getCommandSource() instanceof Player player)) {
+			return;
+		}
+
+		if (!isReady()) {
+			return;
+		}
+
+		if (authService.isAuthenticated(player.getUniqueId())) {
+			return;
+		}
+
+		String rawCommand = event.getCommand();
+		if (rawCommand == null) {
+			event.setResult(CommandExecuteEvent.CommandResult.denied());
+			player.sendRichMessage("<red>❌ Bạn cần xác thực trước khi dùng lệnh.</red>");
+			return;
+		}
+
+		String command = rawCommand.trim();
+		if (command.startsWith("/")) {
+			command = command.substring(1);
+		}
+		int splitIndex = command.indexOf(' ');
+		String root = (splitIndex > -1 ? command.substring(0, splitIndex) : command).toLowerCase(Locale.ROOT);
+
+		if (UNAUTH_ALLOWED_PROXY_COMMANDS.contains(root)) {
+			return;
+		}
+
+		event.setResult(CommandExecuteEvent.CommandResult.denied());
+		player.sendRichMessage("<red>❌ Bạn cần xác thực trước khi dùng lệnh này.</red>");
+		flow("BlockedCommandBeforeAuth player=" + player.getUsername() + " command=" + root);
+	}
+
+	@Subscribe
+	public void onServerPreConnect(ServerPreConnectEvent event) {
+		if (!event.getResult().isAllowed()) {
+			return;
+		}
+
+		if (!isReady()) {
+			return;
+		}
+
+		Player player = event.getPlayer();
+		if (authService.isAuthenticated(player.getUniqueId())) {
+			return;
+		}
+
+		if (event.getPreviousServer() == null) {
+			return;
+		}
+
+		event.setResult(ServerPreConnectEvent.ServerResult.denied());
+		player.sendRichMessage("<red>❌ Bạn cần xác thực trước khi chuyển máy chủ.</red>");
+
+		String targetServer = event.getResult().getServer()
+			.map(registeredServer -> registeredServer.getServerInfo().getName())
+			.orElse("unknown");
+		flow("BlockedServerSwitchBeforeAuth player=" + player.getUsername() + " target=" + targetServer);
 	}
 
 	@Subscribe
