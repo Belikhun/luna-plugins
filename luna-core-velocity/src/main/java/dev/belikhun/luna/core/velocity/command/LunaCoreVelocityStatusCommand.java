@@ -6,6 +6,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.time.Duration;
@@ -88,12 +89,14 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 		for (BackendServerStatus status : values) {
 			String indicator = status.online() ? "<green>● ONLINE</green>" : "<red>● OFFLINE</red>";
 			String players = status.stats() == null ? "0/0" : status.stats().onlinePlayers() + "/" + status.stats().maxPlayers();
-			String cpu = status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().cpuUsagePercent()));
+			String processCpu = status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().processCpuUsagePercent()));
+			String systemCpu = status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().systemCpuUsagePercent()));
 			String latency = status.stats() == null ? "0" : String.valueOf(Math.max(0L, status.stats().heartbeatLatencyMillis()));
 			source.sendRichMessage("<gray>-</gray> <aqua>" + MM.escapeTags(status.serverName()) + "</aqua> " + indicator
 				+ " <gray>| players:</gray> <white>" + players + "</white>"
 				+ " <gray>| tps:</gray> <white>" + formatTps(status.stats()) + "</white>"
-				+ " <gray>| cpu:</gray> <white>" + cpu + "%</white>"
+				+ " <gray>| cpu-p:</gray> <white>" + processCpu + "%</white>"
+				+ " <gray>| cpu-s:</gray> <white>" + systemCpu + "%</white>"
 				+ " <gray>| latency:</gray> <white>" + latency + "ms</white>"
 				+ " <gray>| last:</gray> <white>" + formatAgo(status.lastHeartbeatEpochMillis()) + "</white>");
 		}
@@ -118,10 +121,15 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 		source.sendRichMessage("<gray>Software:</gray> <white>" + MM.escapeTags(stats.software()) + "</white> <gray>| Version:</gray> <white>" + MM.escapeTags(shortVersion(stats.version())) + "</white>");
 		source.sendRichMessage("<gray>Version đầy đủ:</gray> <white>" + MM.escapeTags(stats.version()) + "</white>");
 		source.sendRichMessage("<gray>Players:</gray> <white>" + stats.onlinePlayers() + "/" + stats.maxPlayers() + "</white> <gray>| TPS:</gray> <white>" + formatTps(stats) + "</white>");
+		source.sendRichMessage("<gray>TPS Bar:</gray> " + LunaProgressBarPresets.tps("TPS", stats.tps()).render());
 		source.sendRichMessage("<gray>Uptime:</gray> <white>" + Formatters.duration(Duration.ofMillis(Math.max(0L, stats.uptimeMillis()))) + "</white> <gray>| Port:</gray> <white>" + stats.serverPort() + "</white>");
-		source.sendRichMessage("<gray>CPU:</gray> <white>" + String.format(Locale.US, "%.1f", Math.max(0D, stats.cpuUsagePercent())) + "%</white> <gray>| Latency:</gray> <white>" + Math.max(0L, stats.heartbeatLatencyMillis()) + "ms</white>");
+		source.sendRichMessage("<gray>CPU Process:</gray> <white>" + String.format(Locale.US, "%.1f", Math.max(0D, stats.processCpuUsagePercent())) + "%</white> <gray>| CPU System:</gray> <white>" + String.format(Locale.US, "%.1f", Math.max(0D, stats.systemCpuUsagePercent())) + "%</white> <gray>| Latency:</gray> <white>" + Math.max(0L, stats.heartbeatLatencyMillis()) + "ms</white>");
+		source.sendRichMessage("<gray>CPU Process Bar:</gray> " + LunaProgressBarPresets.cpu("CPU-P", stats.processCpuUsagePercent()).render());
+		source.sendRichMessage("<gray>CPU System Bar:</gray> " + LunaProgressBarPresets.cpu("CPU-S", stats.systemCpuUsagePercent()).render());
+		source.sendRichMessage("<gray>Latency Bar:</gray> " + LunaProgressBarPresets.latency("LAT", stats.heartbeatLatencyMillis()).render());
 		source.sendRichMessage("<gray>Whitelist:</gray> <white>" + (stats.whitelistEnabled() ? "ON" : "OFF") + "</white>");
 		source.sendRichMessage("<gray>RAM:</gray> <white>" + formatMb(stats.ramUsedBytes()) + "MB used, " + formatMb(stats.ramFreeBytes()) + "MB free, " + formatMb(stats.ramMaxBytes()) + "MB max</white>");
+		source.sendRichMessage("<gray>RAM Bar:</gray> " + LunaProgressBarPresets.ram("RAM", stats.ramUsedBytes(), stats.ramMaxBytes()).render());
 		source.sendRichMessage("<gray>MOTD:</gray> <white>" + MM.escapeTags(stats.motd()) + "</white>");
 	}
 

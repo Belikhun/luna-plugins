@@ -239,7 +239,7 @@ public final class PaperServerSelectorController implements Listener {
 		all.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
 
 		double avgTps = average(all, status -> status.stats() == null ? 0D : status.stats().tps());
-		double avgCpu = average(all, status -> status.stats() == null ? 0D : status.stats().cpuUsagePercent());
+		double avgCpu = average(all, status -> status.stats() == null ? 0D : status.stats().systemCpuUsagePercent());
 		double avgLatency = average(all, status -> status.stats() == null ? 0D : status.stats().heartbeatLatencyMillis());
 		long totalRamUsed = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
 		long totalRamMax = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
@@ -629,7 +629,7 @@ public final class PaperServerSelectorController implements Listener {
 		values.put("server_version_full", versionFull);
 		values.put("tps", status.stats() == null ? "0.00" : String.format(Locale.US, "%.2f", status.stats().tps()));
 		values.put("uptime", Formatters.duration(Duration.ofMillis(status.stats() == null ? 0L : Math.max(0L, status.stats().uptimeMillis()))));
-		values.put("cpu_usage", status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().cpuUsagePercent())));
+		values.put("cpu_usage", status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().systemCpuUsagePercent())));
 		values.put("ram_used_mb", String.valueOf(ramUsedBytes / 1024L / 1024L));
 		values.put("ram_max_mb", String.valueOf(ramMaxBytes / 1024L / 1024L));
 		values.put("ram_percent", String.format(Locale.US, "%.1f", ramMaxBytes <= 0L ? 0D : Math.min(100D, (ramUsedBytes * 100D) / ramMaxBytes)));

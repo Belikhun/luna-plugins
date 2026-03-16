@@ -160,7 +160,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 	}
 
 	private BackendHeartbeatStats emptyStats() {
-		return new BackendHeartbeatStats("unknown", "unknown", 0, 0L, 0D, 0, 0, "", false, 0D, 0L, 0L, 0L, 0L);
+		return new BackendHeartbeatStats("unknown", "unknown", 0, 0L, 0D, 0, 0, "", false, 0D, 0D, 0L, 0L, 0L, 0L);
 	}
 
 	private BackendHeartbeatStats withLatency(BackendHeartbeatStats stats, long latencyMs) {
@@ -178,7 +178,8 @@ public final class VelocityHeartbeatHttpEndpoints {
 			stats.maxPlayers(),
 			stats.motd(),
 			stats.whitelistEnabled(),
-			stats.cpuUsagePercent(),
+			stats.systemCpuUsagePercent(),
+			stats.processCpuUsagePercent(),
 			stats.ramUsedBytes(),
 			stats.ramFreeBytes(),
 			stats.ramMaxBytes(),

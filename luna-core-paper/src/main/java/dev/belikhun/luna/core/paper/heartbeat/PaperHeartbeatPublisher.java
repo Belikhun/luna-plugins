@@ -212,7 +212,8 @@ public final class PaperHeartbeatPublisher {
 
 		SparkMetrics metrics = collectSparkMetrics();
 		double tps = metrics != null ? metrics.tps() : fallbackTps();
-		double cpuUsagePercent = metrics != null ? metrics.cpuUsagePercent() : currentCpuUsagePercent();
+		double systemCpuUsagePercent = metrics != null ? metrics.systemCpuUsagePercent() : currentSystemCpuUsagePercent();
+		double processCpuUsagePercent = metrics != null ? metrics.processCpuUsagePercent() : currentProcessCpuUsagePercent();
 		long ramUsedBytes = fallbackRamUsed();
 		long ramMaxBytes = fallbackRamMax();
 		long ramFreeBytes = Math.max(0L, ramMaxBytes - ramUsedBytes);
@@ -227,7 +228,8 @@ public final class PaperHeartbeatPublisher {
 			Bukkit.getMaxPlayers(),
 			plugin.getServer().motd().toString(),
 			Bukkit.hasWhitelist(),
-			cpuUsagePercent,
+			systemCpuUsagePercent,
+			processCpuUsagePercent,
 			ramUsedBytes,
 			ramFreeBytes,
 			ramMaxBytes,
@@ -268,13 +270,10 @@ public final class PaperHeartbeatPublisher {
 				}
 			}
 
-			double cpuPercent = spark.cpuSystem().poll(CpuUsage.MINUTES_1);
-			if (cpuPercent <= 1D) {
-				cpuPercent *= 100D;
-			}
-			cpuPercent = Math.max(0D, Math.min(100D, cpuPercent));
+			double systemCpuPercent = normalizeCpuPercent(spark.cpuSystem().poll(CpuUsage.MINUTES_1));
+			double processCpuPercent = normalizeCpuPercent(spark.cpuProcess().poll(CpuUsage.MINUTES_1));
 
-			return new SparkMetrics(tps, cpuPercent);
+			return new SparkMetrics(tps, systemCpuPercent, processCpuPercent);
 		} catch (IllegalStateException exception) {
 			if (!sparkProbeWarned) {
 				sparkProbeWarned = true;
@@ -290,7 +289,7 @@ public final class PaperHeartbeatPublisher {
 		}
 	}
 
-	private double currentCpuUsagePercent() {
+	private double currentSystemCpuUsagePercent() {
 		try {
 			Object bean = ManagementFactory.getOperatingSystemMXBean();
 			for (String methodName : new String[] {"getCpuLoad", "getSystemCpuLoad"}) {
@@ -299,7 +298,7 @@ public final class PaperHeartbeatPublisher {
 					if (value instanceof Number number) {
 						double raw = number.doubleValue();
 						if (raw >= 0D) {
-							return Math.min(100D, raw * 100D);
+							return normalizeCpuPercent(raw);
 						}
 					}
 				} catch (ReflectiveOperationException ignored) {
@@ -310,9 +309,38 @@ public final class PaperHeartbeatPublisher {
 		return 0D;
 	}
 
+	private double currentProcessCpuUsagePercent() {
+		try {
+			Object bean = ManagementFactory.getOperatingSystemMXBean();
+			for (String methodName : new String[] {"getProcessCpuLoad"}) {
+				try {
+					Object value = bean.getClass().getMethod(methodName).invoke(bean);
+					if (value instanceof Number number) {
+						double raw = number.doubleValue();
+						if (raw >= 0D) {
+							return normalizeCpuPercent(raw);
+						}
+					}
+				} catch (ReflectiveOperationException ignored) {
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return 0D;
+	}
+
+	private double normalizeCpuPercent(double raw) {
+		if (Double.isNaN(raw) || Double.isInfinite(raw) || raw < 0D) {
+			return 0D;
+		}
+		double percent = raw <= 1D ? raw * 100D : raw;
+		return Math.max(0D, Math.min(100D, percent));
+	}
+
 	private record SparkMetrics(
 		double tps,
-		double cpuUsagePercent
+		double systemCpuUsagePercent,
+		double processCpuUsagePercent
 	) {
 	}
 

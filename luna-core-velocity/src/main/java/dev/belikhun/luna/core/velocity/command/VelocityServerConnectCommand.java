@@ -197,7 +197,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		int max = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().maxPlayers() : 0;
 		double tps = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().tps() : 0D;
 		long uptime = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().uptimeMillis() : 0L;
-		double cpu = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().cpuUsagePercent() : 0D;
+		double cpu = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().systemCpuUsagePercent() : 0D;
 		long ramUsedBytes = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().ramUsedBytes() : 0L;
 		long ramMaxBytes = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().ramMaxBytes() : 0L;
 		long latencyMs = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().heartbeatLatencyMillis() : 0L;

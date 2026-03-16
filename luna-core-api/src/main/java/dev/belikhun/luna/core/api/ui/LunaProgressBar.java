@@ -1,9 +1,17 @@
 package dev.belikhun.luna.core.api.ui;
 
+import net.kyori.adventure.text.format.TextColor;
+
 /**
  * Centralized, composable MiniMessage progress bar renderer.
  */
 public final class LunaProgressBar {
+	public enum Layout {
+		SPLIT,
+		ALL_LEFT,
+		ALL_RIGHT
+	}
+
 	private static final String DEFAULT_GLYPH = "▋";
 	private static final BarRenderer DEFAULT_BAR_RENDERER = context -> {
 		double percent = clampPercent(context.percent());
@@ -14,14 +22,11 @@ public final class LunaProgressBar {
 		StringBuilder out = new StringBuilder();
 		if (filled > 0) {
 			if (context.filledGradientEnabled()) {
-				String gradientStart = colorOrDefault(context.filledGradientStartColor(), context.filledColor());
-				String gradientEnd = colorOrDefault(context.filledGradientEndColor(), context.filledColor());
-				int[] startRgb = parseHexColor(gradientStart);
-				int[] endRgb = parseHexColor(gradientEnd);
+				String[] gradientColors = context.filledGradientColors();
 
 				for (int i = 0; i < filled; i++) {
 					double ratio = width <= 1 ? 1D : ((double) i / (double) (width - 1));
-					String color = interpolateHex(startRgb, endRgb, ratio);
+					String color = lerpHexMultiStop(gradientColors, ratio);
 					out.append(colorTag(color)).append(context.glyph()).append("</color>");
 				}
 			} else {
@@ -64,8 +69,8 @@ public final class LunaProgressBar {
 	private String valueColor;
 	private boolean valueColorFromFilledGradient;
 	private boolean filledGradientEnabled;
-	private String filledGradientStartColor;
-	private String filledGradientEndColor;
+	private String[] filledGradientColors;
+	private Layout layout;
 	private BarRenderer barRenderer;
 	private TextRenderer labelRenderer;
 	private TextRenderer valueRenderer;
@@ -86,8 +91,8 @@ public final class LunaProgressBar {
 		this.valueColor = LunaPalette.NEUTRAL_50;
 		this.valueColorFromFilledGradient = false;
 		this.filledGradientEnabled = false;
-		this.filledGradientStartColor = LunaPalette.SUCCESS_500;
-		this.filledGradientEndColor = LunaPalette.DANGER_500;
+		this.filledGradientColors = new String[] {LunaPalette.SUCCESS_500, LunaPalette.DANGER_500};
+		this.layout = Layout.SPLIT;
 		this.barRenderer = DEFAULT_BAR_RENDERER;
 		this.labelRenderer = DEFAULT_TEXT_RENDERER;
 		this.valueRenderer = DEFAULT_TEXT_RENDERER;
@@ -110,8 +115,7 @@ public final class LunaProgressBar {
 		String filledColor,
 		String emptyColor,
 		boolean filledGradientEnabled,
-		String filledGradientStartColor,
-		String filledGradientEndColor
+		String[] filledGradientColors
 	) {
 	}
 
@@ -163,9 +167,30 @@ public final class LunaProgressBar {
 	}
 
 	public LunaProgressBar filledGradient(String startHexColor, String endHexColor) {
+		return filledGradient(new String[] {
+			colorOrDefault(startHexColor, LunaPalette.SUCCESS_500),
+			colorOrDefault(endHexColor, LunaPalette.DANGER_500)
+		});
+	}
+
+	public LunaProgressBar filledGradient(String... colors) {
 		this.filledGradientEnabled = true;
-		this.filledGradientStartColor = colorOrDefault(startHexColor, LunaPalette.SUCCESS_500);
-		this.filledGradientEndColor = colorOrDefault(endHexColor, LunaPalette.DANGER_500);
+		if (colors == null || colors.length == 0) {
+			this.filledGradientColors = new String[] {LunaPalette.SUCCESS_500, LunaPalette.DANGER_500};
+			return this;
+		}
+
+		if (colors.length == 1) {
+			String safe = colorOrDefault(colors[0], LunaPalette.SUCCESS_500);
+			this.filledGradientColors = new String[] {safe, safe};
+			return this;
+		}
+
+		String[] sanitized = new String[colors.length];
+		for (int i = 0; i < colors.length; i++) {
+			sanitized[i] = colorOrDefault(colors[i], LunaPalette.NEUTRAL_50);
+		}
+		this.filledGradientColors = sanitized;
 		return this;
 	}
 
@@ -229,6 +254,26 @@ public final class LunaProgressBar {
 		return this;
 	}
 
+	public LunaProgressBar layout(Layout value) {
+		this.layout = value == null ? Layout.SPLIT : value;
+		return this;
+	}
+
+	public LunaProgressBar allLeft() {
+		this.layout = Layout.ALL_LEFT;
+		return this;
+	}
+
+	public LunaProgressBar allRight() {
+		this.layout = Layout.ALL_RIGHT;
+		return this;
+	}
+
+	public LunaProgressBar splitLayout() {
+		this.layout = Layout.SPLIT;
+		return this;
+	}
+
 	public String renderBar() {
 		return barRenderer.render(new BarRenderContext(
 			progressPercent(),
@@ -237,19 +282,34 @@ public final class LunaProgressBar {
 			filledColor,
 			emptyColor,
 			filledGradientEnabled,
-			filledGradientStartColor,
-			filledGradientEndColor
+			filledGradientColors == null ? new String[0] : filledGradientColors.clone()
 		));
 	}
 
 	public String render() {
-		StringBuilder out = new StringBuilder();
 		String renderedLabel = labelRenderer.render(new TextRenderContext(label, labelColor));
-		if (!renderedLabel.isBlank()) {
-			out.append(renderedLabel);
-			out.append(" ");
+		String renderedBar = renderBarWithFrame();
+
+		String effectiveValueColor = valueColor;
+		if (valueColorFromFilledGradient && filledGradientEnabled) {
+			double ratio = clampPercent(progressPercent()) / 100D;
+			effectiveValueColor = lerpHexMultiStop(filledGradientColors, ratio);
 		}
 
+		String renderedValue = valueRenderer.render(new TextRenderContext(valueText, effectiveValueColor));
+
+		StringBuilder out = new StringBuilder();
+		switch (layout) {
+			case ALL_LEFT -> appendParts(out, renderedLabel, renderedValue, renderedBar);
+			case ALL_RIGHT -> appendParts(out, renderedBar, renderedLabel, renderedValue);
+			case SPLIT -> appendParts(out, renderedLabel, renderedBar, renderedValue);
+		}
+
+		return out.toString();
+	}
+
+	private String renderBarWithFrame() {
+		StringBuilder out = new StringBuilder();
 		if (frameEnabled) {
 			out.append(colorTag(frameColor)).append("[").append("</color>");
 		}
@@ -257,22 +317,19 @@ public final class LunaProgressBar {
 		if (frameEnabled) {
 			out.append(colorTag(frameColor)).append("]").append("</color>");
 		}
-
-		String effectiveValueColor = valueColor;
-		if (valueColorFromFilledGradient && filledGradientEnabled) {
-			double ratio = clampPercent(progressPercent()) / 100D;
-			int[] startRgb = parseHexColor(filledGradientStartColor);
-			int[] endRgb = parseHexColor(filledGradientEndColor);
-			effectiveValueColor = interpolateHex(startRgb, endRgb, ratio);
-		}
-
-		String renderedValue = valueRenderer.render(new TextRenderContext(valueText, effectiveValueColor));
-		if (!renderedValue.isBlank()) {
-			out.append(" ");
-			out.append(renderedValue);
-		}
-
 		return out.toString();
+	}
+
+	private static void appendParts(StringBuilder out, String... parts) {
+		for (String part : parts) {
+			if (part == null || part.isBlank()) {
+				continue;
+			}
+			if (out.length() > 0) {
+				out.append(" ");
+			}
+			out.append(part);
+		}
 	}
 
 	public double progressPercent() {
@@ -310,31 +367,51 @@ public final class LunaProgressBar {
 		return value;
 	}
 
-	private static int[] parseHexColor(String hexColor) {
-		String sanitized = colorOrDefault(hexColor, LunaPalette.NEUTRAL_50).trim();
-		if (sanitized.startsWith("#")) {
-			sanitized = sanitized.substring(1);
-		}
-		if (sanitized.length() != 6) {
-			return new int[] {255, 255, 255};
-		}
-
-		try {
-			int r = Integer.parseInt(sanitized.substring(0, 2), 16);
-			int g = Integer.parseInt(sanitized.substring(2, 4), 16);
-			int b = Integer.parseInt(sanitized.substring(4, 6), 16);
-			return new int[] {r, g, b};
-		} catch (NumberFormatException exception) {
-			return new int[] {255, 255, 255};
-		}
+	private static String lerpHex(String startHexColor, String endHexColor, double ratio) {
+		double clampedRatio = Math.max(0D, Math.min(1D, ratio));
+		TextColor start = parseTextColor(startHexColor, LunaPalette.NEUTRAL_50);
+		TextColor end = parseTextColor(endHexColor, LunaPalette.NEUTRAL_50);
+		return TextColor.lerp((float) clampedRatio, start, end).asHexString();
 	}
 
-	private static String interpolateHex(int[] startRgb, int[] endRgb, double ratio) {
+	private static String lerpHexMultiStop(String[] colors, double ratio) {
 		double clampedRatio = Math.max(0D, Math.min(1D, ratio));
-		int r = (int) Math.round(startRgb[0] + (endRgb[0] - startRgb[0]) * clampedRatio);
-		int g = (int) Math.round(startRgb[1] + (endRgb[1] - startRgb[1]) * clampedRatio);
-		int b = (int) Math.round(startRgb[2] + (endRgb[2] - startRgb[2]) * clampedRatio);
-		return String.format("#%02x%02x%02x", r, g, b);
+		if (colors == null || colors.length == 0) {
+			return LunaPalette.NEUTRAL_50;
+		}
+		if (colors.length == 1) {
+			return colorOrDefault(colors[0], LunaPalette.NEUTRAL_50);
+		}
+
+		double position = clampedRatio * (colors.length - 1);
+		int low = (int) Math.floor(position);
+		int high = (int) Math.ceil(position);
+		if (high >= colors.length) {
+			high = colors.length - 1;
+		}
+		if (low < 0) {
+			low = 0;
+		}
+
+		double localRatio = position - low;
+		String start = colorOrDefault(colors[low], LunaPalette.NEUTRAL_50);
+		String end = colorOrDefault(colors[high], LunaPalette.NEUTRAL_50);
+		return lerpHex(start, end, localRatio);
+	}
+
+	private static TextColor parseTextColor(String hexColor, String fallback) {
+		String value = colorOrDefault(hexColor, fallback);
+		TextColor parsed = TextColor.fromHexString(value);
+		if (parsed != null) {
+			return parsed;
+		}
+
+		TextColor fallbackParsed = TextColor.fromHexString(colorOrDefault(fallback, LunaPalette.NEUTRAL_50));
+		if (fallbackParsed != null) {
+			return fallbackParsed;
+		}
+
+		return TextColor.color(0xFFFFFF);
 	}
 
 	private static String colorOrDefault(String value, String fallback) {

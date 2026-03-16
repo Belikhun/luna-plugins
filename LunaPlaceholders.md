@@ -1,60 +1,74 @@
-# Luna Placeholder Reference
+# Luna Placeholders
 
-This document summarizes placeholders exported by Luna Core.
+Complete reference for placeholders provided by Luna Core Paper PlaceholderAPI expansion.
 
 ## Namespace
 
-- Velocity MiniPlaceholders: `<luna:key>`
-- Paper PlaceholderAPI: `%luna_key%`
+- PlaceholderAPI identifier: `luna`
+- Usage format: `%luna_<key>%`
 
-## Global Keys
+## General Rules
 
-- `online_servers`
-- `registered_servers`
-- `total_servers`
-- `total_players`
+- Width placeholders are optional and clamped to `1..120`.
+- Default width is `25` when width is omitted.
 
-Examples:
+## Current Server Value Placeholders
 
-- Velocity: `<luna:online_servers>`
-- Paper: `%luna_online_servers%`
+- `%luna_current_server%`
+- `%luna_status%`
+- `%luna_online%`
+- `%luna_max%`
+- `%luna_tps%`
+- `%luna_latency%`
+- `%luna_uptime%`
+- `%luna_uptime_ms%`
+- `%luna_system_cpu%`
+- `%luna_process_cpu%`
+- `%luna_version%`
+- `%luna_display%`
+- `%luna_color%`
+- `%luna_whitelist%`
 
-## Per-Server Keys
+## Current Player Ping Placeholders
 
-Use the backend key suffix (for example `survival`, `event2`, `iceboat`).
+- `%luna_player_ping%`
 
-- `server_status_<server>`
-- `server_online_<server>`
-- `server_max_<server>`
-- `server_tps_<server>`
-- `server_version_<server>`
-- `server_display_<server>`
-- `server_color_<server>`
-- `server_whitelist_<server>`
+## Current Server Bar Placeholders
 
-Examples for `survival`:
+Standard bars (label + value):
 
-- Velocity:
-  - `<luna:server_status_survival>`
-  - `<luna:server_online_survival>`
-  - `<luna:server_display_survival>`
-- Paper:
-  - `%luna_server_status_survival%`
-  - `%luna_server_online_survival%`
-  - `%luna_server_display_survival%`
+- `%luna_tps_bar%`
+- `%luna_tps_bar_<width>%`
+- `%luna_player_ping_bar%`
+- `%luna_player_ping_bar_<width>%`
+- `%luna_latency_bar%`
+- `%luna_latency_bar_<width>%`
+- `%luna_system_cpu_bar%`
+- `%luna_system_cpu_bar_<width>%`
+- `%luna_process_cpu_bar%`
+- `%luna_process_cpu_bar_<width>%`
+- `%luna_ram_bar%`
+- `%luna_ram_bar_<width>%`
 
-## Status Values
+Bar-only (no label, no value):
 
-`server_status_<server>` returns one of:
+- `%luna_tps_bar_only%`
+- `%luna_tps_bar_only_<width>%`
+- `%luna_player_ping_bar_only%`
+- `%luna_player_ping_bar_only_<width>%`
+- `%luna_latency_bar_only%`
+- `%luna_latency_bar_only_<width>%`
+- `%luna_system_cpu_bar_only%`
+- `%luna_system_cpu_bar_only_<width>%`
+- `%luna_process_cpu_bar_only%`
+- `%luna_process_cpu_bar_only_<width>%`
+- `%luna_ram_bar_only%`
+- `%luna_ram_bar_only_<width>%`
 
-- `ONLINE`
-- `OFFLINE`
-- `MAINT`
+## Return Values
 
-`server_whitelist_<server>` returns `true` or `false`.
-
-## Data Source Notes
-
-- Values are driven by heartbeat snapshots from Luna Core.
-- Per-server keys are dynamic and depend on known backend names.
-- On Velocity, display and color are resolved from centralized selector config, with heartbeat fallback.
+- `status` returns `ONLINE`, `OFFLINE`, or `MAINT`.
+- `whitelist` returns `true` or `false`.
+- CPU placeholders return percent number strings.
+- `uptime_ms` returns raw milliseconds.
+- `uptime` returns formatted duration text.
