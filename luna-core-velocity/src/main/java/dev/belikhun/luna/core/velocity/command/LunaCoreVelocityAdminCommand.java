@@ -18,14 +18,21 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
+public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 	private static final MiniMessage MM = MiniMessage.miniMessage();
 	private static final Pattern MC_VERSION_PATTERN = Pattern.compile("\\(MC:\\s*([^)]+)\\)", Pattern.CASE_INSENSITIVE);
 	private static final Pattern SEMVER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+){1,3})");
 	private final BackendStatusView statusView;
+	private final ReloadAction reloadAction;
 
-	public LunaCoreVelocityStatusCommand(BackendStatusView statusView) {
+	@FunctionalInterface
+	public interface ReloadAction {
+		void reload() throws Exception;
+	}
+
+	public LunaCoreVelocityAdminCommand(BackendStatusView statusView, ReloadAction reloadAction) {
 		this.statusView = statusView;
+		this.reloadAction = reloadAction;
 	}
 
 	@Override
@@ -38,12 +45,23 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 
 		String[] args = invocation.arguments();
 		if (args.length == 0) {
-			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white></yellow>");
+			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white> <gray>|</gray> <white>/lunacoreproxy reload</white></yellow>");
+			return;
+		}
+
+		if (args[0].equalsIgnoreCase("reload")) {
+			source.sendRichMessage("<yellow>⌛ Đang reload LunaCore Velocity...</yellow>");
+			try {
+				reloadAction.reload();
+				source.sendRichMessage("<green>✔ Reload LunaCore Velocity thành công.</green>");
+			} catch (Exception exception) {
+				source.sendRichMessage("<red>❌ Reload thất bại: <white>" + MM.escapeTags(String.valueOf(exception.getMessage())) + "</white></red>");
+			}
 			return;
 		}
 
 		if (!args[0].equalsIgnoreCase("status")) {
-			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white></yellow>");
+			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white> <gray>|</gray> <white>/lunacoreproxy reload</white></yellow>");
 			return;
 		}
 
@@ -59,11 +77,14 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 	public List<String> suggest(Invocation invocation) {
 		String[] args = invocation.arguments();
 		if (args.length == 0) {
-			return List.of("status");
+			return List.of("status", "reload");
 		}
 
 		if (args.length == 1) {
-			return startsWith("status", args[0]);
+			List<String> suggestions = new ArrayList<>();
+			suggestions.addAll(startsWith("status", args[0]));
+			suggestions.addAll(startsWith("reload", args[0]));
+			return suggestions;
 		}
 
 		if (args.length == 2 && args[0].equalsIgnoreCase("status")) {

@@ -28,7 +28,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
-import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityStatusCommand;
+import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
@@ -68,7 +68,7 @@ import java.nio.charset.StandardCharsets;
 public final class LunaCoreVelocityPlugin {
 	private final LunaLogger logger;
 	private final Path dataDirectory;
-	private final VelocityHttpServerManager httpServerManager;
+	private VelocityHttpServerManager httpServerManager;
 	private final ProxyServer proxyServer;
 	private final DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
@@ -91,6 +91,19 @@ public final class LunaCoreVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		reloadModules();
+		logger.success("LunaCore (Velocity) đã khởi động thành công.");
+	}
+
+	@Subscribe
+	public void onProxyShutdown(ProxyShutdownEvent event) {
+		teardownRuntime();
+		unregisterOwnedCommands();
+		dependencyManager.clear();
+		LunaCoreVelocity.clear();
+	}
+
+	public synchronized void reloadModules() {
 		Path configPath = dataDirectory.resolve("config.yml");
 		Path serversConfigPath = dataDirectory.resolve("servers.yml");
 		Map<String, Object> rootConfig = LunaYamlConfig.loadMap(configPath);
@@ -99,67 +112,58 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> pluginMessagingConfig = ConfigValues.map(loggingConfig, "pluginMessaging");
 		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
 		Map<String, Object> databaseConfig = ConfigValues.map(rootConfig, "database");
-		serverSelectorConfig = VelocityServerSelectorConfig.from(selectorRootConfig);
-		runSelectorValidation(selectorRootConfig, serverSelectorConfig);
+
+		VelocityServerSelectorConfig nextSelectorConfig = VelocityServerSelectorConfig.from(selectorRootConfig);
+		runSelectorValidation(selectorRootConfig, nextSelectorConfig);
+
 		boolean pluginMessagingLogsEnabled = ConfigValues.booleanValue(pluginMessagingConfig, "enabled", false);
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
-		sharedDatabase = createSharedDatabase(databaseConfig);
-		backendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis, logger);
-		ServerDisplayResolver serverDisplayResolver = new VelocitySelectorServerDisplayResolver(serverSelectorConfig, backendStatusRegistry);
-		heartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
+
+		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
+		Database nextDatabase = createSharedDatabase(databaseConfig);
+		VelocityBackendStatusRegistry nextBackendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis, logger);
+		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, nextBackendStatusRegistry);
+		ScheduledExecutorService nextHeartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-heartbeat-timeout-sweep");
 			thread.setDaemon(true);
 			return thread;
 		});
-		heartbeatSweepExecutor.scheduleAtFixedRate(
-			() -> backendStatusRegistry.sweepTimeouts(System.currentTimeMillis()),
+		nextHeartbeatSweepExecutor.scheduleAtFixedRate(
+			() -> nextBackendStatusRegistry.sweepTimeouts(System.currentTimeMillis()),
 			1L,
 			1L,
 			TimeUnit.SECONDS
 		);
+
 		new VelocityHeartbeatHttpEndpoints(
 			logger,
-			backendStatusRegistry,
+			nextBackendStatusRegistry,
 			new VelocityBackendNameResolver(proxyServer),
-			serverSelectorConfig,
+			nextSelectorConfig,
 			forwardingSecret
-		).register(httpServerManager.router());
+		).register(nextHttpServerManager.router());
 
-		pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
-		pluginMessagingBus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
-			String message = PluginMessageReader.of(context.payload()).readUtf();
-			if (context.source() instanceof ServerConnection serverConnection) {
-				serverConnection.getPlayer().sendRichMessage(message);
-				return PluginMessageDispatchResult.HANDLED;
-			}
-			if (context.source() instanceof com.velocitypowered.api.proxy.Player player) {
-				player.sendRichMessage(message);
-			}
-			return PluginMessageDispatchResult.HANDLED;
-		});
-		pluginMessagingBus.registerIncoming(CoreServerSelectorMessageChannels.CONNECT_REQUEST, context -> {
-			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			String playerIdRaw = reader.readUtf();
-			String backendName = reader.readUtf();
-			if (selectorConnectCommand == null) {
-				return PluginMessageDispatchResult.HANDLED;
-			}
+		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
+		registerMessagingHandlers(nextPluginMessagingBus);
 
-			try {
-				java.util.UUID playerId = java.util.UUID.fromString(playerIdRaw);
-				proxyServer.getPlayer(playerId).ifPresent(player -> selectorConnectCommand.connectByName(player, backendName));
-			} catch (IllegalArgumentException ignored) {
-			}
+		teardownRuntime();
 
-			return PluginMessageDispatchResult.HANDLED;
-		});
+		httpServerManager = nextHttpServerManager;
+		sharedDatabase = nextDatabase;
+		backendStatusRegistry = nextBackendStatusRegistry;
+		serverSelectorConfig = nextSelectorConfig;
+		pluginMessagingBus = nextPluginMessagingBus;
+		heartbeatSweepExecutor = nextHeartbeatSweepExecutor;
+		selectorConnectCommand = null;
+
+		dependencyManager.clear();
 		dependencyManager.registerSingleton(ProxyServer.class, proxyServer);
 		dependencyManager.registerSingleton(LunaLogger.class, logger);
 		dependencyManager.registerSingleton(VelocityHttpServerManager.class, httpServerManager);
 		dependencyManager.registerSingleton(VelocityPluginMessagingBus.class, pluginMessagingBus);
 		dependencyManager.registerSingleton(VelocityServerSelectorConfig.class, serverSelectorConfig);
-		dependencyManager.registerSingleton(ServerDisplayResolver.class, serverDisplayResolver);
+		dependencyManager.registerSingleton(ServerDisplayResolver.class, nextServerDisplayResolver);
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
@@ -167,32 +171,12 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
-		registerCommands(serverSelectorConfig);
-		registerMiniPlaceholders(serverDisplayResolver);
-		httpServerManager.startIfEnabled(dataDirectory.resolve("config.yml"));
-		logger.success("LunaCore (Velocity) đã khởi động thành công.");
-	}
 
-	@Subscribe
-	public void onProxyShutdown(ProxyShutdownEvent event) {
-		if (sharedDatabase != null) {
-			sharedDatabase.close();
-			sharedDatabase = null;
-		}
-		if (lunaMiniPlaceholders != null) {
-			lunaMiniPlaceholders.unregister();
-			lunaMiniPlaceholders = null;
-		}
-		dependencyManager.clear();
-		LunaCoreVelocity.clear();
-		if (pluginMessagingBus != null) {
-			pluginMessagingBus.close();
-		}
-		if (heartbeatSweepExecutor != null) {
-			heartbeatSweepExecutor.shutdownNow();
-			heartbeatSweepExecutor = null;
-		}
-		httpServerManager.stop();
+		unregisterOwnedCommands();
+		registerCommands(serverSelectorConfig);
+		registerMiniPlaceholders(nextServerDisplayResolver);
+		httpServerManager.startIfEnabled(configPath);
+		logger.success("Đã reload LunaCore Velocity: config và modules đã được khởi tạo lại.");
 	}
 
 	private void ensureDefaults() {
@@ -266,7 +250,7 @@ public final class LunaCoreVelocityPlugin {
 		CommandMeta meta = manager.metaBuilder("lunacoreproxy")
 			.aliases("lcv", "luna")
 			.build();
-		manager.register(meta, new LunaCoreVelocityStatusCommand(backendStatusRegistry));
+		manager.register(meta, new LunaCoreVelocityAdminCommand(backendStatusRegistry, this::reloadModules));
 
 		if (!selectorConfig.enabled()) {
 			logger.warn("Server selector đang tắt trong cấu hình Velocity.");
@@ -337,6 +321,70 @@ public final class LunaCoreVelocityPlugin {
 			logger.warn("Không thể đăng ký MiniPlaceholders namespace luna: " + throwable.getMessage());
 			lunaMiniPlaceholders = null;
 		}
+	}
+
+	private void registerMessagingHandlers(VelocityPluginMessagingBus bus) {
+		bus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
+			String message = PluginMessageReader.of(context.payload()).readUtf();
+			if (context.source() instanceof ServerConnection serverConnection) {
+				serverConnection.getPlayer().sendRichMessage(message);
+				return PluginMessageDispatchResult.HANDLED;
+			}
+			if (context.source() instanceof com.velocitypowered.api.proxy.Player player) {
+				player.sendRichMessage(message);
+			}
+			return PluginMessageDispatchResult.HANDLED;
+		});
+
+		bus.registerIncoming(CoreServerSelectorMessageChannels.CONNECT_REQUEST, context -> {
+			PluginMessageReader reader = PluginMessageReader.of(context.payload());
+			String playerIdRaw = reader.readUtf();
+			String backendName = reader.readUtf();
+			if (selectorConnectCommand == null) {
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
+			try {
+				java.util.UUID playerId = java.util.UUID.fromString(playerIdRaw);
+				proxyServer.getPlayer(playerId).ifPresent(player -> selectorConnectCommand.connectByName(player, backendName));
+			} catch (IllegalArgumentException ignored) {
+			}
+
+			return PluginMessageDispatchResult.HANDLED;
+		});
+	}
+
+	private void unregisterOwnedCommands() {
+		CommandManager manager = proxyServer.getCommandManager();
+		for (String alias : List.of("lunacoreproxy", "lcv", "luna", "server", "connect", "servers")) {
+			try {
+				manager.unregister(alias);
+			} catch (Exception ignored) {
+			}
+		}
+	}
+
+	private void teardownRuntime() {
+		if (lunaMiniPlaceholders != null) {
+			lunaMiniPlaceholders.unregister();
+			lunaMiniPlaceholders = null;
+		}
+		if (pluginMessagingBus != null) {
+			pluginMessagingBus.close();
+			pluginMessagingBus = null;
+		}
+		if (heartbeatSweepExecutor != null) {
+			heartbeatSweepExecutor.shutdownNow();
+			heartbeatSweepExecutor = null;
+		}
+		if (httpServerManager != null) {
+			httpServerManager.stop();
+		}
+		if (sharedDatabase != null) {
+			sharedDatabase.close();
+			sharedDatabase = null;
+		}
+		selectorConnectCommand = null;
 	}
 
 	private Database createSharedDatabase(Map<String, Object> databaseConfig) {
