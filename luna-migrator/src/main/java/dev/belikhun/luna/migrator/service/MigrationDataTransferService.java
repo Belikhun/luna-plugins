@@ -48,6 +48,10 @@ public final class MigrationDataTransferService {
 		}
 
 		UUID offlineUuid = OfflineUuid.fromUsername(legacyUsername);
+		if (offlineUuid.equals(onlineUuid)) {
+			return TransferResult.failed("Không thể migrate vì UUID cũ trùng UUID hiện tại.");
+		}
+
 		boolean migrateMoney = plugin.getConfig().getBoolean("migration.transfer.migrate-money", true);
 		boolean migrateHuskHomes = plugin.getConfig().getBoolean("migration.transfer.migrate-huskhomes-homes", true);
 		boolean overwriteExisting = plugin.getConfig().getBoolean("migration.transfer.overwrite-existing", true);

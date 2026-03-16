@@ -1,7 +1,7 @@
 package dev.belikhun.luna.migrator.listener;
 
 import dev.belikhun.luna.core.api.ui.LunaPalette;
-import dev.belikhun.luna.migrator.service.MigrationStateRepository;
+import dev.belikhun.luna.migrator.service.MigrationEligibilityService;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -10,16 +10,15 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.Optional;
 import java.util.UUID;
 
 public final class MigrationJoinAlertListener implements Listener {
 	private final JavaPlugin plugin;
-	private final MigrationStateRepository stateRepository;
+	private final MigrationEligibilityService eligibilityService;
 
-	public MigrationJoinAlertListener(JavaPlugin plugin, MigrationStateRepository stateRepository) {
+	public MigrationJoinAlertListener(JavaPlugin plugin, MigrationEligibilityService eligibilityService) {
 		this.plugin = plugin;
-		this.stateRepository = stateRepository;
+		this.eligibilityService = eligibilityService;
 	}
 
 	@EventHandler(priority = EventPriority.MONITOR)
@@ -60,14 +59,6 @@ public final class MigrationJoinAlertListener implements Listener {
 	}
 
 	private boolean isEligibleForPrompt(UUID onlineUuid, String candidateLegacyUsername) {
-		if (stateRepository.isOnlineUuidMigrated(onlineUuid)) {
-			return false;
-		}
-		if (!stateRepository.hasEligibleSourceData(candidateLegacyUsername)) {
-			return false;
-		}
-
-		Optional<UUID> claimed = stateRepository.findOnlineUuidByOldUsername(candidateLegacyUsername);
-		return claimed.isEmpty() || claimed.get().equals(onlineUuid);
+		return eligibilityService.evaluate(onlineUuid, candidateLegacyUsername).eligible();
 	}
 }

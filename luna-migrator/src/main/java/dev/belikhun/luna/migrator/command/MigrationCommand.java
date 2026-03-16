@@ -8,6 +8,7 @@ import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.migrator.service.MigrationDataTransferService;
+import dev.belikhun.luna.migrator.service.MigrationEligibilityService;
 import dev.belikhun.luna.migrator.service.MigrationStateRepository;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -45,14 +46,21 @@ public final class MigrationCommand implements BasicCommand {
 	private final JavaPlugin plugin;
 	private final MigrationStateRepository stateRepository;
 	private final MigrationDataTransferService dataTransferService;
+	private final MigrationEligibilityService eligibilityService;
 	private final ConcurrentMap<UUID, PendingMigration> pendingMigrations;
 	private final ConcurrentMap<UUID, ActiveMigration> activeMigrations;
 	private final ConcurrentMap<UUID, String> reconnectBlockMessages;
 
-	public MigrationCommand(JavaPlugin plugin, MigrationStateRepository stateRepository, MigrationDataTransferService dataTransferService) {
+	public MigrationCommand(
+		JavaPlugin plugin,
+		MigrationStateRepository stateRepository,
+		MigrationDataTransferService dataTransferService,
+		MigrationEligibilityService eligibilityService
+	) {
 		this.plugin = plugin;
 		this.stateRepository = stateRepository;
 		this.dataTransferService = dataTransferService;
+		this.eligibilityService = eligibilityService;
 		this.pendingMigrations = new ConcurrentHashMap<>();
 		this.activeMigrations = new ConcurrentHashMap<>();
 		this.reconnectBlockMessages = new ConcurrentHashMap<>();
@@ -197,17 +205,7 @@ public final class MigrationCommand implements BasicCommand {
 			sender.sendRichMessage(error("❌ Tên cũ không hợp lệ."));
 			return;
 		}
-		if (stateRepository.isMigrated(target.getUniqueId(), legacyUsername)) {
-			sender.sendRichMessage(info("ℹ Tài khoản đã migrate trước đó."));
-			return;
-		}
-		if (!stateRepository.hasEligibleSourceData(legacyUsername)) {
-			sender.sendRichMessage(error("❌ Không có dữ liệu nguồn hợp lệ cho tên cũ này."));
-			return;
-		}
-		Optional<UUID> claimed = stateRepository.findOnlineUuidByOldUsername(legacyUsername);
-		if (claimed.isPresent() && !claimed.get().equals(target.getUniqueId())) {
-			sender.sendRichMessage(error("❌ Tên cũ này đã được migrate bởi UUID khác."));
+		if (!validateMigrationCandidate(target.getUniqueId(), legacyUsername, sender)) {
 			return;
 		}
 		if (activeMigrations.containsKey(target.getUniqueId())) {
@@ -378,22 +376,22 @@ public final class MigrationCommand implements BasicCommand {
 	}
 
 	private boolean validateMigrationCandidate(UUID onlineUuid, String legacyUsername, CommandSender sender) {
-		if (stateRepository.isMigrated(onlineUuid, legacyUsername)) {
-			sender.sendRichMessage(info("ℹ Trạng thái migrate: ") + accent("ĐÃ HOÀN TẤT"));
-			return false;
-		}
-		if (!stateRepository.hasEligibleSourceData(legacyUsername)) {
-			sender.sendRichMessage(error("❌ Không có dữ liệu nguồn hợp lệ cho tên cũ này."));
-			return false;
+		MigrationEligibilityService.MigrationEligibility eligibility = eligibilityService.evaluate(onlineUuid, legacyUsername);
+		if (eligibility.eligible()) {
+			return true;
 		}
 
-		Optional<UUID> claimed = stateRepository.findOnlineUuidByOldUsername(legacyUsername);
-		if (claimed.isPresent() && !claimed.get().equals(onlineUuid)) {
-			sender.sendRichMessage(error("❌ Tên cũ này đã được migrate bởi tài khoản khác."));
-			return false;
+		switch (eligibility.status()) {
+			case SAME_UUID -> sender.sendRichMessage(error("❌ Không thể migrate vì UUID cũ trùng UUID hiện tại."));
+			case ALREADY_MIGRATED -> sender.sendRichMessage(info("ℹ Trạng thái migrate: ") + accent("ĐÃ HOÀN TẤT"));
+			case NO_SOURCE_DATA -> sender.sendRichMessage(error("❌ Không có dữ liệu nguồn hợp lệ cho tên cũ này."));
+			case CLAIMED_BY_OTHER -> sender.sendRichMessage(error("❌ Tên cũ này đã được migrate bởi tài khoản khác."));
+			case ELIGIBLE -> {
+				return true;
+			}
 		}
 
-		return true;
+		return false;
 	}
 
 	private void showMigrationDetails(Player player, String legacyUsername, boolean autoDetected) {
