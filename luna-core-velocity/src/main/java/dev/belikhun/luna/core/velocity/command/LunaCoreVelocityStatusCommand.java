@@ -14,9 +14,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 	private static final MiniMessage MM = MiniMessage.miniMessage();
+	private static final Pattern MC_VERSION_PATTERN = Pattern.compile("\\(MC:\\s*([^)]+)\\)", Pattern.CASE_INSENSITIVE);
+	private static final Pattern SEMVER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+){1,3})");
 	private final BackendStatusView statusView;
 
 	public LunaCoreVelocityStatusCommand(BackendStatusView statusView) {
@@ -84,9 +88,13 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 		for (BackendServerStatus status : values) {
 			String indicator = status.online() ? "<green>● ONLINE</green>" : "<red>● OFFLINE</red>";
 			String players = status.stats() == null ? "0/0" : status.stats().onlinePlayers() + "/" + status.stats().maxPlayers();
+			String cpu = status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().cpuUsagePercent()));
+			String latency = status.stats() == null ? "0" : String.valueOf(Math.max(0L, status.stats().heartbeatLatencyMillis()));
 			source.sendRichMessage("<gray>-</gray> <aqua>" + MM.escapeTags(status.serverName()) + "</aqua> " + indicator
 				+ " <gray>| players:</gray> <white>" + players + "</white>"
 				+ " <gray>| tps:</gray> <white>" + formatTps(status.stats()) + "</white>"
+				+ " <gray>| cpu:</gray> <white>" + cpu + "%</white>"
+				+ " <gray>| latency:</gray> <white>" + latency + "ms</white>"
 				+ " <gray>| last:</gray> <white>" + formatAgo(status.lastHeartbeatEpochMillis()) + "</white>");
 		}
 	}
@@ -107,9 +115,11 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 			return;
 		}
 
-		source.sendRichMessage("<gray>Software:</gray> <white>" + MM.escapeTags(stats.software()) + "</white> <gray>| Version:</gray> <white>" + MM.escapeTags(stats.version()) + "</white>");
+		source.sendRichMessage("<gray>Software:</gray> <white>" + MM.escapeTags(stats.software()) + "</white> <gray>| Version:</gray> <white>" + MM.escapeTags(shortVersion(stats.version())) + "</white>");
+		source.sendRichMessage("<gray>Version đầy đủ:</gray> <white>" + MM.escapeTags(stats.version()) + "</white>");
 		source.sendRichMessage("<gray>Players:</gray> <white>" + stats.onlinePlayers() + "/" + stats.maxPlayers() + "</white> <gray>| TPS:</gray> <white>" + formatTps(stats) + "</white>");
 		source.sendRichMessage("<gray>Uptime:</gray> <white>" + Formatters.duration(Duration.ofMillis(Math.max(0L, stats.uptimeMillis()))) + "</white> <gray>| Port:</gray> <white>" + stats.serverPort() + "</white>");
+		source.sendRichMessage("<gray>CPU:</gray> <white>" + String.format(Locale.US, "%.1f", Math.max(0D, stats.cpuUsagePercent())) + "%</white> <gray>| Latency:</gray> <white>" + Math.max(0L, stats.heartbeatLatencyMillis()) + "ms</white>");
 		source.sendRichMessage("<gray>Whitelist:</gray> <white>" + (stats.whitelistEnabled() ? "ON" : "OFF") + "</white>");
 		source.sendRichMessage("<gray>RAM:</gray> <white>" + formatMb(stats.ramUsedBytes()) + "MB used, " + formatMb(stats.ramFreeBytes()) + "MB free, " + formatMb(stats.ramMaxBytes()) + "MB max</white>");
 		source.sendRichMessage("<gray>MOTD:</gray> <white>" + MM.escapeTags(stats.motd()) + "</white>");
@@ -144,5 +154,23 @@ public final class LunaCoreVelocityStatusCommand implements SimpleCommand {
 
 	private long formatMb(long bytes) {
 		return Math.max(0L, bytes) / (1024L * 1024L);
+	}
+
+	private String shortVersion(String full) {
+		if (full == null || full.isBlank()) {
+			return "unknown";
+		}
+
+		Matcher mcMatcher = MC_VERSION_PATTERN.matcher(full);
+		if (mcMatcher.find()) {
+			return mcMatcher.group(1).trim();
+		}
+
+		Matcher semverMatcher = SEMVER_PATTERN.matcher(full);
+		if (semverMatcher.find()) {
+			return semverMatcher.group(1).trim();
+		}
+
+		return full.trim();
 	}
 }

@@ -4,6 +4,7 @@ import org.gradle.language.jvm.tasks.ProcessResources
 dependencies {
     compileOnly(libs.paper.api)
     compileOnly(libs.placeholderapi)
+    compileOnly(libs.spark.api)
     implementation(project(":luna-core-api"))
     compileOnly(libs.mariadb.jdbc)
     compileOnly(libs.mysql.jdbc)

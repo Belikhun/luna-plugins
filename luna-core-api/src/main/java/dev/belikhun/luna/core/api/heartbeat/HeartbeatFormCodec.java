@@ -81,9 +81,11 @@ public final class HeartbeatFormCodec {
 			intValue(fields, "maxPlayers", 0),
 			string(fields, "motd", ""),
 			boolValue(fields, "whitelistEnabled", false),
+			doubleValue(fields, "cpuUsagePercent", 0D),
 			longValue(fields, "ramUsedBytes", 0L),
 			longValue(fields, "ramFreeBytes", 0L),
-			longValue(fields, "ramMaxBytes", 0L)
+			longValue(fields, "ramMaxBytes", 0L),
+			longValue(fields, "heartbeatLatencyMillis", 0L)
 		);
 	}
 
@@ -102,9 +104,11 @@ public final class HeartbeatFormCodec {
 		out.put("maxPlayers", String.valueOf(stats.maxPlayers()));
 		out.put("motd", emptySafe(stats.motd()));
 		out.put("whitelistEnabled", String.valueOf(stats.whitelistEnabled()));
+		out.put("cpuUsagePercent", String.valueOf(stats.cpuUsagePercent()));
 		out.put("ramUsedBytes", String.valueOf(stats.ramUsedBytes()));
 		out.put("ramFreeBytes", String.valueOf(stats.ramFreeBytes()));
 		out.put("ramMaxBytes", String.valueOf(stats.ramMaxBytes()));
+		out.put("heartbeatLatencyMillis", String.valueOf(stats.heartbeatLatencyMillis()));
 		return out;
 	}
 

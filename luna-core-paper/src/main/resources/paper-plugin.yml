@@ -19,6 +19,10 @@ commands:
     permission: lunacore.admin
 dependencies:
   server:
+    Spark:
+      load: BEFORE
+      required: true
+      join-classpath: true
     Vault:
       required: true
     LuckPerms:

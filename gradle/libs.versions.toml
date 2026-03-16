@@ -14,6 +14,7 @@ placeholderapi = "2.12.2"
 luckperms = "5.4"
 interactivechat = "4.3.5.1"
 huskhomes = "4.10"
+spark = "0.1-SNAPSHOT"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -28,3 +29,4 @@ placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholder
 luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms" }
 interactivechat-api = { module = "com.loohp:InteractiveChat", version.ref = "interactivechat" }
 huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", version.ref = "huskhomes" }
+spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }

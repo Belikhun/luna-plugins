@@ -10,8 +10,10 @@ public record BackendHeartbeatStats(
 	int maxPlayers,
 	String motd,
 	boolean whitelistEnabled,
+	double cpuUsagePercent,
 	long ramUsedBytes,
 	long ramFreeBytes,
-	long ramMaxBytes
+	long ramMaxBytes,
+	long heartbeatLatencyMillis
 ) {
 }

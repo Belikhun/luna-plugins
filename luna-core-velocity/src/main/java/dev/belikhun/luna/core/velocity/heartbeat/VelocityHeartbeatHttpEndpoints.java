@@ -51,7 +51,11 @@ public final class VelocityHeartbeatHttpEndpoints {
 			}
 
 			Map<String, String> payload = HeartbeatFormCodec.decode(request.body());
-			BackendHeartbeatStats stats = HeartbeatFormCodec.decodeStats(payload);
+			BackendHeartbeatStats incomingStats = HeartbeatFormCodec.decodeStats(payload);
+			long receivedAt = System.currentTimeMillis();
+			long clientSentAt = parseLong(payload.get("clientSentEpochMillis"), 0L);
+			long latencyMs = clientSentAt <= 0L ? 0L : Math.max(0L, receivedAt - clientSentAt);
+			BackendHeartbeatStats stats = withLatency(incomingStats, latencyMs);
 			boolean online = ConfigValues.booleanValue(payload, "online", true);
 			String resolvedServerName = nameResolver.resolve(serverName, request.headers(), stats.serverPort());
 			VelocityServerSelectorConfig.ServerDefinition definition = selectorConfig.server(resolvedServerName);
@@ -65,6 +69,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 				+ " resolved=" + resolvedServerName
 				+ " online=" + status.online()
 				+ " players=" + stats.onlinePlayers() + "/" + stats.maxPlayers()
+				+ " latency=" + latencyMs + "ms"
 				+ " port=" + stats.serverPort());
 
 			Map<String, BackendServerStatus> responseRows = sinceRevision < 0
@@ -155,7 +160,42 @@ public final class VelocityHeartbeatHttpEndpoints {
 	}
 
 	private BackendHeartbeatStats emptyStats() {
-		return new BackendHeartbeatStats("unknown", "unknown", 0, 0L, 0D, 0, 0, "", false, 0L, 0L, 0L);
+		return new BackendHeartbeatStats("unknown", "unknown", 0, 0L, 0D, 0, 0, "", false, 0D, 0L, 0L, 0L, 0L);
+	}
+
+	private BackendHeartbeatStats withLatency(BackendHeartbeatStats stats, long latencyMs) {
+		if (stats == null) {
+			return emptyStats();
+		}
+
+		return new BackendHeartbeatStats(
+			stats.software(),
+			stats.version(),
+			stats.serverPort(),
+			stats.uptimeMillis(),
+			stats.tps(),
+			stats.onlinePlayers(),
+			stats.maxPlayers(),
+			stats.motd(),
+			stats.whitelistEnabled(),
+			stats.cpuUsagePercent(),
+			stats.ramUsedBytes(),
+			stats.ramFreeBytes(),
+			stats.ramMaxBytes(),
+			Math.max(0L, latencyMs)
+		);
+	}
+
+	private long parseLong(String value, long fallback) {
+		if (value == null || value.isBlank()) {
+			return fallback;
+		}
+
+		try {
+			return Long.parseLong(value.trim());
+		} catch (NumberFormatException ignored) {
+			return fallback;
+		}
 	}
 
 	private String normalize(String value) {

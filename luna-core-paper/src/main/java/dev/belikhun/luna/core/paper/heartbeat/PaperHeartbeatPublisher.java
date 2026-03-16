@@ -4,6 +4,10 @@ import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import me.lucko.spark.api.Spark;
+import me.lucko.spark.api.SparkProvider;
+import me.lucko.spark.api.statistic.StatisticWindow.CpuUsage;
+import me.lucko.spark.api.statistic.StatisticWindow.TicksPerSecond;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 
@@ -12,6 +16,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.Map;
 
@@ -31,6 +36,7 @@ public final class PaperHeartbeatPublisher {
 	private volatile boolean diagnosticsEnabled;
 	private volatile long revisionLagWarnThreshold;
 	private volatile long responseWarnThresholdMs;
+	private volatile boolean sparkProbeWarned;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -47,6 +53,7 @@ public final class PaperHeartbeatPublisher {
 		this.diagnosticsEnabled = true;
 		this.revisionLagWarnThreshold = 25L;
 		this.responseWarnThresholdMs = 250L;
+		this.sparkProbeWarned = false;
 	}
 
 	public void start() {
@@ -141,6 +148,7 @@ public final class PaperHeartbeatPublisher {
 			lastReportedPlayerCount = stats.onlinePlayers();
 			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
 			bodyFields.put("online", String.valueOf(online));
+			bodyFields.put("clientSentEpochMillis", String.valueOf(startedAt));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
 
 			HttpRequest request = HttpRequest.newBuilder(requestUri)
@@ -202,17 +210,12 @@ public final class PaperHeartbeatPublisher {
 		long now = System.currentTimeMillis();
 		long uptimeMillis = Math.max(0L, now - bootEpochMillis);
 
-		double tps = 0D;
-		try {
-			double[] values = Bukkit.getTPS();
-			if (values.length > 0) {
-				tps = values[0];
-			}
-		} catch (Throwable ignored) {
-		}
-
-		Runtime runtime = Runtime.getRuntime();
-		long used = runtime.totalMemory() - runtime.freeMemory();
+		SparkMetrics metrics = collectSparkMetrics();
+		double tps = metrics != null ? metrics.tps() : fallbackTps();
+		double cpuUsagePercent = metrics != null ? metrics.cpuUsagePercent() : currentCpuUsagePercent();
+		long ramUsedBytes = fallbackRamUsed();
+		long ramMaxBytes = fallbackRamMax();
+		long ramFreeBytes = Math.max(0L, ramMaxBytes - ramUsedBytes);
 
 		return new BackendHeartbeatStats(
 			Bukkit.getName(),
@@ -224,10 +227,93 @@ public final class PaperHeartbeatPublisher {
 			Bukkit.getMaxPlayers(),
 			plugin.getServer().motd().toString(),
 			Bukkit.hasWhitelist(),
-			used,
-			runtime.freeMemory(),
-			runtime.maxMemory()
+			cpuUsagePercent,
+			ramUsedBytes,
+			ramFreeBytes,
+			ramMaxBytes,
+			0L
 		);
+	}
+
+	private double fallbackTps() {
+		double tps = 0D;
+		try {
+			double[] values = Bukkit.getTPS();
+			if (values.length > 0) {
+				tps = values[0];
+			}
+		} catch (Throwable ignored) {
+		}
+		return tps;
+	}
+
+	private long fallbackRamUsed() {
+		Runtime runtime = Runtime.getRuntime();
+		return Math.max(0L, runtime.totalMemory() - runtime.freeMemory());
+	}
+
+	private long fallbackRamMax() {
+		Runtime runtime = Runtime.getRuntime();
+		return Math.max(0L, runtime.maxMemory());
+	}
+
+	private SparkMetrics collectSparkMetrics() {
+		try {
+			Spark spark = SparkProvider.get();
+			double tps = fallbackTps();
+			if (spark.tps() != null) {
+				double sparkTps = spark.tps().poll(TicksPerSecond.SECONDS_10);
+				if (sparkTps > 0D) {
+					tps = sparkTps;
+				}
+			}
+
+			double cpuPercent = spark.cpuSystem().poll(CpuUsage.MINUTES_1);
+			if (cpuPercent <= 1D) {
+				cpuPercent *= 100D;
+			}
+			cpuPercent = Math.max(0D, Math.min(100D, cpuPercent));
+
+			return new SparkMetrics(tps, cpuPercent);
+		} catch (IllegalStateException exception) {
+			if (!sparkProbeWarned) {
+				sparkProbeWarned = true;
+				logger.warn("Spark chưa sẵn sàng, dùng fallback nội bộ cho heartbeat metrics: " + exception.getMessage());
+			}
+			return null;
+		} catch (Throwable throwable) {
+			if (!sparkProbeWarned) {
+				sparkProbeWarned = true;
+				logger.warn("Không thể đọc metrics từ Spark API, dùng fallback nội bộ: " + throwable.getMessage());
+			}
+			return null;
+		}
+	}
+
+	private double currentCpuUsagePercent() {
+		try {
+			Object bean = ManagementFactory.getOperatingSystemMXBean();
+			for (String methodName : new String[] {"getCpuLoad", "getSystemCpuLoad"}) {
+				try {
+					Object value = bean.getClass().getMethod(methodName).invoke(bean);
+					if (value instanceof Number number) {
+						double raw = number.doubleValue();
+						if (raw >= 0D) {
+							return Math.min(100D, raw * 100D);
+						}
+					}
+				} catch (ReflectiveOperationException ignored) {
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return 0D;
+	}
+
+	private record SparkMetrics(
+		double tps,
+		double cpuUsagePercent
+	) {
 	}
 
 	private String configuredServerName() {

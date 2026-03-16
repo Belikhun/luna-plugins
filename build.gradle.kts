@@ -35,6 +35,7 @@ subprojects {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
+            maven("https://repo.lucko.me/")
         maven("https://repo.helpch.at/releases/")
         maven("https://repo.loohpjames.com/repository")
         maven("https://repo.william278.net/releases")

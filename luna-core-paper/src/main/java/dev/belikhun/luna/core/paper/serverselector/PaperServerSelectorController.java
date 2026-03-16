@@ -7,6 +7,7 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaUi;
 import dev.belikhun.luna.core.paper.heartbeat.PaperBackendStatusView;
 import net.kyori.adventure.text.Component;
@@ -21,6 +22,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,10 +30,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class PaperServerSelectorController implements Listener {
 	private static final int GUI_SIZE = 54;
 	private static final int PAGE_SIZE = 45;
+	private static final int SLOT_PREV_PAGE = 45;
+	private static final int SLOT_LOBBY = 46;
+	private static final int SLOT_PREVIOUS_SERVER = 47;
+	private static final int SLOT_DASHBOARD = 48;
+	private static final int SLOT_CLOSE = 49;
+	private static final int SLOT_NEXT_PAGE = 53;
+	private static final Pattern MC_VERSION_PATTERN = Pattern.compile("\\(MC:\\s*([^)]+)\\)", Pattern.CASE_INSENSITIVE);
+	private static final Pattern SEMVER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+){1,3})");
 
 	private final JavaPlugin plugin;
 	private final PaperBackendStatusView statusView;
@@ -120,6 +132,8 @@ public final class PaperServerSelectorController implements Listener {
 		guiManager.track(view);
 
 		Map<Integer, ServerRenderEntry> pageLayout = layoutByPage.getOrDefault(currentPage, Map.of());
+		Set<Integer> occupiedSlots = ConcurrentHashMap.newKeySet();
+		occupiedSlots.addAll(pageLayout.keySet());
 		for (Map.Entry<Integer, ServerRenderEntry> entry : pageLayout.entrySet()) {
 			int slot = entry.getKey();
 			ServerRenderEntry renderEntry = entry.getValue();
@@ -132,26 +146,230 @@ public final class PaperServerSelectorController implements Listener {
 					clicker.sendMessage(LunaUi.mini("<red>❌ Bạn không có quyền vào máy chủ này.</red>"));
 					return;
 				}
-				messaging.send(clicker, CoreServerSelectorMessageChannels.CONNECT_REQUEST, writer -> {
-					writer.writeUtf(clicker.getUniqueId().toString());
-					writer.writeUtf(status.serverName());
-				});
+				sendConnectRequest(clicker, status.serverName());
 				clicker.closeInventory();
 			});
 		}
 
+		decorateServerGrid(view, occupiedSlots);
+
 		if (currentPage > 0) {
-			view.setItem(45, LunaUi.item(Material.ARROW, "<yellow>← Trang trước</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage - 1));
+			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.ARROW, "<yellow>← Trang trước</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage - 1));
+		} else {
+			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.GRAY_STAINED_GLASS_PANE, "<gray>Trang trước</gray>", List.of()), (clicker, event, gui) -> {
+			});
 		}
+		view.setItem(SLOT_LOBBY, LunaUi.item(Material.OAK_DOOR, "<aqua>Về Sảnh</aqua>", List.of(
+			LunaUi.mini("<gray>Kết nối về lobby</gray>"),
+			LunaUi.mini("<yellow>Nhấn để chuyển máy chủ</yellow>")
+		)), (clicker, event, gui) -> {
+			sendConnectRequest(clicker, "__lobby__");
+			clicker.closeInventory();
+		});
+		view.setItem(SLOT_PREVIOUS_SERVER, LunaUi.item(Material.COMPASS, "<gold>Quay Lại Server Trước</gold>", List.of(
+			LunaUi.mini("<gray>Khôi phục server gần nhất</gray>"),
+			LunaUi.mini("<yellow>Nhấn để quay lại</yellow>")
+		)), (clicker, event, gui) -> {
+			sendConnectRequest(clicker, "__previous__");
+			clicker.closeInventory();
+		});
+		view.setItem(SLOT_DASHBOARD, LunaUi.item(Material.CLOCK, "<color:#6DFFD4>Bảng Điều Khiển Hệ Thống</color>", List.of(
+			LunaUi.mini("<gray>TPS, CPU, RAM, latency, uptime</gray>"),
+			LunaUi.mini("<yellow>Nhấn để mở dashboard</yellow>")
+		)), (clicker, event, gui) -> openDashboard(clicker, currentPage));
+		view.setItem(SLOT_CLOSE, LunaUi.item(Material.BARRIER, "<red>Đóng</red>", List.of()), (clicker, event, gui) -> clicker.closeInventory());
+
 		if (currentPage < maxPage) {
-			view.setItem(53, LunaUi.item(Material.ARROW, "<yellow>Trang sau →</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage + 1));
+			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.ARROW, "<yellow>Trang sau →</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage + 1));
+		} else {
+			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.GRAY_STAINED_GLASS_PANE, "<gray>Trang sau</gray>", List.of()), (clicker, event, gui) -> {
+			});
 		}
-		view.setItem(49, LunaUi.item(Material.BARRIER, "<red>Đóng</red>", List.of()), (clicker, event, gui) -> clicker.closeInventory());
 
 		suppressCloseCleanup.add(playerId);
 		player.openInventory(view.getInventory());
 		selectorInventoryByPlayer.put(playerId, view.getInventory());
 		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
+	}
+
+	private void openDashboard(Player player, int returnPage) {
+		Map<String, BackendServerStatus> snapshot = statusView.snapshot();
+		List<BackendServerStatus> all = new ArrayList<>(snapshot.values());
+		all.sort(Comparator.comparing(status -> status.serverName().toLowerCase(Locale.ROOT)));
+
+		double avgTps = average(all, status -> status.stats() == null ? 0D : status.stats().tps());
+		double avgCpu = average(all, status -> status.stats() == null ? 0D : status.stats().cpuUsagePercent());
+		double avgLatency = average(all, status -> status.stats() == null ? 0D : status.stats().heartbeatLatencyMillis());
+		long totalRamUsed = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
+		long totalRamMax = sumLong(all, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
+		double ramPercent = totalRamMax <= 0L ? 0D : Math.min(100D, (totalRamUsed * 100D) / totalRamMax);
+		long maxUptimeMillis = maxLong(all, status -> status.stats() == null ? 0L : status.stats().uptimeMillis());
+
+		String title = "<gradient:#6DFFD4:#4EA3FF>Thống Kê Toàn Mạng</gradient>";
+		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(title));
+		guiManager.track(view);
+
+		fillDashboardBackground(view);
+		view.setItem(10, LunaUi.item(Material.CLOCK, "<yellow>TPS Tổng Thể</yellow>", List.of(
+			LunaUi.mini("<gray>Giá trị trung bình toàn mạng</gray>"),
+			LunaUi.mini(coloredBar(tpsPercent(avgTps), "tps") + " <white>" + String.format(Locale.US, "%.2f", avgTps) + " TPS</white>")
+		)));
+		view.setItem(12, LunaUi.item(Material.REDSTONE, "<color:#FF9A4D>CPU Trung Bình</color>", List.of(
+			LunaUi.mini("<gray>Tải CPU theo heartbeat backend</gray>"),
+			LunaUi.mini(coloredBar(avgCpu, "cpu") + " <white>" + String.format(Locale.US, "%.1f", avgCpu) + "%</white>")
+		)));
+		view.setItem(14, LunaUi.item(Material.IRON_BLOCK, "<color:#7FDBFF>RAM Tổng</color>", List.of(
+			LunaUi.mini("<gray>Sử dụng bộ nhớ toàn mạng</gray>"),
+			LunaUi.mini(coloredBar(ramPercent, "ram") + " <white>" + String.format(Locale.US, "%.1f", ramPercent) + "%</white>"),
+			LunaUi.mini("<gray>" + formatMb(totalRamUsed) + "MB / " + formatMb(totalRamMax) + "MB</gray>")
+		)));
+		view.setItem(16, LunaUi.item(Material.REPEATER, "<aqua>Latency Heartbeat</aqua>", List.of(
+			LunaUi.mini("<gray>Độ trễ backend → proxy</gray>"),
+			LunaUi.mini(coloredBar(latencyPercent(avgLatency), "latency") + " <white>" + String.format(Locale.US, "%.0f", avgLatency) + "ms</white>")
+		)));
+		view.setItem(31, LunaUi.item(Material.CHEST, "<gold>Uptime Cao Nhất</gold>", List.of(
+			LunaUi.mini("<gray>Máy chủ chạy lâu nhất</gray>"),
+			LunaUi.mini("<white>" + Formatters.duration(Duration.ofMillis(Math.max(0L, maxUptimeMillis))) + "</white>")
+		)));
+
+		int onlineServers = (int) all.stream().filter(BackendServerStatus::online).count();
+		view.setItem(30, LunaUi.item(Material.EMERALD, "<green>Online Servers</green>", List.of(
+			LunaUi.mini("<white>" + onlineServers + "</white><gray>/</gray><white>" + all.size() + "</white>")
+		)));
+		view.setItem(32, LunaUi.item(Material.PLAYER_HEAD, "<color:#9EE6A3>Người Chơi Toàn Mạng</color>", List.of(
+			LunaUi.mini("<white>" + sumLong(all, status -> status.stats() == null ? 0L : status.stats().onlinePlayers()) + "</white>")
+		)));
+
+		view.setItem(49, LunaUi.item(Material.ARROW, "<yellow>Quay Lại Danh Sách Server</yellow>", List.of(
+			LunaUi.mini("<gray>Trở về trang trước đó</gray>")
+		)), (clicker, event, gui) -> open(clicker, returnPage));
+
+		suppressCloseCleanup.add(player.getUniqueId());
+		player.openInventory(view.getInventory());
+		selectorInventoryByPlayer.put(player.getUniqueId(), view.getInventory());
+		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(player.getUniqueId()));
+	}
+
+	private void sendConnectRequest(Player player, String backendName) {
+		messaging.send(player, CoreServerSelectorMessageChannels.CONNECT_REQUEST, writer -> {
+			writer.writeUtf(player.getUniqueId().toString());
+			writer.writeUtf(backendName == null ? "" : backendName);
+		});
+	}
+
+	private void decorateServerGrid(GuiView view, Set<Integer> occupiedSlots) {
+		for (int slot : borderSlots()) {
+			if (occupiedSlots.contains(slot)) {
+				continue;
+			}
+			view.setItem(slot, LunaUi.item(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>•</dark_gray>", List.of()), (clicker, event, gui) -> {
+			});
+		}
+	}
+
+	private void fillDashboardBackground(GuiView view) {
+		for (int slot = 0; slot < GUI_SIZE; slot++) {
+			view.setItem(slot, LunaUi.item(Material.GRAY_STAINED_GLASS_PANE, "<gray> </gray>", List.of()), (clicker, event, gui) -> {
+			});
+		}
+	}
+
+	private List<Integer> borderSlots() {
+		List<Integer> slots = new ArrayList<>();
+		for (int slot = 0; slot <= 44; slot++) {
+			int row = slot / 9;
+			int col = slot % 9;
+			if (row == 0 || row == 4 || col == 0 || col == 8) {
+				slots.add(slot);
+			}
+		}
+		return slots;
+	}
+
+	private double average(List<BackendServerStatus> values, java.util.function.ToDoubleFunction<BackendServerStatus> mapper) {
+		if (values.isEmpty()) {
+			return 0D;
+		}
+		double total = 0D;
+		int count = 0;
+		for (BackendServerStatus value : values) {
+			total += mapper.applyAsDouble(value);
+			count++;
+		}
+		return count == 0 ? 0D : total / count;
+	}
+
+	private long sumLong(List<BackendServerStatus> values, java.util.function.ToLongFunction<BackendServerStatus> mapper) {
+		long total = 0L;
+		for (BackendServerStatus value : values) {
+			total += mapper.applyAsLong(value);
+		}
+		return total;
+	}
+
+	private long maxLong(List<BackendServerStatus> values, java.util.function.ToLongFunction<BackendServerStatus> mapper) {
+		long max = 0L;
+		for (BackendServerStatus value : values) {
+			max = Math.max(max, mapper.applyAsLong(value));
+		}
+		return max;
+	}
+
+	private long formatMb(long bytes) {
+		if (bytes <= 0L) {
+			return 0L;
+		}
+		return Math.max(0L, bytes / 1024L / 1024L);
+	}
+
+	private double tpsPercent(double tps) {
+		return Math.max(0D, Math.min(100D, (tps / 20D) * 100D));
+	}
+
+	private double latencyPercent(double latencyMs) {
+		return Math.max(0D, Math.min(100D, (latencyMs / 250D) * 100D));
+	}
+
+	private String coloredBar(double percent, String metric) {
+		double clamped = Math.max(0D, Math.min(100D, percent));
+		int filled = (int) Math.round((clamped / 100D) * 14D);
+		filled = Math.max(0, Math.min(14, filled));
+		String color = switch (metric) {
+			case "tps" -> clamped >= 80D ? "<green>" : (clamped >= 60D ? "<yellow>" : "<red>");
+			case "cpu", "ram", "latency" -> clamped <= 55D ? "<green>" : (clamped <= 75D ? "<yellow>" : "<red>");
+			default -> "<white>";
+		};
+
+		StringBuilder builder = new StringBuilder();
+		builder.append(color);
+		for (int i = 0; i < filled; i++) {
+			builder.append("█");
+		}
+		builder.append("</").append(color.substring(1));
+		builder.append("<dark_gray>");
+		for (int i = filled; i < 14; i++) {
+			builder.append("█");
+		}
+		builder.append("</dark_gray>");
+		return builder.toString();
+	}
+
+	private String shortVersion(String full) {
+		if (full == null || full.isBlank()) {
+			return "unknown";
+		}
+
+		Matcher mcMatcher = MC_VERSION_PATTERN.matcher(full);
+		if (mcMatcher.find()) {
+			return mcMatcher.group(1).trim();
+		}
+
+		Matcher semverMatcher = SEMVER_PATTERN.matcher(full);
+		if (semverMatcher.find()) {
+			return semverMatcher.group(1).trim();
+		}
+
+		return full.trim();
 	}
 
 	private void refreshOpenMenus() {
@@ -372,9 +590,20 @@ public final class PaperServerSelectorController implements Listener {
 		values.put("server_status_icon", statusIcon);
 		values.put("online", String.valueOf(online));
 		values.put("max", String.valueOf(max));
-		values.put("version", status.stats() == null ? "unknown" : status.stats().version());
+		long ramUsedBytes = status.stats() == null ? 0L : Math.max(0L, status.stats().ramUsedBytes());
+		long ramMaxBytes = status.stats() == null ? 0L : Math.max(0L, status.stats().ramMaxBytes());
+		String versionFull = status.stats() == null ? "unknown" : status.stats().version();
+		String versionShort = shortVersion(versionFull);
+		values.put("version", versionShort);
+		values.put("server_version", versionShort);
+		values.put("server_version_full", versionFull);
 		values.put("tps", status.stats() == null ? "0.00" : String.format(Locale.US, "%.2f", status.stats().tps()));
-		values.put("uptime", String.valueOf(status.stats() == null ? 0L : Math.max(0L, status.stats().uptimeMillis() / 1000L)));
+		values.put("uptime", Formatters.duration(Duration.ofMillis(status.stats() == null ? 0L : Math.max(0L, status.stats().uptimeMillis()))));
+		values.put("cpu_usage", status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().cpuUsagePercent())));
+		values.put("ram_used_mb", String.valueOf(ramUsedBytes / 1024L / 1024L));
+		values.put("ram_max_mb", String.valueOf(ramMaxBytes / 1024L / 1024L));
+		values.put("ram_percent", String.format(Locale.US, "%.1f", ramMaxBytes <= 0L ? 0D : Math.min(100D, (ramUsedBytes * 100D) / ramMaxBytes)));
+		values.put("latency_ms", String.valueOf(status.stats() == null ? 0L : Math.max(0L, status.stats().heartbeatLatencyMillis())));
 		return values;
 	}
 
