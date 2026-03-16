@@ -19,7 +19,7 @@ commands:
     permission: lunacore.admin
 dependencies:
   server:
-    Spark:
+    spark:
       load: BEFORE
       required: true
       join-classpath: true
