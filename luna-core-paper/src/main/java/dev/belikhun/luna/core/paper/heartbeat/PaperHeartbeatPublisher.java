@@ -208,18 +208,10 @@ public final class PaperHeartbeatPublisher {
 		}
 
 		try {
-			String raw = heartbeatRequestUri.toString();
-			int queryIndex = raw.indexOf('?');
-			if (queryIndex >= 0) {
-				raw = raw.substring(0, queryIndex);
-			}
-
-			int slashIndex = raw.lastIndexOf('/');
-			if (slashIndex <= 0) {
+			URI selectorUri = selectorConfigUri(heartbeatRequestUri);
+			if (selectorUri == null) {
 				return;
 			}
-
-			URI selectorUri = URI.create(raw.substring(0, slashIndex) + "/server-selector-config");
 			HttpRequest request = HttpRequest.newBuilder(selectorUri)
 				.header("X-Luna-Forwarding-Secret", secret)
 				.timeout(Duration.ofMillis(readTimeoutMillis))
@@ -241,6 +233,33 @@ public final class PaperHeartbeatPublisher {
 		} catch (Exception exception) {
 			logger.debug("Heartbeat selector sync lỗi: " + exception.getMessage());
 		}
+	}
+
+	private URI selectorConfigUri(URI heartbeatRequestUri) {
+		if (heartbeatRequestUri == null) {
+			return null;
+		}
+
+		String path = heartbeatRequestUri.getPath();
+		if (path == null || path.isBlank()) {
+			return null;
+		}
+
+		int heartbeatMarker = path.indexOf("/heartbeat/");
+		String selectorPath;
+		if (heartbeatMarker >= 0) {
+			String prefix = path.substring(0, heartbeatMarker);
+			selectorPath = (prefix.isBlank() ? "" : prefix) + "/server-selector-config";
+		} else {
+			int slashIndex = path.lastIndexOf('/');
+			if (slashIndex < 0) {
+				return null;
+			}
+			String prefix = path.substring(0, slashIndex);
+			selectorPath = (prefix.isBlank() ? "" : prefix) + "/server-selector-config";
+		}
+
+		return URI.create(heartbeatRequestUri.getScheme() + "://" + heartbeatRequestUri.getAuthority() + selectorPath);
 	}
 
 	private long checksum(byte[] bytes) {

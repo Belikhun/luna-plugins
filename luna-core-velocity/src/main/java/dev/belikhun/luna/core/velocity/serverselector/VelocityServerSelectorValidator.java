@@ -26,6 +26,7 @@ public final class VelocityServerSelectorValidator {
 		"online",
 		"max",
 		"uptime",
+		"uptime_long",
 		"tps",
 		"cpu_usage",
 		"ram_used_mb",
@@ -157,7 +158,7 @@ public final class VelocityServerSelectorValidator {
 			}
 
 			Object conditionalRaw = serverNode.get("conditional");
-			if (conditionalRaw != null && !(conditionalRaw instanceof Iterable<?> conditionList)) {
+			if (conditionalRaw != null && !(conditionalRaw instanceof Iterable<?>)) {
 				warnings.add("servers.'" + nodeName + "'.conditional phải là danh sách.");
 			} else if (conditionalRaw instanceof Iterable<?> conditionList) {
 				int conditionIndex = 0;

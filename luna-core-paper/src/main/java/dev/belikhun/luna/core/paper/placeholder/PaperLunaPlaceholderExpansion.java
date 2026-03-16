@@ -75,7 +75,8 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			case "tps" -> String.format(Locale.US, "%.2f", currentTps());
 			case "player_ping" -> Long.toString(playerPing(player));
 			case "latency" -> Long.toString(currentLatencyMillis());
-			case "uptime" -> Formatters.duration(Duration.ofMillis(currentUptimeMillis()));
+			case "uptime" -> Formatters.compactDuration(Duration.ofMillis(currentUptimeMillis()));
+			case "uptime_long" -> Formatters.duration(Duration.ofMillis(currentUptimeMillis()));
 			case "uptime_ms" -> Long.toString(currentUptimeMillis());
 			case "system_cpu" -> formatPercent(systemCpuPercent());
 			case "process_cpu" -> formatPercent(processCpuPercent());

@@ -968,7 +968,9 @@ public final class PaperServerSelectorController implements Listener {
 		values.put("server_version", versionShort);
 		values.put("server_version_full", versionFull);
 		values.put("tps", status.stats() == null ? "0.00" : String.format(Locale.US, "%.2f", status.stats().tps()));
-		values.put("uptime", Formatters.duration(Duration.ofMillis(status.stats() == null ? 0L : Math.max(0L, status.stats().uptimeMillis()))));
+		long uptimeMillis = status.stats() == null ? 0L : Math.max(0L, status.stats().uptimeMillis());
+		values.put("uptime", Formatters.compactDuration(Duration.ofMillis(uptimeMillis)));
+		values.put("uptime_long", Formatters.duration(Duration.ofMillis(uptimeMillis)));
 		values.put("cpu_usage", status.stats() == null ? "0.0" : String.format(Locale.US, "%.1f", Math.max(0D, status.stats().systemCpuUsagePercent())));
 		values.put("ram_used_mb", String.valueOf(ramUsedBytes / 1024L / 1024L));
 		values.put("ram_max_mb", String.valueOf(ramMaxBytes / 1024L / 1024L));

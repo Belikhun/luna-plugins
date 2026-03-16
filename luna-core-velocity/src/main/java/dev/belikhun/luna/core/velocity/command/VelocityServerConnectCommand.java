@@ -212,7 +212,9 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		values.put("online", String.valueOf(online));
 		values.put("max", String.valueOf(max));
 		values.put("tps", String.format(Locale.US, "%.2f", tps));
-		values.put("uptime", Formatters.duration(Duration.ofMillis(Math.max(0L, uptime))));
+		long safeUptime = Math.max(0L, uptime);
+		values.put("uptime", Formatters.compactDuration(Duration.ofMillis(safeUptime)));
+		values.put("uptime_long", Formatters.duration(Duration.ofMillis(safeUptime)));
 		values.put("cpu_usage", String.format(Locale.US, "%.1f", Math.max(0D, cpu)));
 		values.put("ram_used_mb", String.valueOf(Math.max(0L, ramUsedBytes / 1024L / 1024L)));
 		values.put("ram_max_mb", String.valueOf(Math.max(0L, ramMaxBytes / 1024L / 1024L)));

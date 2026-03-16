@@ -9,6 +9,7 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Dependency;
@@ -17,7 +18,6 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
-import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
 import dev.belikhun.luna.auth.messaging.AuthChannels;
@@ -456,18 +456,39 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onServerConnected(ServerConnectedEvent event) {
+		// Only log the event here. Actual plugin-message syncing is deferred
+		// to onServerPostConnect to avoid injecting bytes into a
+		// ServerConnection whose play-state transition is still in progress.
 		if (!isReady()) {
 			return;
 		}
 
 		flow("ServerConnected player=" + event.getPlayer().getUsername() + " server=" + event.getServer().getServerInfo().getName());
-		UUID playerUuid = event.getPlayer().getUniqueId();
-		boolean authStateSent = syncAuthState(event.getPlayer(), event.getServer());
+	}
+
+	@Subscribe
+	public void onServerPostConnect(ServerPostConnectEvent event) {
+		if (!isReady()) {
+			return;
+		}
+
+		Player player = event.getPlayer();
+		ServerConnection connection = player.getCurrentServer().orElse(null);
+		if (connection == null) {
+			return;
+		}
+
+		flow("ServerPostConnect player=" + player.getUsername() + " server=" + connection.getServerInfo().getName());
+		UUID playerUuid = player.getUniqueId();
+		boolean authStateSent = sendAuthState(connection, player, authService.isAuthenticated(playerUuid));
+		if (authStateSent && authService.isAuthenticated(playerUuid)) {
+			player.sendActionBar(Component.text("Bạn đã xác thực."));
+		}
 		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
 		String pendingMethod = pendingBackendAuthMethods.getOrDefault(playerUuid, "default");
 		boolean authResultSent = true;
 		if (pendingMessage != null) {
-			authResultSent = sendAuthenticatedBackendNotice(event.getPlayer(), event.getServer(), pendingMessage, pendingMethod);
+			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage, pendingMethod);
 			if (authResultSent) {
 				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
 				pendingBackendAuthMethods.remove(playerUuid, pendingMethod);
@@ -540,19 +561,6 @@ public final class LunaAuthVelocityPlugin {
 		player.getCurrentServer().ifPresent(connection -> sendAuthState(connection, player, authenticated));
 	}
 
-	private boolean syncAuthState(Player player, RegisteredServer server) {
-		if (!isReady()) {
-			return false;
-		}
-
-		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
-		flow("syncAuthState player=" + player.getUsername() + " authenticated=" + authenticated + " via=ServerConnected");
-		if (authenticated) {
-			player.sendActionBar(Component.text("Bạn đã xác thực."));
-		}
-		return sendAuthState(server, player, authenticated);
-	}
-
 	private boolean sendAuthState(ServerConnection connection, Player player, boolean authenticated) {
 		if (!isReady()) {
 			return false;
@@ -571,27 +579,6 @@ public final class LunaAuthVelocityPlugin {
 			writer.writeUtf(player.getUsername());
 		});
 		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
-		return sent;
-	}
-
-	private boolean sendAuthState(RegisteredServer server, Player player, boolean authenticated) {
-		if (!isReady()) {
-			return false;
-		}
-		boolean needsRegister = needsRegister(player.getUniqueId());
-		boolean premiumNameCandidate = isPremiumNameCandidate(player);
-		boolean hasModePreference = hasActiveModePreference(player.getUsername());
-
-		boolean sent = pluginMessagingBus.send(server, AuthChannels.AUTH_STATE, writer -> {
-			writer.writeUtf("state");
-			writer.writeUuid(player.getUniqueId());
-			writer.writeBoolean(authenticated);
-			writer.writeBoolean(needsRegister);
-			writer.writeBoolean(premiumNameCandidate);
-			writer.writeBoolean(hasModePreference);
-			writer.writeUtf(player.getUsername());
-		});
-		flow("TX auth_state player=" + player.getUsername() + " authenticated=" + authenticated + " needsRegister=" + needsRegister + " premiumName=" + premiumNameCandidate + " hasModePreference=" + hasModePreference + " server=" + server.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 
@@ -646,24 +633,6 @@ public final class LunaAuthVelocityPlugin {
 			writer.writeUtf(message);
 		});
 		flow("TX command_response(auto-auth) player=" + player.getUsername() + " authMethod=" + authMethod + " message=" + message + " server=" + connection.getServerInfo().getName() + " sent=" + sent);
-		return sent;
-	}
-
-	private boolean sendAuthenticatedBackendNotice(Player player, RegisteredServer server, String message, String authMethod) {
-		boolean premiumNameCandidate = isPremiumNameCandidate(player);
-		boolean hasModePreference = hasActiveModePreference(player.getUsername());
-		boolean sent = pluginMessagingBus.send(server, AuthChannels.COMMAND_RESPONSE, writer -> {
-			writer.writeUtf("auth_result_v2");
-			writer.writeUuid(player.getUniqueId());
-			writer.writeBoolean(true);
-			writer.writeBoolean(true);
-			writer.writeBoolean(false);
-			writer.writeBoolean(premiumNameCandidate);
-			writer.writeBoolean(hasModePreference);
-			writer.writeUtf(authMethod);
-			writer.writeUtf(message);
-		});
-		flow("TX command_response(auto-auth) player=" + player.getUsername() + " authMethod=" + authMethod + " message=" + message + " server=" + server.getServerInfo().getName() + " sent=" + sent);
 		return sent;
 	}
 

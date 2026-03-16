@@ -26,20 +26,29 @@ public final class MessengerPresenceListener {
 
 	@Subscribe
 	public void onServerConnected(ServerConnectedEvent event) {
+		// Only update tracking state here. Actual join/switch handling is
+		// deferred to onServerPostConnect so that plugin messages are not
+		// sent through a connection whose play-state transition is still
+		// in progress — doing so can corrupt the packet stream and cause
+		// DecoderException on the backend (e.g. oversized accept_teleportation).
 		String currentServerName = event.getServer().getServerInfo().getName();
 		lastKnownServerByPlayer.put(event.getPlayer().getUniqueId(), currentServerName);
-
-		if (event.getPreviousServer().isEmpty()) {
-			router.handlePlayerJoin(event.getPlayer(), currentServerName);
-			return;
-		}
-
-		String previousServerName = event.getPreviousServer().get().getServerInfo().getName();
-		router.handleServerSwitch(event.getPlayer(), previousServerName, currentServerName);
 	}
 
 	@Subscribe
 	public void onServerPostConnect(ServerPostConnectEvent event) {
-		router.flushPendingSelfPresence(event.getPlayer());
+		var player = event.getPlayer();
+		String currentServerName = player.getCurrentServer()
+			.map(conn -> conn.getServerInfo().getName())
+			.orElse(lastKnownServerByPlayer.getOrDefault(player.getUniqueId(), ""));
+
+		if (event.getPreviousServer() == null) {
+			router.handlePlayerJoin(player, currentServerName);
+		} else {
+			String previousServerName = event.getPreviousServer().getServerInfo().getName();
+			router.handleServerSwitch(player, previousServerName, currentServerName);
+		}
+
+		router.flushPendingSelfPresence(player);
 	}
 }
