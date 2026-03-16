@@ -74,6 +74,10 @@ public record VelocityServerSelectorConfig(
 			Integer slot = ConfigValues.integerValue(item.get("slot"), null);
 			Integer page = ConfigValues.integerValue(item.get("page"), null);
 			String material = ConfigValues.string(item, "material", "");
+			Map<ServerSelectorStatus, String> materialByStatus = parseMaterialByStatus(ConfigValues.map(item, "material-by-status"));
+			Boolean glint = item.containsKey("glint") ? ConfigValues.booleanValue(item.get("glint"), false) : null;
+			Map<ServerSelectorStatus, Boolean> glintByStatus = parseGlintByStatus(ConfigValues.map(item, "glint-by-status"));
+			List<ConditionalOverride> conditionalOverrides = parseConditionalOverrides(item.get("conditional"));
 			ServerTemplate serverTemplate = parseTemplate(ConfigValues.map(item, "template"), null);
 			Map<ServerSelectorStatus, List<String>> descriptionByStatus = parseDescriptionByStatus(ConfigValues.map(item, "descriptions-by-status"));
 			servers.put(normalize(backendName), new ServerDefinition(
@@ -85,6 +89,10 @@ public record VelocityServerSelectorConfig(
 				slot,
 				page,
 				material,
+				materialByStatus,
+				glint,
+				glintByStatus,
+				conditionalOverrides,
 				description(backendName, descriptionsSection),
 				descriptionByStatus,
 				serverTemplate
@@ -100,7 +108,7 @@ public record VelocityServerSelectorConfig(
 				ConfigValues.booleanValue(diagnosticsSection, "unknown-placeholder-as-error", false)
 			),
 			ConfigValues.string(section, "title", "<gradient:#4C00E0:#CF115E>Chọn máy chủ</gradient>"),
-			parseTemplate(templateSection, new ServerTemplate("<b>%server_display%</b>", List.of(), "%line%", List.of(), Map.of())),
+			parseTemplate(templateSection, new ServerTemplate("<b>%server_display%</b>", List.of(), "%line%", List.of(), "", Map.of())),
 			ConfigValues.string(messages, "opening", "<yellow>Đang mở danh sách máy chủ...</yellow>"),
 			ConfigValues.string(messages, "player-only", "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"),
 			ConfigValues.string(messages, "not-found", "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"),
@@ -174,6 +182,78 @@ public record VelocityServerSelectorConfig(
 		return Map.copyOf(byStatus);
 	}
 
+	private static Map<ServerSelectorStatus, String> parseMaterialByStatus(Map<String, Object> section) {
+		Map<ServerSelectorStatus, String> byStatus = new LinkedHashMap<>();
+		for (ServerSelectorStatus status : ServerSelectorStatus.values()) {
+			String material = ConfigValues.string(section, status.name(), "");
+			if (material.isBlank()) {
+				continue;
+			}
+			byStatus.put(status, material);
+		}
+		return Map.copyOf(byStatus);
+	}
+
+	private static Map<ServerSelectorStatus, Boolean> parseGlintByStatus(Map<String, Object> section) {
+		Map<ServerSelectorStatus, Boolean> byStatus = new LinkedHashMap<>();
+		for (ServerSelectorStatus status : ServerSelectorStatus.values()) {
+			if (!section.containsKey(status.name())) {
+				continue;
+			}
+			byStatus.put(status, ConfigValues.booleanValue(section.get(status.name()), false));
+		}
+		return Map.copyOf(byStatus);
+	}
+
+	private static List<ConditionalOverride> parseConditionalOverrides(Object raw) {
+		if (!(raw instanceof Iterable<?> iterable)) {
+			return List.of();
+		}
+
+		List<ConditionalOverride> overrides = new ArrayList<>();
+		for (Object node : iterable) {
+			Map<String, Object> section = ConfigValues.map(node);
+			if (section.isEmpty()) {
+				continue;
+			}
+
+			String when = ConfigValues.string(section, "when", ConfigValues.string(section, "condition", ""));
+			if (when.isBlank()) {
+				continue;
+			}
+
+			String material = section.containsKey("material") ? ConfigValues.string(section.get("material"), "") : null;
+			if (material != null && material.isBlank()) {
+				material = null;
+			}
+
+			Boolean glint = section.containsKey("glint") ? ConfigValues.booleanValue(section.get("glint"), false) : null;
+			List<String> description = section.containsKey("description") ? parseTextLines(section.get("description"), List.of()) : null;
+			TemplateOverride template = parseTemplateOverride(ConfigValues.map(section, "template"));
+
+			overrides.add(new ConditionalOverride(when, material, glint, description, template));
+		}
+
+		return List.copyOf(overrides);
+	}
+
+	private static TemplateOverride parseTemplateOverride(Map<String, Object> section) {
+		if (section.isEmpty()) {
+			return null;
+		}
+
+		String nameOverride = section.containsKey("name") ? ConfigValues.string(section.get("name"), "") : null;
+		List<String> headerOverride = section.containsKey("header") ? parseTextLines(section.get("header"), List.of()) : null;
+		String bodyOverride = section.containsKey("body-line") ? ConfigValues.string(section.get("body-line"), "") : null;
+		List<String> footerOverride = section.containsKey("footer") ? parseTextLines(section.get("footer"), List.of()) : null;
+
+		if (nameOverride == null && headerOverride == null && bodyOverride == null && footerOverride == null) {
+			return null;
+		}
+
+		return new TemplateOverride(nameOverride, headerOverride, bodyOverride, footerOverride);
+	}
+
 	private static ServerTemplate parseTemplate(Map<String, Object> section, ServerTemplate fallback) {
 		if (section.isEmpty()) {
 			return fallback;
@@ -183,6 +263,7 @@ public record VelocityServerSelectorConfig(
 		String bodyFallback = fallback == null ? "%line%" : fallback.bodyLine();
 		List<String> headerFallback = fallback == null ? List.of() : fallback.headerLines();
 		List<String> footerFallback = fallback == null ? List.of() : fallback.footerLines();
+		String materialFallback = fallback == null ? "" : fallback.material();
 		Map<ServerSelectorStatus, TemplateOverride> fallbackByStatus = fallback == null ? Map.of() : fallback.byStatus();
 
 		Map<ServerSelectorStatus, TemplateOverride> byStatus = new LinkedHashMap<>();
@@ -209,6 +290,7 @@ public record VelocityServerSelectorConfig(
 			parseTextLines(section.get("header"), headerFallback),
 			ConfigValues.string(section, "body-line", bodyFallback),
 			parseTextLines(section.get("footer"), footerFallback),
+			ConfigValues.string(section, "material", materialFallback),
 			Map.copyOf(byStatus)
 		);
 	}
@@ -247,6 +329,7 @@ public record VelocityServerSelectorConfig(
 		List<String> headerLines,
 		String bodyLine,
 		List<String> footerLines,
+		String material,
 		Map<ServerSelectorStatus, TemplateOverride> byStatus
 	) {
 	}
@@ -268,9 +351,22 @@ public record VelocityServerSelectorConfig(
 		Integer slot,
 		Integer page,
 		String material,
+		Map<ServerSelectorStatus, String> materialByStatus,
+		Boolean glint,
+		Map<ServerSelectorStatus, Boolean> glintByStatus,
+		List<ConditionalOverride> conditional,
 		List<String> description,
 		Map<ServerSelectorStatus, List<String>> descriptionByStatus,
 		ServerTemplate template
+	) {
+	}
+
+	public record ConditionalOverride(
+		String when,
+		String material,
+		Boolean glint,
+		List<String> description,
+		TemplateOverride template
 	) {
 	}
 

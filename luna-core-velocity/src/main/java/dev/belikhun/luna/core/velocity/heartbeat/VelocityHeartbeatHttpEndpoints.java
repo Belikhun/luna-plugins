@@ -5,8 +5,10 @@ import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.api.http.HttpResponse;
+import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.api.http.Router;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.serverselector.ServerSelectorOpenPayloadWriter;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 
 import java.nio.charset.StandardCharsets;
@@ -108,6 +110,17 @@ public final class VelocityHeartbeatHttpEndpoints {
 			statusRegistry.status(serverName).ifPresent(status -> single.put(serverName.toLowerCase(), status));
 			byte[] body = HeartbeatFormCodec.encodeSnapshot(single, statusRegistry.currentRevision(), serverName, true);
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
+		});
+
+		router.get("/server-selector-config", request -> {
+			if (!isAuthorized(request.headers())) {
+				logger.warn("Từ chối truy vấn /server-selector-config do sai token hoặc thiếu token.");
+				return unauthorized();
+			}
+
+			PluginMessageWriter writer = PluginMessageWriter.create();
+			ServerSelectorOpenPayloadWriter.write(writer, selectorConfig);
+			return HttpResponse.bytes(200, writer.toByteArray(), "application/octet-stream");
 		});
 	}
 

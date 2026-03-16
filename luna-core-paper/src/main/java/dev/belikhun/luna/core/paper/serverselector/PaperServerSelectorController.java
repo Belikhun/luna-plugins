@@ -19,6 +19,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.ArrayList;
@@ -45,6 +46,7 @@ public final class PaperServerSelectorController implements Listener {
 	private static final int SLOT_NEXT_PAGE = 53;
 	private static final Pattern MC_VERSION_PATTERN = Pattern.compile("\\(MC:\\s*([^)]+)\\)", Pattern.CASE_INSENSITIVE);
 	private static final Pattern SEMVER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+){1,3})");
+	private static final Pattern CONDITION_COMPARISON_PATTERN = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_]*)\\s*(==|!=|>=|<=|>|<)\\s*(.+)$");
 
 	private final JavaPlugin plugin;
 	private final PaperBackendStatusView statusView;
@@ -58,6 +60,7 @@ public final class PaperServerSelectorController implements Listener {
 	private final Map<UUID, Inventory> selectorInventoryByPlayer;
 	private final Map<UUID, GuiView> selectorViewByPlayer;
 	private final Set<UUID> suppressCloseCleanup;
+	private volatile SelectorPayload syncedPayload;
 
 	public PaperServerSelectorController(
 		JavaPlugin plugin,
@@ -79,6 +82,7 @@ public final class PaperServerSelectorController implements Listener {
 		this.selectorInventoryByPlayer = new ConcurrentHashMap<>();
 		this.selectorViewByPlayer = new ConcurrentHashMap<>();
 		this.suppressCloseCleanup = ConcurrentHashMap.newKeySet();
+		this.syncedPayload = SelectorPayload.empty();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -87,12 +91,23 @@ public final class PaperServerSelectorController implements Listener {
 		messaging.registerOutgoing(CoreServerSelectorMessageChannels.CONNECT_REQUEST);
 		messaging.registerIncoming(CoreServerSelectorMessageChannels.OPEN_MENU, context -> {
 			Player player = context.source();
-			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			SelectorPayload payload = parsePayload(reader);
-			payloadByPlayer.put(player.getUniqueId(), payload);
+			if (context.payload() != null && context.payload().length > 0) {
+				PluginMessageReader reader = PluginMessageReader.of(context.payload());
+				SelectorPayload payload = parsePayload(reader);
+				payloadByPlayer.put(player.getUniqueId(), payload);
+			}
 			plugin.getServer().getScheduler().runTask(plugin, () -> open(player, openPages.getOrDefault(player.getUniqueId(), 0)));
 			return dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult.HANDLED;
 		});
+	}
+
+	public void updateSyncedPayload(byte[] payloadBytes) {
+		if (payloadBytes == null || payloadBytes.length == 0) {
+			return;
+		}
+
+		SelectorPayload payload = parsePayload(PluginMessageReader.of(payloadBytes));
+		syncedPayload = payload;
 	}
 
 	@EventHandler
@@ -126,7 +141,7 @@ public final class PaperServerSelectorController implements Listener {
 
 	public void open(Player player, int page) {
 		UUID playerId = player.getUniqueId();
-		SelectorPayload payload = payloadByPlayer.get(player.getUniqueId());
+		SelectorPayload payload = payloadByPlayer.getOrDefault(player.getUniqueId(), syncedPayload);
 		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 		int currentPage = Math.max(0, Math.min(page, maxPage));
@@ -448,7 +463,7 @@ public final class PaperServerSelectorController implements Listener {
 				continue;
 			}
 
-			SelectorPayload payload = payloadByPlayer.get(entry.getKey());
+			SelectorPayload payload = payloadByPlayer.getOrDefault(entry.getKey(), syncedPayload);
 			Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 			int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 			int currentPage = Math.max(0, Math.min(entry.getValue(), maxPage));
@@ -544,7 +559,6 @@ public final class PaperServerSelectorController implements Listener {
 		String statusText = resolveStatus(status, noPermission);
 		String statusColor = payload == null ? "<white>" : payload.statusColor(statusText);
 		String statusIcon = payload == null ? "●" : payload.statusIcon(statusText);
-		Material material = resolveMaterial(statusText);
 
 		int onlinePlayers = status.stats() == null ? 0 : status.stats().onlinePlayers();
 		int maxPlayers = status.stats() == null ? 0 : status.stats().maxPlayers();
@@ -552,9 +566,31 @@ public final class PaperServerSelectorController implements Listener {
 			? serverPayload.displayName()
 			: (status.serverDisplay() == null || status.serverDisplay().isBlank() ? status.serverName() : status.serverDisplay());
 
+		ConditionContext conditionContext = new ConditionContext(
+			statusText,
+			status.serverName(),
+			display,
+			onlinePlayers,
+			maxPlayers,
+			status.stats() != null && status.stats().whitelistEnabled(),
+			noPermission,
+			status.stats() == null ? 0D : status.stats().tps(),
+			status.stats() == null ? 0D : status.stats().systemCpuUsagePercent(),
+			status.stats() == null ? 0L : status.stats().heartbeatLatencyMillis(),
+			status.stats() == null || status.stats().ramMaxBytes() <= 0L
+				? 0D
+				: Math.min(100D, (Math.max(0L, status.stats().ramUsedBytes()) * 100D) / Math.max(1L, status.stats().ramMaxBytes()))
+		);
+
+		ConditionalOverridePayload conditionalOverride = serverPayload == null ? null : serverPayload.resolveConditional(conditionContext, this::evaluateConditionExpression);
+
 		TemplatePayload template = payload == null
 			? TemplatePayload.defaultTemplate()
 			: payload.resolveTemplate(serverPayload, statusText);
+		if (conditionalOverride != null && conditionalOverride.templateOverride() != null) {
+			template = template.applyOverride(conditionalOverride.templateOverride());
+		}
+		Material material = resolveMaterial(statusText, serverPayload, conditionalOverride, template);
 
 		Map<String, String> values = placeholderValues(status, display, statusText, statusColor, statusIcon, onlinePlayers, maxPlayers);
 		List<Component> lore = new ArrayList<>();
@@ -563,6 +599,9 @@ public final class PaperServerSelectorController implements Listener {
 		}
 
 		List<String> description = serverPayload == null ? List.of() : serverPayload.description(statusText);
+		if (conditionalOverride != null && conditionalOverride.description() != null) {
+			description = conditionalOverride.description();
+		}
 		for (String line : description) {
 			Map<String, String> withLine = new LinkedHashMap<>(values);
 			withLine.put("line", line == null ? "" : line);
@@ -573,10 +612,43 @@ public final class PaperServerSelectorController implements Listener {
 			lore.add(LunaUi.mini(applyTemplate(footerLine == null ? "" : footerLine, values)));
 		}
 
-		return LunaUi.item(material, applyTemplate(template.nameTemplate(), values), lore);
+		org.bukkit.inventory.ItemStack item = LunaUi.item(material, applyTemplate(template.nameTemplate(), values), lore);
+		Boolean glintOverride = resolveGlint(statusText, serverPayload, conditionalOverride);
+		if (glintOverride != null) {
+			ItemMeta meta = item.getItemMeta();
+			meta.setEnchantmentGlintOverride(glintOverride);
+			item.setItemMeta(meta);
+		}
+		return item;
 	}
 
-	private Material resolveMaterial(String statusText) {
+	private Material resolveMaterial(
+		String statusText,
+		ServerPayload serverPayload,
+		ConditionalOverridePayload conditionalOverride,
+		TemplatePayload template
+	) {
+		if (conditionalOverride != null && conditionalOverride.material() != null) {
+			Material conditionalMaterial = parseMaterial(conditionalOverride.material());
+			if (conditionalMaterial != null) {
+				return conditionalMaterial;
+			}
+		}
+
+		if (serverPayload != null) {
+			Material overrideMaterial = parseMaterial(serverPayload.material(statusText));
+			if (overrideMaterial != null) {
+				return overrideMaterial;
+			}
+		}
+
+		if (template != null) {
+			Material templateMaterial = parseMaterial(template.material());
+			if (templateMaterial != null) {
+				return templateMaterial;
+			}
+		}
+
 		if ("NOP".equals(statusText)) {
 			return Material.GRAY_CONCRETE;
 		}
@@ -587,6 +659,274 @@ public final class PaperServerSelectorController implements Listener {
 			return Material.YELLOW_CONCRETE;
 		}
 		return Material.LIME_CONCRETE;
+	}
+
+	private Material parseMaterial(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+
+		return Material.matchMaterial(value.trim().toUpperCase(Locale.ROOT));
+	}
+
+	private Boolean resolveGlint(String statusText, ServerPayload serverPayload, ConditionalOverridePayload conditionalOverride) {
+		if (conditionalOverride != null && conditionalOverride.glint() != null) {
+			return conditionalOverride.glint();
+		}
+
+		if (serverPayload == null) {
+			return null;
+		}
+
+		return serverPayload.glint(statusText);
+	}
+
+	private boolean evaluateConditionExpression(String expression, ConditionContext context) {
+		if (expression == null || expression.isBlank()) {
+			return false;
+		}
+
+		for (String orClause : splitConditionExpression(expression, "||")) {
+			boolean andResult = true;
+			for (String andClause : splitConditionExpression(orClause, "&&")) {
+				if (!evaluateConditionPredicate(andClause, context)) {
+					andResult = false;
+					break;
+				}
+			}
+			if (andResult) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private List<String> splitConditionExpression(String expression, String operator) {
+		List<String> output = new ArrayList<>();
+		StringBuilder current = new StringBuilder();
+		char quote = '\0';
+		for (int index = 0; index < expression.length(); index++) {
+			char ch = expression.charAt(index);
+			if (quote == '\0' && (ch == '\'' || ch == '"')) {
+				quote = ch;
+				current.append(ch);
+				continue;
+			}
+
+			if (quote != '\0') {
+				current.append(ch);
+				if (ch == quote) {
+					quote = '\0';
+				}
+				continue;
+			}
+
+			if (index + operator.length() <= expression.length()
+				&& expression.substring(index, index + operator.length()).equals(operator)) {
+				output.add(current.toString().trim());
+				current.setLength(0);
+				index += operator.length() - 1;
+				continue;
+			}
+
+			current.append(ch);
+		}
+		output.add(current.toString().trim());
+		return output;
+	}
+
+	private boolean evaluateConditionPredicate(String rawPredicate, ConditionContext context) {
+		String predicate = trimBalancedParentheses(rawPredicate == null ? "" : rawPredicate.trim());
+		if (predicate.isEmpty()) {
+			return false;
+		}
+
+		if (predicate.startsWith("!")) {
+			return !evaluateConditionPredicate(predicate.substring(1), context);
+		}
+
+		if ("true".equalsIgnoreCase(predicate)) {
+			return true;
+		}
+		if ("false".equalsIgnoreCase(predicate)) {
+			return false;
+		}
+
+		Matcher matcher = CONDITION_COMPARISON_PATTERN.matcher(predicate);
+		if (!matcher.matches()) {
+			Object value = resolveConditionVariable(predicate, context);
+			return truthy(value);
+		}
+
+		String leftKey = matcher.group(1);
+		String operator = matcher.group(2);
+		String rightRaw = matcher.group(3);
+		Object leftValue = resolveConditionVariable(leftKey, context);
+		Object rightValue = parseConditionRightLiteral(rightRaw, context);
+		return compareConditionValues(leftValue, operator, rightValue);
+	}
+
+	private String trimBalancedParentheses(String value) {
+		String output = value;
+		while (output.startsWith("(") && output.endsWith(")") && isWrappedBySingleBalancedPair(output)) {
+			output = output.substring(1, output.length() - 1).trim();
+		}
+		return output;
+	}
+
+	private boolean isWrappedBySingleBalancedPair(String value) {
+		int depth = 0;
+		char quote = '\0';
+		for (int index = 0; index < value.length(); index++) {
+			char ch = value.charAt(index);
+			if (quote == '\0' && (ch == '\'' || ch == '"')) {
+				quote = ch;
+				continue;
+			}
+			if (quote != '\0') {
+				if (ch == quote) {
+					quote = '\0';
+				}
+				continue;
+			}
+
+			if (ch == '(') {
+				depth++;
+			} else if (ch == ')') {
+				depth--;
+				if (depth == 0 && index < value.length() - 1) {
+					return false;
+				}
+			}
+		}
+		return depth == 0;
+	}
+
+	private Object parseConditionRightLiteral(String raw, ConditionContext context) {
+		String text = trimBalancedParentheses(raw == null ? "" : raw.trim());
+		if ((text.startsWith("\"") && text.endsWith("\"")) || (text.startsWith("'") && text.endsWith("'"))) {
+			return text.substring(1, text.length() - 1);
+		}
+
+		if ("true".equalsIgnoreCase(text)) {
+			return true;
+		}
+		if ("false".equalsIgnoreCase(text)) {
+			return false;
+		}
+
+		try {
+			return Double.parseDouble(text);
+		} catch (NumberFormatException ignored) {
+			Object variable = resolveConditionVariable(text, context);
+			if (variable != null) {
+				return variable;
+			}
+			return text;
+		}
+	}
+
+	private boolean compareConditionValues(Object left, String operator, Object right) {
+		Double leftNumber = toNumber(left);
+		Double rightNumber = toNumber(right);
+		if (leftNumber != null && rightNumber != null) {
+			return switch (operator) {
+				case "==" -> Double.compare(leftNumber, rightNumber) == 0;
+				case "!=" -> Double.compare(leftNumber, rightNumber) != 0;
+				case ">" -> leftNumber > rightNumber;
+				case ">=" -> leftNumber >= rightNumber;
+				case "<" -> leftNumber < rightNumber;
+				case "<=" -> leftNumber <= rightNumber;
+				default -> false;
+			};
+		}
+
+		if (left instanceof Boolean || right instanceof Boolean) {
+			boolean l = toBoolean(left);
+			boolean r = toBoolean(right);
+			return switch (operator) {
+				case "==" -> l == r;
+				case "!=" -> l != r;
+				default -> false;
+			};
+		}
+
+		String leftText = left == null ? "" : String.valueOf(left);
+		String rightText = right == null ? "" : String.valueOf(right);
+		int compare = leftText.compareToIgnoreCase(rightText);
+		return switch (operator) {
+			case "==" -> compare == 0;
+			case "!=" -> compare != 0;
+			case ">" -> compare > 0;
+			case ">=" -> compare >= 0;
+			case "<" -> compare < 0;
+			case "<=" -> compare <= 0;
+			default -> false;
+		};
+	}
+
+	private boolean toBoolean(Object value) {
+		if (value instanceof Boolean bool) {
+			return bool;
+		}
+		return truthy(value);
+	}
+
+	private boolean truthy(Object value) {
+		if (value instanceof Boolean bool) {
+			return bool;
+		}
+		Double number = toNumber(value);
+		if (number != null) {
+			return Math.abs(number) > 0.0000001D;
+		}
+		if (value == null) {
+			return false;
+		}
+		String text = String.valueOf(value).trim();
+		return !text.isEmpty() && !"false".equalsIgnoreCase(text) && !"no".equalsIgnoreCase(text) && !"0".equals(text);
+	}
+
+	private Double toNumber(Object value) {
+		if (value instanceof Number number) {
+			return number.doubleValue();
+		}
+		if (value == null) {
+			return null;
+		}
+		try {
+			return Double.parseDouble(String.valueOf(value).trim());
+		} catch (NumberFormatException ignored) {
+			return null;
+		}
+	}
+
+	private Object resolveConditionVariable(String variable, ConditionContext context) {
+		if (variable == null || variable.isBlank()) {
+			return null;
+		}
+
+		String key = variable.trim().toLowerCase(Locale.ROOT);
+		return switch (key) {
+			case "status", "server_status" -> context.status();
+			case "server_name" -> context.serverName();
+			case "server_display" -> context.serverDisplay();
+			case "online" -> context.onlinePlayers();
+			case "max" -> context.maxPlayers();
+			case "whitelist", "maint" -> context.whitelistEnabled();
+			case "no_permission", "nop" -> context.noPermission();
+			case "has_permission" -> !context.noPermission();
+			case "tps" -> context.tps();
+			case "cpu_usage" -> context.cpuUsage();
+			case "latency_ms" -> context.latencyMs();
+			case "ram_percent" -> context.ramPercent();
+			case "is_online" -> "ONLINE".equalsIgnoreCase(context.status());
+			case "is_offline" -> "OFFLINE".equalsIgnoreCase(context.status());
+			case "is_maint" -> "MAINT".equalsIgnoreCase(context.status());
+			case "is_nop" -> "NOP".equalsIgnoreCase(context.status());
+			default -> null;
+		};
 	}
 
 	private String resolveStatus(BackendServerStatus status, boolean noPermission) {
@@ -650,7 +990,10 @@ public final class PaperServerSelectorController implements Listener {
 			String mode = reader.readUtf();
 			boolean v3 = "open-v3".equalsIgnoreCase(mode);
 			boolean v4 = "open-v4".equalsIgnoreCase(mode);
-			if (!v3 && !v4) {
+			boolean v5 = "open-v5".equalsIgnoreCase(mode);
+			boolean v6 = "open-v6".equalsIgnoreCase(mode);
+			boolean v7 = "open-v7".equalsIgnoreCase(mode);
+			if (!v3 && !v4 && !v5 && !v6 && !v7) {
 				return SelectorPayload.empty();
 			}
 
@@ -659,12 +1002,13 @@ public final class PaperServerSelectorController implements Listener {
 			List<String> header = List.copyOf(readLines(reader));
 			String bodyLine = reader.readUtf();
 			List<String> footer = List.copyOf(readLines(reader));
+			String templateMaterial = v7 ? reader.readUtf() : "";
 			Map<String, TemplateOverridePayload> globalTemplateByStatus = readTemplateOverrides(reader);
 
-			TemplatePayload baseTemplate = new TemplatePayload(name, header, bodyLine, footer, globalTemplateByStatus);
+			TemplatePayload baseTemplate = new TemplatePayload(name, header, bodyLine, footer, templateMaterial, globalTemplateByStatus);
 			Map<String, String> statusColors = defaultStatusColors();
 			Map<String, String> statusIcons = defaultStatusIcons();
-			if (v4) {
+			if (v4 || v5 || v6 || v7) {
 				Map<String, String> payloadColors = new LinkedHashMap<>();
 				Map<String, String> payloadIcons = new LinkedHashMap<>();
 				int count = Math.max(0, reader.readInt());
@@ -692,6 +1036,69 @@ public final class PaperServerSelectorController implements Listener {
 				int rawPage = reader.readInt();
 				Integer slot = rawSlot < 0 ? null : rawSlot;
 				Integer page = rawPage < 0 ? null : rawPage;
+				String material = "";
+				Map<String, String> materialByStatus = Map.of();
+				Boolean glint = null;
+				Map<String, Boolean> glintByStatus = Map.of();
+				if (v5 || v6 || v7) {
+					material = reader.readUtf();
+					int materialByStatusCount = Math.max(0, reader.readInt());
+					Map<String, String> materialByStatusPayload = new LinkedHashMap<>();
+					for (int index = 0; index < materialByStatusCount; index++) {
+						String statusKey = reader.readUtf().toUpperCase(Locale.ROOT);
+						materialByStatusPayload.put(statusKey, reader.readUtf());
+					}
+					materialByStatus = Map.copyOf(materialByStatusPayload);
+
+					if (reader.readBoolean()) {
+						glint = reader.readBoolean();
+					}
+
+					int glintByStatusCount = Math.max(0, reader.readInt());
+					Map<String, Boolean> glintByStatusPayload = new LinkedHashMap<>();
+					for (int index = 0; index < glintByStatusCount; index++) {
+						String statusKey = reader.readUtf().toUpperCase(Locale.ROOT);
+						glintByStatusPayload.put(statusKey, reader.readBoolean());
+					}
+					glintByStatus = Map.copyOf(glintByStatusPayload);
+				}
+
+				List<ConditionalOverridePayload> conditional = List.of();
+				if (v6 || v7) {
+					int conditionalCount = Math.max(0, reader.readInt());
+					List<ConditionalOverridePayload> conditionalPayload = new ArrayList<>();
+					for (int index = 0; index < conditionalCount; index++) {
+						String when = reader.readUtf();
+						String conditionalMaterial = null;
+						if (reader.readBoolean()) {
+							conditionalMaterial = reader.readUtf();
+						}
+
+						Boolean conditionalGlint = null;
+						if (reader.readBoolean()) {
+							conditionalGlint = reader.readBoolean();
+						}
+
+						List<String> conditionalDescription = null;
+						if (reader.readBoolean()) {
+							conditionalDescription = List.copyOf(readLines(reader));
+						}
+
+						TemplateOverridePayload templateOverride = null;
+						if (reader.readBoolean()) {
+							templateOverride = readTemplateOverride(reader);
+						}
+
+						conditionalPayload.add(new ConditionalOverridePayload(
+							when,
+							conditionalMaterial,
+							conditionalGlint,
+							conditionalDescription,
+							templateOverride
+						));
+					}
+					conditional = List.copyOf(conditionalPayload);
+				}
 				List<String> description = List.copyOf(readLines(reader));
 
 				int statusDescriptionCount = Math.max(0, reader.readInt());
@@ -704,11 +1111,20 @@ public final class PaperServerSelectorController implements Listener {
 				TemplatePayload serverTemplate = null;
 				boolean hasServerTemplate = reader.readBoolean();
 				if (hasServerTemplate) {
+					String serverTemplateName = reader.readUtf();
+					List<String> serverTemplateHeader = List.copyOf(readLines(reader));
+					String serverTemplateBody = reader.readUtf();
+					List<String> serverTemplateFooter = List.copyOf(readLines(reader));
+					String serverTemplateMaterial = "";
+					if (v7) {
+						serverTemplateMaterial = reader.readUtf();
+					}
 					serverTemplate = new TemplatePayload(
-						reader.readUtf(),
-						List.copyOf(readLines(reader)),
-						reader.readUtf(),
-						List.copyOf(readLines(reader)),
+						serverTemplateName,
+						serverTemplateHeader,
+						serverTemplateBody,
+						serverTemplateFooter,
+						serverTemplateMaterial,
 						readTemplateOverrides(reader)
 					);
 				}
@@ -720,6 +1136,11 @@ public final class PaperServerSelectorController implements Listener {
 					permission,
 					slot,
 					page,
+					material,
+					materialByStatus,
+					glint,
+					glintByStatus,
+					conditional,
 					description,
 					Map.copyOf(descriptionByStatus),
 					serverTemplate
@@ -763,6 +1184,12 @@ public final class PaperServerSelectorController implements Listener {
 		Map<String, TemplateOverridePayload> overrides = new LinkedHashMap<>();
 		for (int i = 0; i < overrideCount; i++) {
 			String status = reader.readUtf().toUpperCase(Locale.ROOT);
+			overrides.put(status, readTemplateOverride(reader));
+		}
+		return Map.copyOf(overrides);
+	}
+
+	private TemplateOverridePayload readTemplateOverride(PluginMessageReader reader) {
 			String name = null;
 			List<String> header = null;
 			String bodyLine = null;
@@ -781,9 +1208,7 @@ public final class PaperServerSelectorController implements Listener {
 				footer = List.copyOf(readLines(reader));
 			}
 
-			overrides.put(status, new TemplateOverridePayload(name, header, bodyLine, footer));
-		}
-		return Map.copyOf(overrides);
+		return new TemplateOverridePayload(name, header, bodyLine, footer);
 	}
 
 	private record SelectorPayload(
@@ -826,10 +1251,11 @@ public final class PaperServerSelectorController implements Listener {
 		List<String> headerLines,
 		String bodyLineTemplate,
 		List<String> footerLines,
+		String material,
 		Map<String, TemplateOverridePayload> byStatus
 	) {
 		static TemplatePayload defaultTemplate() {
-			return new TemplatePayload("<b>%server_display%</b>", List.of(), "%line%", List.of(), Map.of());
+			return new TemplatePayload("<b>%server_display%</b>", List.of(), "%line%", List.of(), "", Map.of());
 		}
 
 		TemplatePayload applyOverride(TemplateOverridePayload override) {
@@ -841,6 +1267,7 @@ public final class PaperServerSelectorController implements Listener {
 				override.headerLines() != null ? override.headerLines() : headerLines,
 				override.bodyLineTemplate() != null ? override.bodyLineTemplate() : bodyLineTemplate,
 				override.footerLines() != null ? override.footerLines() : footerLines,
+				material,
 				byStatus
 			);
 		}
@@ -851,6 +1278,7 @@ public final class PaperServerSelectorController implements Listener {
 				serverTemplate.headerLines(),
 				serverTemplate.bodyLineTemplate(),
 				serverTemplate.footerLines(),
+				serverTemplate.material(),
 				serverTemplate.byStatus()
 			);
 		}
@@ -871,10 +1299,49 @@ public final class PaperServerSelectorController implements Listener {
 		String permission,
 		Integer slot,
 		Integer page,
+		String material,
+		Map<String, String> materialByStatus,
+		Boolean glint,
+		Map<String, Boolean> glintByStatus,
+		List<ConditionalOverridePayload> conditional,
 		List<String> description,
 		Map<String, List<String>> descriptionByStatus,
 		TemplatePayload template
 	) {
+		String material(String status) {
+			if (status != null) {
+				String statusOverride = materialByStatus.get(status.toUpperCase(Locale.ROOT));
+				if (statusOverride != null && !statusOverride.isBlank()) {
+					return statusOverride;
+				}
+			}
+			return material;
+		}
+
+		Boolean glint(String status) {
+			if (status != null && glintByStatus.containsKey(status.toUpperCase(Locale.ROOT))) {
+				return glintByStatus.get(status.toUpperCase(Locale.ROOT));
+			}
+			return glint;
+		}
+
+		ConditionalOverridePayload resolveConditional(
+			ConditionContext context,
+			java.util.function.BiFunction<String, ConditionContext, Boolean> evaluator
+		) {
+			ConditionalOverridePayload merged = null;
+			for (ConditionalOverridePayload override : conditional) {
+				if (override == null || override.condition() == null || override.condition().isBlank()) {
+					continue;
+				}
+				if (!Boolean.TRUE.equals(evaluator.apply(override.condition(), context))) {
+					continue;
+				}
+				merged = merged == null ? override : merged.merge(override);
+			}
+			return merged;
+		}
+
 		List<String> description(String status) {
 			if (status == null) {
 				return description;
@@ -887,6 +1354,59 @@ public final class PaperServerSelectorController implements Listener {
 	private record ServerRenderEntry(
 		BackendServerStatus status,
 		ServerPayload payload
+	) {
+	}
+
+	private record ConditionalOverridePayload(
+		String condition,
+		String material,
+		Boolean glint,
+		List<String> description,
+		TemplateOverridePayload templateOverride
+	) {
+		ConditionalOverridePayload merge(ConditionalOverridePayload other) {
+			if (other == null) {
+				return this;
+			}
+
+			return new ConditionalOverridePayload(
+				other.condition(),
+				other.material() != null ? other.material() : material,
+				other.glint() != null ? other.glint() : glint,
+				other.description() != null ? other.description() : description,
+				other.templateOverride() != null ? mergeTemplateOverride(templateOverride, other.templateOverride()) : templateOverride
+			);
+		}
+
+		private TemplateOverridePayload mergeTemplateOverride(TemplateOverridePayload base, TemplateOverridePayload override) {
+			if (base == null) {
+				return override;
+			}
+			if (override == null) {
+				return base;
+			}
+
+			return new TemplateOverridePayload(
+				override.nameTemplate() != null ? override.nameTemplate() : base.nameTemplate(),
+				override.headerLines() != null ? override.headerLines() : base.headerLines(),
+				override.bodyLineTemplate() != null ? override.bodyLineTemplate() : base.bodyLineTemplate(),
+				override.footerLines() != null ? override.footerLines() : base.footerLines()
+			);
+		}
+	}
+
+	private record ConditionContext(
+		String status,
+		String serverName,
+		String serverDisplay,
+		int onlinePlayers,
+		int maxPlayers,
+		boolean whitelistEnabled,
+		boolean noPermission,
+		double tps,
+		double cpuUsage,
+		long latencyMs,
+		double ramPercent
 	) {
 	}
 }

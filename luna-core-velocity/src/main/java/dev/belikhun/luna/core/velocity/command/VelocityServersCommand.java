@@ -6,7 +6,6 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
-import dev.belikhun.luna.core.velocity.serverselector.ServerSelectorOpenPayloadWriter;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 
 import java.util.List;
@@ -36,7 +35,6 @@ public final class VelocityServersCommand implements SimpleCommand {
 		}
 
 		messagingBus.send(connection, CoreServerSelectorMessageChannels.OPEN_MENU, writer -> {
-			ServerSelectorOpenPayloadWriter.write(writer, config);
 		});
 	}
 

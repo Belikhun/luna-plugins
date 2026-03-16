@@ -125,6 +125,87 @@ public final class VelocityServerSelectorValidator {
 				warnings.add("Material có định dạng lạ tại server '" + backendName + "': " + material);
 			}
 
+			Map<String, Object> materialByStatus = ConfigValues.map(serverNode, "material-by-status");
+			for (Map.Entry<String, Object> materialEntry : materialByStatus.entrySet()) {
+				String statusKey = materialEntry.getKey() == null ? "" : materialEntry.getKey().trim();
+				if (parseStatus(statusKey) == null) {
+					warnings.add("Status không hợp lệ tại servers.'" + nodeName + "'.material-by-status." + statusKey + ".");
+					continue;
+				}
+
+				String statusMaterial = ConfigValues.string(materialEntry.getValue(), "");
+				if (!statusMaterial.isBlank() && !MATERIAL_PATTERN.matcher(statusMaterial).matches()) {
+					warnings.add("Material có định dạng lạ tại servers.'" + nodeName + "'.material-by-status." + statusKey + ": " + statusMaterial);
+				}
+			}
+
+			if (serverNode.containsKey("glint") && !isBooleanLike(serverNode.get("glint"))) {
+				warnings.add("Giá trị glint không hợp lệ tại server '" + backendName + "'. Chỉ hỗ trợ true/false/yes/no/1/0.");
+			}
+
+			Map<String, Object> glintByStatus = ConfigValues.map(serverNode, "glint-by-status");
+			for (Map.Entry<String, Object> glintEntry : glintByStatus.entrySet()) {
+				String statusKey = glintEntry.getKey() == null ? "" : glintEntry.getKey().trim();
+				if (parseStatus(statusKey) == null) {
+					warnings.add("Status không hợp lệ tại servers.'" + nodeName + "'.glint-by-status." + statusKey + ".");
+					continue;
+				}
+
+				if (!isBooleanLike(glintEntry.getValue())) {
+					warnings.add("Giá trị glint không hợp lệ tại servers.'" + nodeName + "'.glint-by-status." + statusKey + ". Chỉ hỗ trợ true/false/yes/no/1/0.");
+				}
+			}
+
+			Object conditionalRaw = serverNode.get("conditional");
+			if (conditionalRaw != null && !(conditionalRaw instanceof Iterable<?> conditionList)) {
+				warnings.add("servers.'" + nodeName + "'.conditional phải là danh sách.");
+			} else if (conditionalRaw instanceof Iterable<?> conditionList) {
+				int conditionIndex = 0;
+				for (Object conditionNode : conditionList) {
+					Map<String, Object> condition = ConfigValues.map(conditionNode);
+					if (condition.isEmpty()) {
+						warnings.add("servers.'" + nodeName + "'.conditional[" + conditionIndex + "] không phải object hợp lệ.");
+						conditionIndex++;
+						continue;
+					}
+
+					String when = ConfigValues.string(condition, "when", ConfigValues.string(condition, "condition", ""));
+					if (when.isBlank()) {
+						warnings.add("servers.'" + nodeName + "'.conditional[" + conditionIndex + "] thiếu when/condition.");
+					}
+
+					if (condition.containsKey("material")) {
+						String conditionMaterial = ConfigValues.string(condition.get("material"), "");
+						if (!conditionMaterial.isBlank() && !MATERIAL_PATTERN.matcher(conditionMaterial).matches()) {
+							warnings.add("Material có định dạng lạ tại servers.'" + nodeName + "'.conditional[" + conditionIndex + "].material: " + conditionMaterial);
+						}
+					}
+
+					if (condition.containsKey("glint") && !isBooleanLike(condition.get("glint"))) {
+						warnings.add("Giá trị glint không hợp lệ tại servers.'" + nodeName + "'.conditional[" + conditionIndex + "].glint.");
+					}
+
+					if (condition.containsKey("description")) {
+						Object descriptionRaw = condition.get("description");
+						if (!(descriptionRaw instanceof Iterable<?>) && !(descriptionRaw instanceof String)) {
+							warnings.add("servers.'" + nodeName + "'.conditional[" + conditionIndex + "].description phải là string hoặc danh sách.");
+						}
+					}
+
+					if (condition.containsKey("template")) {
+						validateTemplateBlockPlaceholders(
+							"servers." + nodeName + ".conditional[" + conditionIndex + "].template",
+							ConfigValues.map(condition, "template"),
+							config.diagnostics().unknownPlaceholderAsError(),
+							errors,
+							warnings
+						);
+					}
+
+					conditionIndex++;
+				}
+			}
+
 			String display = ConfigValues.string(infoNode, "display", ConfigValues.string(serverNode, "display", ""));
 			if (display.isBlank()) {
 				errors.add("Thiếu display cho server '" + backendName + "' (khai báo tại root.server-info). ");
@@ -196,6 +277,9 @@ public final class VelocityServerSelectorValidator {
 		}
 
 		validateTemplatePlaceholders("template.name", config.template().name(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
+		if (!config.template().material().isBlank() && !MATERIAL_PATTERN.matcher(config.template().material()).matches()) {
+			warnings.add("Material có định dạng lạ tại template.material: " + config.template().material());
+		}
 		validateTemplatePlaceholders("title", config.guiTitle(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
 		validateTemplateLines("template.header", config.template().headerLines(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
 		validateTemplatePlaceholders("template.body-line", config.template().bodyLine(), config.diagnostics().unknownPlaceholderAsError(), errors, warnings);
@@ -294,6 +378,10 @@ public final class VelocityServerSelectorValidator {
 		}
 		validateTemplatePlaceholders(basePath + ".name", ConfigValues.string(block, "name", ""), unknownAsError, errors, warnings);
 		validateTemplatePlaceholders(basePath + ".body-line", ConfigValues.string(block, "body-line", ""), unknownAsError, errors, warnings);
+		String templateMaterial = ConfigValues.string(block, "material", "");
+		if (!templateMaterial.isBlank() && !MATERIAL_PATTERN.matcher(templateMaterial).matches()) {
+			warnings.add("Material có định dạng lạ tại " + basePath + ".material: " + templateMaterial);
+		}
 
 		Object header = block.get("header");
 		if (header instanceof Iterable<?> iterable) {
@@ -355,5 +443,34 @@ public final class VelocityServerSelectorValidator {
 			return "";
 		}
 		return value.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private static ServerSelectorStatus parseStatus(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+
+		try {
+			return ServerSelectorStatus.valueOf(value.trim().toUpperCase(Locale.ROOT));
+		} catch (IllegalArgumentException ignored) {
+			return null;
+		}
+	}
+
+	private static boolean isBooleanLike(Object value) {
+		if (value instanceof Boolean) {
+			return true;
+		}
+		if (value == null) {
+			return false;
+		}
+
+		String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+		return "true".equals(text)
+			|| "false".equals(text)
+			|| "yes".equals(text)
+			|| "no".equals(text)
+			|| "1".equals(text)
+			|| "0".equals(text);
 	}
 }

@@ -22,26 +22,19 @@ public final class LunaProgressBar {
 		StringBuilder out = new StringBuilder();
 		if (filled > 0) {
 			if (context.filledGradientEnabled()) {
-				String[] gradientColors = context.filledGradientColors();
-
-				for (int i = 0; i < filled; i++) {
-					double ratio = width <= 1 ? 1D : ((double) i / (double) (width - 1));
-					String color = lerpHexMultiStop(gradientColors, ratio);
-					out.append(colorTag(color)).append(context.glyph()).append("</color>");
-				}
+				double fillRatio = Math.max(0D, Math.min(1D, (double) filled / (double) width));
+				out.append(gradientTag(sliceGradientColors(context.filledGradientColors(), fillRatio)));
+				appendRepeated(out, context.glyph(), filled);
+				out.append("</gradient>");
 			} else {
 				out.append(colorTag(context.filledColor()));
-				for (int i = 0; i < filled; i++) {
-					out.append(context.glyph());
-				}
+				appendRepeated(out, context.glyph(), filled);
 				out.append("</color>");
 			}
 		}
 		if (empty > 0) {
 			out.append(colorTag(context.emptyColor()));
-			for (int i = 0; i < empty; i++) {
-				out.append(context.glyph());
-			}
+			appendRepeated(out, context.glyph(), empty);
 			out.append("</color>");
 		}
 		return out.toString();
@@ -353,6 +346,59 @@ public final class LunaProgressBar {
 
 	private static String colorTag(String hexColor) {
 		return "<color:" + colorOrDefault(hexColor, LunaPalette.NEUTRAL_50) + ">";
+	}
+
+	private static String gradientTag(String[] colors) {
+		if (colors == null || colors.length == 0) {
+			return "<gradient:" + LunaPalette.SUCCESS_500 + ":" + LunaPalette.DANGER_500 + ">";
+		}
+
+		if (colors.length == 1) {
+			String safe = colorOrDefault(colors[0], LunaPalette.SUCCESS_500);
+			return "<gradient:" + safe + ":" + safe + ">";
+		}
+
+		StringBuilder tag = new StringBuilder("<gradient");
+		for (String color : colors) {
+			tag.append(":").append(colorOrDefault(color, LunaPalette.NEUTRAL_50));
+		}
+		tag.append(">");
+		return tag.toString();
+	}
+
+	private static String[] sliceGradientColors(String[] colors, double endRatio) {
+		double safeEndRatio = Math.max(0D, Math.min(1D, endRatio));
+		if (colors == null || colors.length == 0) {
+			return new String[] {
+				LunaPalette.SUCCESS_500,
+				lerpHexMultiStop(new String[] {LunaPalette.SUCCESS_500, LunaPalette.DANGER_500}, safeEndRatio)
+			};
+		}
+
+		if (colors.length == 1) {
+			String safe = colorOrDefault(colors[0], LunaPalette.SUCCESS_500);
+			return new String[] {safe, safe};
+		}
+
+		String startColor = lerpHexMultiStop(colors, 0D);
+		String endColor = lerpHexMultiStop(colors, safeEndRatio);
+		int samples = Math.max(2, colors.length);
+		String[] sliced = new String[samples];
+		for (int i = 0; i < samples; i++) {
+			double t = samples == 1 ? 0D : (double) i / (double) (samples - 1);
+			double sourceRatio = t * safeEndRatio;
+			sliced[i] = lerpHexMultiStop(colors, sourceRatio);
+		}
+
+		sliced[0] = startColor;
+		sliced[sliced.length - 1] = endColor;
+		return sliced;
+	}
+
+	private static void appendRepeated(StringBuilder out, String value, int count) {
+		for (int i = 0; i < count; i++) {
+			out.append(value);
+		}
 	}
 
 	private static double clamp(double value, double min, double max) {

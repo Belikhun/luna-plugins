@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public final class PaperHeartbeatPublisher {
 	private final Plugin plugin;
@@ -37,6 +38,8 @@ public final class PaperHeartbeatPublisher {
 	private volatile long revisionLagWarnThreshold;
 	private volatile long responseWarnThresholdMs;
 	private volatile boolean sparkProbeWarned;
+	private volatile Consumer<byte[]> selectorPayloadConsumer;
+	private volatile long selectorPayloadChecksum;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -54,6 +57,12 @@ public final class PaperHeartbeatPublisher {
 		this.revisionLagWarnThreshold = 25L;
 		this.responseWarnThresholdMs = 250L;
 		this.sparkProbeWarned = false;
+		this.selectorPayloadConsumer = null;
+		this.selectorPayloadChecksum = 0L;
+	}
+
+	public void setSelectorPayloadConsumer(Consumer<byte[]> consumer) {
+		this.selectorPayloadConsumer = consumer;
 	}
 
 	public void start() {
@@ -93,8 +102,14 @@ public final class PaperHeartbeatPublisher {
 		diagnosticsEnabled = configStore.get("diagnostics.heartbeat.enabled").asBoolean(true);
 		revisionLagWarnThreshold = Math.max(0L, configStore.get("diagnostics.heartbeat.revisionLagWarnThreshold").asLong(25L));
 		responseWarnThresholdMs = Math.max(1L, configStore.get("diagnostics.heartbeat.responseWarnThresholdMs").asLong(250L));
+		selectorPayloadChecksum = 0L;
+		syncServerSelectorConfigNow();
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis), 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
+	}
+
+	public void syncServerSelectorConfigNow() {
+		fetchServerSelectorConfig(heartbeatUri, heartbeatSecret, heartbeatReadTimeoutMillis);
 	}
 
 	public void publishNowIfPlayerCountChanged() {
@@ -184,6 +199,57 @@ public final class PaperHeartbeatPublisher {
 		} catch (Exception exception) {
 			logger.debug("Heartbeat lỗi online=" + online + ": " + exception.getMessage());
 		}
+	}
+
+	private void fetchServerSelectorConfig(URI heartbeatRequestUri, String secret, int readTimeoutMillis) {
+		Consumer<byte[]> consumer = selectorPayloadConsumer;
+		if (consumer == null || heartbeatRequestUri == null || secret == null || secret.isBlank()) {
+			return;
+		}
+
+		try {
+			String raw = heartbeatRequestUri.toString();
+			int queryIndex = raw.indexOf('?');
+			if (queryIndex >= 0) {
+				raw = raw.substring(0, queryIndex);
+			}
+
+			int slashIndex = raw.lastIndexOf('/');
+			if (slashIndex <= 0) {
+				return;
+			}
+
+			URI selectorUri = URI.create(raw.substring(0, slashIndex) + "/server-selector-config");
+			HttpRequest request = HttpRequest.newBuilder(selectorUri)
+				.header("X-Luna-Forwarding-Secret", secret)
+				.timeout(Duration.ofMillis(readTimeoutMillis))
+				.GET()
+				.build();
+
+			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+			if (response.statusCode() != 200 || response.body() == null || response.body().length == 0) {
+				return;
+			}
+
+			long checksum = checksum(response.body());
+			if (checksum == selectorPayloadChecksum) {
+				return;
+			}
+
+			selectorPayloadChecksum = checksum;
+			consumer.accept(response.body());
+		} catch (Exception exception) {
+			logger.debug("Heartbeat selector sync lỗi: " + exception.getMessage());
+		}
+	}
+
+	private long checksum(byte[] bytes) {
+		long hash = 1469598103934665603L;
+		for (byte value : bytes) {
+			hash ^= (value & 0xFFL);
+			hash *= 1099511628211L;
+		}
+		return hash;
 	}
 
 	private long computeRevisionLag(long remoteRevision, long localRevision) {

@@ -71,7 +71,6 @@ public final class LunaCorePlugin extends JavaPlugin {
 		coreLogger.audit("HTTP manager đã sẵn sàng.");
 		PaperBackendStatusView backendStatusView = new PaperBackendStatusView();
 		PaperHeartbeatPublisher heartbeatPublisher = new PaperHeartbeatPublisher(this, configStore, logger, backendStatusView);
-		heartbeatPublisher.start();
 		boolean pluginMessagingLogsEnabled = configStore.get("logging.pluginMessaging.enabled").asBoolean(false);
 		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger, pluginMessagingLogsEnabled);
 		ToastService toastService = new AdvancementToastService(this);
@@ -86,6 +85,8 @@ public final class LunaCorePlugin extends JavaPlugin {
 			selectorDiagnosticsEnabled,
 			selectorRefreshWarnThresholdMs
 		);
+		heartbeatPublisher.setSelectorPayloadConsumer(selectorController::updateSyncedPayload);
+		heartbeatPublisher.start();
 
 		UserProfileRepository userProfileRepository = new UserProfileRepository(databaseManager.getDatabase());
 		DependencyManager dependencyManager = new DependencyManager();

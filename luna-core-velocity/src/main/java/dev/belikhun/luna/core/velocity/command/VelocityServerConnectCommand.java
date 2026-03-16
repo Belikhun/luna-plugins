@@ -10,7 +10,6 @@ import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
-import dev.belikhun.luna.core.velocity.serverselector.ServerSelectorOpenPayloadWriter;
 import dev.belikhun.luna.core.velocity.serverselector.ServerSelectorStatus;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
@@ -97,7 +96,6 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		}
 
 		messagingBus.send(connection, CoreServerSelectorMessageChannels.OPEN_MENU, writer -> {
-			ServerSelectorOpenPayloadWriter.write(writer, config);
 		});
 	}
 

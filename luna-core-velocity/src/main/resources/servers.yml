@@ -34,6 +34,7 @@ server-selector:
     header:
       - ""
     body-line: "<color:#36a8ff>▍</color> <white>%line%</white>"
+    # material: "RED_CONCRETE"
     footer:
       - ""
       - "<color:#ffa1a5>ℹ Máy chủ đang ngoại tuyến!</color>"
@@ -87,6 +88,18 @@ server-selector:
       slot: 13
       permission: ""
       connect-message: ""
+      material: "NETHER_STAR"
+      glint: false
+      conditional:
+        - when: "status == ONLINE && online > 0"
+          material: "LIME_CONCRETE"
+          glint: true
+        - when: "status == MAINT"
+          material: "YELLOW_CONCRETE"
+          glint: false
+        - when: "status == OFFLINE || status == NOP"
+          material: "RED_CONCRETE"
+          glint: false
     infdun:
       page: 1
       slot: 33
