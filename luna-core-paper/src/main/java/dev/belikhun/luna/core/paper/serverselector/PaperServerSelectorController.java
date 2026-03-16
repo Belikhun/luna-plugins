@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 public final class PaperServerSelectorController implements Listener {
 	private static final int GUI_SIZE = 54;
 	private static final int PAGE_SIZE = 45;
-	private static final int SLOT_PREV_PAGE = 45;
+	private static final int SLOT_PREV_PAGE = 52;
 	private static final int SLOT_LOBBY = 46;
 	private static final int SLOT_PREVIOUS_SERVER = 47;
 	private static final int SLOT_DASHBOARD = 48;
@@ -55,6 +55,7 @@ public final class PaperServerSelectorController implements Listener {
 	private final Map<UUID, Integer> openPages;
 	private final Map<UUID, SelectorPayload> payloadByPlayer;
 	private final Map<UUID, Inventory> selectorInventoryByPlayer;
+	private final Map<UUID, GuiView> selectorViewByPlayer;
 	private final Set<UUID> suppressCloseCleanup;
 
 	public PaperServerSelectorController(
@@ -75,6 +76,7 @@ public final class PaperServerSelectorController implements Listener {
 		this.openPages = new ConcurrentHashMap<>();
 		this.payloadByPlayer = new ConcurrentHashMap<>();
 		this.selectorInventoryByPlayer = new ConcurrentHashMap<>();
+		this.selectorViewByPlayer = new ConcurrentHashMap<>();
 		this.suppressCloseCleanup = ConcurrentHashMap.newKeySet();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
@@ -98,6 +100,7 @@ public final class PaperServerSelectorController implements Listener {
 		openPages.remove(playerId);
 		payloadByPlayer.remove(playerId);
 		selectorInventoryByPlayer.remove(playerId);
+		selectorViewByPlayer.remove(playerId);
 		suppressCloseCleanup.remove(playerId);
 	}
 
@@ -116,6 +119,7 @@ public final class PaperServerSelectorController implements Listener {
 		if (trackedInventory != null && trackedInventory.equals(event.getInventory())) {
 			openPages.remove(playerId);
 			selectorInventoryByPlayer.remove(playerId);
+			selectorViewByPlayer.remove(playerId);
 		}
 	}
 
@@ -127,9 +131,41 @@ public final class PaperServerSelectorController implements Listener {
 		int currentPage = Math.max(0, Math.min(page, maxPage));
 		openPages.put(playerId, currentPage);
 
+		GuiView view = selectorViewByPlayer.get(playerId);
+		boolean canUpdateInPlace = view != null
+			&& player.getOpenInventory() != null
+			&& player.getOpenInventory().getTopInventory() != null
+			&& view.getInventory().equals(player.getOpenInventory().getTopInventory());
+		if (canUpdateInPlace) {
+			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
+			selectorInventoryByPlayer.put(playerId, view.getInventory());
+			return;
+		}
+
 		String title = payload == null ? "Danh Sách Máy Chủ" : payload.guiTitle();
-		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
+		view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
 		guiManager.track(view);
+		renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
+		selectorViewByPlayer.put(playerId, view);
+
+		suppressCloseCleanup.add(playerId);
+		player.openInventory(view.getInventory());
+		selectorInventoryByPlayer.put(playerId, view.getInventory());
+		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
+	}
+
+	private void renderSelectorPage(
+		Player player,
+		GuiView view,
+		SelectorPayload payload,
+		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage,
+		int currentPage,
+		int maxPage
+	) {
+		for (int slot = 0; slot < GUI_SIZE; slot++) {
+			view.setItem(slot, null, (clicker, event, gui) -> {
+			});
+		}
 
 		Map<Integer, ServerRenderEntry> pageLayout = layoutByPage.getOrDefault(currentPage, Map.of());
 		Set<Integer> occupiedSlots = ConcurrentHashMap.newKeySet();
@@ -152,11 +188,16 @@ public final class PaperServerSelectorController implements Listener {
 		}
 
 		decorateServerGrid(view, occupiedSlots);
+		decorateFooter(view);
 
 		if (currentPage > 0) {
-			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.ARROW, "<yellow>← Trang trước</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage - 1));
+			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.MAP, "<yellow>← Trang trước</yellow>", List.of(
+				LunaUi.mini("<gray>Lùi về trang danh sách trước đó</gray>")
+			)), (clicker, event, gui) -> open(clicker, currentPage - 1));
 		} else {
-			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.GRAY_STAINED_GLASS_PANE, "<gray>Trang trước</gray>", List.of()), (clicker, event, gui) -> {
+			view.setItem(SLOT_PREV_PAGE, LunaUi.item(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>Trang trước</dark_gray>", List.of(
+				LunaUi.mini("<gray>Bạn đang ở trang đầu</gray>")
+			)), (clicker, event, gui) -> {
 			});
 		}
 		view.setItem(SLOT_LOBBY, LunaUi.item(Material.OAK_DOOR, "<aqua>Về Sảnh</aqua>", List.of(
@@ -180,16 +221,15 @@ public final class PaperServerSelectorController implements Listener {
 		view.setItem(SLOT_CLOSE, LunaUi.item(Material.BARRIER, "<red>Đóng</red>", List.of()), (clicker, event, gui) -> clicker.closeInventory());
 
 		if (currentPage < maxPage) {
-			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.ARROW, "<yellow>Trang sau →</yellow>", List.of()), (clicker, event, gui) -> open(clicker, currentPage + 1));
+			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.PAPER, "<yellow>Trang sau →</yellow>", List.of(
+				LunaUi.mini("<gray>Chuyển sang trang danh sách kế tiếp</gray>")
+			)), (clicker, event, gui) -> open(clicker, currentPage + 1));
 		} else {
-			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.GRAY_STAINED_GLASS_PANE, "<gray>Trang sau</gray>", List.of()), (clicker, event, gui) -> {
+			view.setItem(SLOT_NEXT_PAGE, LunaUi.item(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>Trang sau</dark_gray>", List.of(
+				LunaUi.mini("<gray>Bạn đang ở trang cuối</gray>")
+			)), (clicker, event, gui) -> {
 			});
 		}
-
-		suppressCloseCleanup.add(playerId);
-		player.openInventory(view.getInventory());
-		selectorInventoryByPlayer.put(playerId, view.getInventory());
-		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
 	}
 
 	private void openDashboard(Player player, int returnPage) {
@@ -243,6 +283,8 @@ public final class PaperServerSelectorController implements Listener {
 		view.setItem(49, LunaUi.item(Material.ARROW, "<yellow>Quay Lại Danh Sách Server</yellow>", List.of(
 			LunaUi.mini("<gray>Trở về trang trước đó</gray>")
 		)), (clicker, event, gui) -> open(clicker, returnPage));
+		openPages.remove(player.getUniqueId());
+		selectorViewByPlayer.remove(player.getUniqueId());
 
 		suppressCloseCleanup.add(player.getUniqueId());
 		player.openInventory(view.getInventory());
@@ -258,11 +300,35 @@ public final class PaperServerSelectorController implements Listener {
 	}
 
 	private void decorateServerGrid(GuiView view, Set<Integer> occupiedSlots) {
+		Material[] gradientBorder = new Material[] {
+			Material.PURPLE_STAINED_GLASS_PANE,
+			Material.MAGENTA_STAINED_GLASS_PANE,
+			Material.PINK_STAINED_GLASS_PANE,
+			Material.RED_STAINED_GLASS_PANE,
+			Material.ORANGE_STAINED_GLASS_PANE,
+			Material.YELLOW_STAINED_GLASS_PANE,
+			Material.LIME_STAINED_GLASS_PANE,
+			Material.GREEN_STAINED_GLASS_PANE,
+			Material.CYAN_STAINED_GLASS_PANE,
+			Material.LIGHT_BLUE_STAINED_GLASS_PANE,
+			Material.BLUE_STAINED_GLASS_PANE
+		};
+		List<Integer> borderSlots = borderSlots();
+		int borderIndex = 0;
 		for (int slot : borderSlots()) {
 			if (occupiedSlots.contains(slot)) {
 				continue;
 			}
-			view.setItem(slot, LunaUi.item(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray>•</dark_gray>", List.of()), (clicker, event, gui) -> {
+			Material pane = gradientBorder[borderIndex % gradientBorder.length];
+			view.setItem(slot, LunaUi.item(pane, "<gradient:#6DFFD4:#4EA3FF>◈</gradient>", List.of()), (clicker, event, gui) -> {
+			});
+			borderIndex++;
+		}
+	}
+
+	private void decorateFooter(GuiView view) {
+		for (int slot = 45; slot <= 53; slot++) {
+			view.setItem(slot, LunaUi.item(Material.BLACK_STAINED_GLASS_PANE, "<dark_gray> </dark_gray>", List.of()), (clicker, event, gui) -> {
 			});
 		}
 	}
@@ -381,28 +447,45 @@ public final class PaperServerSelectorController implements Listener {
 			if (player == null || !player.isOnline()) {
 				openPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
 				continue;
 			}
 
 			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
 			if (trackedInventory == null) {
 				openPages.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
 				continue;
 			}
 
 			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
 				openPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
 				continue;
 			}
 
 			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
 				openPages.remove(entry.getKey());
 				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
 				continue;
 			}
 
-			open(player, entry.getValue());
+			GuiView view = selectorViewByPlayer.get(entry.getKey());
+			if (view == null || !view.getInventory().equals(trackedInventory)) {
+				openPages.remove(entry.getKey());
+				selectorInventoryByPlayer.remove(entry.getKey());
+				selectorViewByPlayer.remove(entry.getKey());
+				continue;
+			}
+
+			SelectorPayload payload = payloadByPlayer.get(entry.getKey());
+			Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
+			int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
+			int currentPage = Math.max(0, Math.min(entry.getValue(), maxPage));
+			openPages.put(entry.getKey(), currentPage);
+			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
 			refreshed++;
 		}
 
