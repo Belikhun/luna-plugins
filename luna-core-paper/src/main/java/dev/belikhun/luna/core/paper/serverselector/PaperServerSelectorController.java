@@ -97,6 +97,7 @@ public final class PaperServerSelectorController implements Listener {
 				PluginMessageReader reader = PluginMessageReader.of(context.payload());
 				SelectorPayload payload = parsePayload(reader);
 				payloadByPlayer.put(player.getUniqueId(), payload);
+				debug("received OPEN_MENU payload for " + player.getName() + ", servers=" + payload.servers().size() + ", title=" + payload.guiTitle());
 			}
 			plugin.getServer().getScheduler().runTask(plugin, () -> open(player, openPages.getOrDefault(player.getUniqueId(), 0)));
 			return dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult.HANDLED;
@@ -110,6 +111,7 @@ public final class PaperServerSelectorController implements Listener {
 
 		SelectorPayload payload = parsePayload(PluginMessageReader.of(payloadBytes));
 		syncedPayload = payload;
+		debug("synced selector payload updated: servers=" + payload.servers().size() + ", title=" + payload.guiTitle());
 	}
 
 	@EventHandler
@@ -147,6 +149,7 @@ public final class PaperServerSelectorController implements Listener {
 		UUID playerId = player.getUniqueId();
 		openDashboardReturnPages.remove(playerId);
 		SelectorPayload payload = payloadByPlayer.getOrDefault(player.getUniqueId(), syncedPayload);
+		debug("open selector for " + player.getName() + ", requestedPage=" + page + ", payloadServers=" + payload.servers().size());
 		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 		int currentPage = Math.max(0, Math.min(page, maxPage));
@@ -259,6 +262,7 @@ public final class PaperServerSelectorController implements Listener {
 		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(title));
 		guiManager.track(view);
 		renderDashboardPage(player, view, returnPage);
+		debug("open dashboard for " + player.getName() + ", returnPage=" + returnPage);
 
 		openPages.remove(playerId);
 		openDashboardReturnPages.put(playerId, returnPage);
@@ -282,6 +286,7 @@ public final class PaperServerSelectorController implements Listener {
 		long totalRamUsed = sumLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().ramUsedBytes());
 		long totalRamMax = sumLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().ramMaxBytes());
 		long maxUptimeMillis = maxLong(onlineOnly, status -> status.stats() == null ? 0L : status.stats().uptimeMillis());
+		debug("render dashboard for " + player.getName() + ": online=" + onlineOnly.size() + "/" + all.size() + ", avgTps=" + String.format(Locale.US, "%.2f", avgTps) + ", avgCpu=" + String.format(Locale.US, "%.1f", avgCpu) + ", avgLatency=" + String.format(Locale.US, "%.0f", avgLatency));
 
 		fillDashboardBackground(view);
 		view.setItem(10, LunaUi.item(Material.CLOCK, "<yellow>TPS Tổng Thể</yellow>", List.of(
@@ -533,6 +538,7 @@ public final class PaperServerSelectorController implements Listener {
 
 		if (diagnosticsEnabled) {
 			long elapsedMs = Math.max(0L, System.currentTimeMillis() - startedAt);
+			debug("refresh cycle complete: refreshed=" + refreshed + "/" + openCount + ", elapsedMs=" + elapsedMs);
 			if (elapsedMs > refreshWarnThresholdMs) {
 				logger.warn("Selector diagnostics: refresh mất " + elapsedMs + "ms, viewers=" + refreshed + "/" + openCount);
 			}
@@ -580,15 +586,9 @@ public final class PaperServerSelectorController implements Listener {
 	private List<ServerRenderEntry> sortedEntries(SelectorPayload payload) {
 		List<ServerRenderEntry> entries = new ArrayList<>();
 		if (payload != null && !payload.servers().isEmpty()) {
+			Map<String, BackendServerStatus> snapshot = statusView.snapshot();
 			for (ServerPayload item : payload.servers().values()) {
-				BackendServerStatus status = statusView.status(item.backendName()).orElseGet(() -> new BackendServerStatus(
-					item.backendName(),
-					item.displayName(),
-					item.accentColor(),
-					false,
-					0L,
-					null
-				));
+				BackendServerStatus status = resolveServerStatus(item, snapshot);
 				entries.add(new ServerRenderEntry(status, item));
 			}
 		} else {
@@ -598,6 +598,60 @@ public final class PaperServerSelectorController implements Listener {
 		}
 		entries.sort(Comparator.comparing(entry -> entry.status().serverName().toLowerCase(Locale.ROOT)));
 		return entries;
+	}
+
+	private BackendServerStatus resolveServerStatus(ServerPayload payload, Map<String, BackendServerStatus> snapshot) {
+		String backendName = payload.backendName();
+		if (backendName != null && !backendName.isBlank()) {
+			BackendServerStatus direct = snapshot.get(backendName.trim().toLowerCase(Locale.ROOT));
+			if (direct != null) {
+				return direct;
+			}
+
+			for (BackendServerStatus candidate : snapshot.values()) {
+				if (candidate != null && candidate.serverName() != null && candidate.serverName().equalsIgnoreCase(backendName.trim())) {
+					debug("status fallback by serverName match: config=" + backendName + " -> heartbeat=" + candidate.serverName());
+					return candidate;
+				}
+			}
+		}
+
+		String displayName = payload.displayName();
+		if (displayName != null && !displayName.isBlank()) {
+			BackendServerStatus matchedByDisplay = null;
+			for (BackendServerStatus candidate : snapshot.values()) {
+				if (candidate == null || candidate.serverDisplay() == null || !candidate.serverDisplay().equalsIgnoreCase(displayName.trim())) {
+					continue;
+				}
+				if (matchedByDisplay != null) {
+					matchedByDisplay = null;
+					break;
+				}
+				matchedByDisplay = candidate;
+			}
+			if (matchedByDisplay != null) {
+				debug("status fallback by display match: config=" + backendName + ", display=" + displayName + " -> heartbeat=" + matchedByDisplay.serverName());
+				return matchedByDisplay;
+			}
+		}
+
+		debug("status unresolved, fallback offline: config=" + backendName + ", display=" + displayName + ", snapshotSize=" + snapshot.size());
+
+		return new BackendServerStatus(
+			payload.backendName(),
+			payload.displayName(),
+			payload.accentColor(),
+			false,
+			0L,
+			null
+		);
+	}
+
+	private void debug(String message) {
+		if (!diagnosticsEnabled) {
+			return;
+		}
+		logger.debug("Selector diagnostics: " + message);
 	}
 
 	private int firstFreeSlot(Map<Integer, ServerRenderEntry> pageLayout) {
