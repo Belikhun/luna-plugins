@@ -8,7 +8,7 @@ import me.neznamy.tab.api.placeholder.PlaceholderManager;
 public final class VelocityVaultTabPlaceholders {
 	private static final String BALANCE_PLACEHOLDER = "%lunavaultv-balance%";
 	private static final String RANK_PLACEHOLDER = "%lunavaultv-rank%";
-	private static final int REFRESH_INTERVAL = -1;
+	private static final int REFRESH_INTERVAL = 500;
 
 	private final LunaLogger logger;
 	private final VelocityVaultPlaceholderValues values;

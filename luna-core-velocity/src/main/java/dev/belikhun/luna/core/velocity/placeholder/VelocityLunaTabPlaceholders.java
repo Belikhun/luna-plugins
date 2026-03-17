@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 public final class VelocityLunaTabPlaceholders {
-	private static final int REFRESH_INTERVAL = -1;
+	private static final int REFRESH_INTERVAL = 500;
 
 	private final LunaLogger logger;
 	private final VelocityLunaPlaceholderValues values;
