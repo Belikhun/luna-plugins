@@ -9,14 +9,14 @@ tasks.named<Delete>("clean") {
 
 subprojects {
     apply(plugin = "java")
-    if (project.name != "luna-core-api") {
+    if (!project.name.endsWith("-api")) {
         apply(plugin = "com.gradleup.shadow")
     }
 
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
-    val isApiModule = project.name == "luna-core-api"
-    val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth"
+    val isApiModule = project.name.endsWith("-api")
+    val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth" || project.name == "luna-vault"
     val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule)
     val platformTarget = when {
         isVelocityModule -> "velocity"

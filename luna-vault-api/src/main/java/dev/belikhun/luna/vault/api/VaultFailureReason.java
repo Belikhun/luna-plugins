@@ -1,0 +1,14 @@
+package dev.belikhun.luna.vault.api;
+
+public enum VaultFailureReason {
+	NONE,
+	DATABASE_DISABLED,
+	INVALID_AMOUNT,
+	PLAYER_NOT_FOUND,
+	TARGET_OFFLINE,
+	INSUFFICIENT_FUNDS,
+	SELF_TRANSFER,
+	TRANSPORT_ERROR,
+	TIMEOUT,
+	INTERNAL_ERROR
+}

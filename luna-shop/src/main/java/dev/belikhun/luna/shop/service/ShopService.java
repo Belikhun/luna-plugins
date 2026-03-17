@@ -42,11 +42,7 @@ public final class ShopService {
 	}
 
 	public String formatMoney(double amount) {
-		ConfigStore coreConfig = LunaCore.services().configStore();
-		String moneySymbol = coreConfig.get("strings.money.currencySymbol").asString("₫");
-		boolean moneyGrouping = coreConfig.get("strings.money.grouping").asBoolean(true);
-		String moneyFormat = coreConfig.get("strings.money.format").asString("{amount}{symbol}");
-		return Formatters.money(amount, moneySymbol, moneyGrouping, moneyFormat);
+		return Formatters.money(LunaCore.services().configStore(), amount);
 	}
 
 	public int remainingBuyLimit(Player player, ShopItem shopItem) {

@@ -28,6 +28,10 @@ dependencies:
       load: BEFORE
       required: true
       join-classpath: true
+    LunaVaultBackend:
+      load: BEFORE
+      required: false
+      join-classpath: true
     Vault:
       load: BEFORE
-      required: true
+      required: false

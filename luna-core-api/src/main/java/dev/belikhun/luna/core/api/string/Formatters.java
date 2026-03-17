@@ -4,12 +4,14 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import dev.belikhun.luna.core.api.config.ConfigStore;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.NumberFormat;
@@ -60,6 +62,38 @@ public final class Formatters {
 		return normalizedTemplate
 			.replace("{amount}", amount)
 			.replace("{symbol}", normalizedSymbol);
+	}
+
+	public static String money(ConfigStore configStore, double value) {
+		return money(value, moneySymbol(configStore), moneyGrouping(configStore), moneyTemplate(configStore));
+	}
+
+	public static String money(ConfigStore configStore, long minorUnits, int scale) {
+		return money(configStore, BigDecimal.valueOf(minorUnits, scale).doubleValue());
+	}
+
+	public static String moneySymbol(ConfigStore configStore) {
+		if (configStore == null) {
+			return "₫";
+		}
+
+		return configStore.get("strings.money.currencySymbol").asString("₫");
+	}
+
+	private static boolean moneyGrouping(ConfigStore configStore) {
+		if (configStore == null) {
+			return true;
+		}
+
+		return configStore.get("strings.money.grouping").asBoolean(true);
+	}
+
+	private static String moneyTemplate(ConfigStore configStore) {
+		if (configStore == null) {
+			return "{amount}{symbol}";
+		}
+
+		return configStore.get("strings.money.format").asString("{amount}{symbol}");
 	}
 
 	public static String date(Instant instant) {

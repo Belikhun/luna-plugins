@@ -1,0 +1,67 @@
+package dev.belikhun.luna.vault.backend;
+
+import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.vault.api.LunaVaultApi;
+import dev.belikhun.luna.vault.backend.command.TransactionsCommand;
+import dev.belikhun.luna.vault.backend.gui.TransactionHistoryGuiController;
+import dev.belikhun.luna.vault.backend.service.LunaVaultEconomyProvider;
+import dev.belikhun.luna.vault.backend.service.PaperVaultGateway;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import net.milkbowl.vault.economy.Economy;
+import org.bukkit.plugin.ServicePriority;
+import org.bukkit.plugin.java.JavaPlugin;
+
+public final class LunaVaultBackendPlugin extends JavaPlugin {
+	private PaperVaultGateway gateway;
+	private LunaLogger logger;
+	private TransactionHistoryGuiController historyGui;
+	private Economy economyProvider;
+
+	@Override
+	public void onEnable() {
+		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
+			getLogger().severe("LunaCore chưa sẵn sàng. LunaVaultBackend sẽ tắt.");
+			getServer().getPluginManager().disablePlugin(this);
+			return;
+		}
+
+		saveDefaultConfig();
+		logger = LunaLogger.forPlugin(this, true).scope("VaultBackend");
+		ConfigStore coreConfig = LunaCore.services().configStore();
+		long timeoutMillis = getConfig().getLong("transport.timeout-millis", 3000L);
+		int pageSize = getConfig().getInt("history.page-size", 45);
+		gateway = new PaperVaultGateway(this, logger, LunaCore.services().pluginMessaging(), timeoutMillis);
+		gateway.registerChannels();
+		historyGui = new TransactionHistoryGuiController(this, gateway, coreConfig, pageSize);
+		economyProvider = new LunaVaultEconomyProvider(this, gateway, coreConfig, timeoutMillis);
+
+		getServer().getPluginManager().registerEvents(historyGui, this);
+		getServer().getServicesManager().register(LunaVaultApi.class, gateway, this, ServicePriority.Normal);
+		getServer().getServicesManager().register(Economy.class, economyProvider, this, ServicePriority.High);
+		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
+			TransactionsCommand command = new TransactionsCommand(historyGui);
+			commands.registrar().register("transactions", command);
+			commands.registrar().register("txns", command);
+			commands.registrar().register("lichsu", command);
+		});
+
+		logger.success("LunaVaultBackend đã đăng ký Vault provider và gateway tới Velocity.");
+	}
+
+	@Override
+	public void onDisable() {
+		if (gateway != null) {
+			gateway.close();
+		}
+		if (getServer().getServicesManager() != null) {
+			if (economyProvider != null) {
+				getServer().getServicesManager().unregister(Economy.class, economyProvider);
+			}
+			if (gateway != null) {
+				getServer().getServicesManager().unregister(LunaVaultApi.class, gateway);
+			}
+		}
+	}
+}

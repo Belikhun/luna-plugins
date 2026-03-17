@@ -1,0 +1,25 @@
+name: LunaVaultBackend
+version: ${version}
+main: dev.belikhun.luna.vault.backend.LunaVaultBackendPlugin
+api-version: '1.21'
+description: Backend Vault bridge for Luna network economy.
+authors:
+  - Belikhun
+permissions:
+  lunavault.transactions:
+    default: op
+    description: Xem lịch sử giao dịch Luna Vault.
+commands:
+  transactions:
+    description: Xem lịch sử giao dịch Luna Vault.
+    usage: /transactions [trang]
+    aliases: [txns, lichsu]
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    Vault:
+      load: BEFORE
+      required: true

@@ -1,0 +1,7 @@
+logging:
+  transactions:
+    enabled: true
+    large-alerts:
+      enabled: true
+      threshold: "10000.00"
+      permission: "lunavault.alert"

@@ -1,0 +1,5 @@
+transport:
+  timeout-millis: 3000
+
+history:
+  page-size: 45

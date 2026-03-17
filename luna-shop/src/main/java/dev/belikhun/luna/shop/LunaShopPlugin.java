@@ -5,6 +5,7 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.command.LunaShopReloadCommand;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
 import dev.belikhun.luna.shop.command.ShopCommand;
+import dev.belikhun.luna.shop.economy.LunaVaultEconomyService;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
 import dev.belikhun.luna.shop.economy.VaultEconomyService;
 import dev.belikhun.luna.shop.gui.ShopGuiController;
@@ -53,9 +54,9 @@ public final class LunaShopPlugin extends JavaPlugin {
 			logger.scope("Transactions")
 		);
 
-		ShopEconomyService economyService = VaultEconomyService.create(this).orElse(null);
+		ShopEconomyService economyService = resolveEconomyService();
 		if (economyService == null) {
-			logger.error("Không tìm thấy Economy provider từ Vault. LunaShop sẽ tắt.");
+			logger.error("Không tìm thấy LunaVault API hoặc Economy provider từ Vault. LunaShop sẽ tắt.");
 			getServer().getPluginManager().disablePlugin(this);
 			return;
 		}
@@ -76,6 +77,24 @@ public final class LunaShopPlugin extends JavaPlugin {
 			commands.registrar().register("lunashop", reloadCommand);
 		});
 		logger.success("LunaShop đã khởi động thành công với " + itemStore.all().size() + " mặt hàng.");
+	}
+
+	private ShopEconomyService resolveEconomyService() {
+		try {
+			ShopEconomyService directVault = LunaVaultEconomyService.create(this).orElse(null);
+			if (directVault != null) {
+				logger.audit("LunaShop đang dùng LunaVault API làm economy chính.");
+				return directVault;
+			}
+		} catch (NoClassDefFoundError error) {
+			logger.warn("Không thể nạp LunaVault API trực tiếp, chuyển sang Vault fallback: " + error.getMessage());
+		}
+
+		ShopEconomyService vaultFallback = VaultEconomyService.create(this).orElse(null);
+		if (vaultFallback != null) {
+			logger.audit("LunaShop đang dùng Vault economy làm fallback.");
+		}
+		return vaultFallback;
 	}
 
 	public void reloadShopModules() {
