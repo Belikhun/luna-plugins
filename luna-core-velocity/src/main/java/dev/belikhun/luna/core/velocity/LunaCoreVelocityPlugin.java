@@ -56,6 +56,8 @@ import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -74,6 +76,7 @@ import java.util.logging.Logger;
 )
 public final class LunaCoreVelocityPlugin {
 	private static final int CURRENT_CONFIG_VERSION = 4;
+	private static final long CONNECT_REQUEST_DEBOUNCE_MS = 600L;
 
 	private final LunaLogger logger;
 	private final Path dataDirectory;
@@ -89,6 +92,7 @@ public final class LunaCoreVelocityPlugin {
 	private EventHandler<TabLoadEvent> tabLoadHandler;
 	private ScheduledExecutorService heartbeatSweepExecutor;
 	private Database sharedDatabase;
+	private final Map<String, Long> recentConnectRequests;
 
 	@Inject
 	public LunaCoreVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -97,6 +101,7 @@ public final class LunaCoreVelocityPlugin {
 		this.dataDirectory = dataDirectory;
 		this.httpServerManager = new VelocityHttpServerManager(this.logger);
 		this.dependencyManager = new DependencyManager();
+		this.recentConnectRequests = new ConcurrentHashMap<>();
 	}
 
 	@Subscribe
@@ -564,6 +569,11 @@ public final class LunaCoreVelocityPlugin {
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
+			if (isDuplicateConnectRequest(playerIdRaw, backendName)) {
+				logger.debug("Selector connect dedupe: bỏ qua request trùng player=" + playerIdRaw + " backend=" + backendName);
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
 			try {
 				java.util.UUID playerId = java.util.UUID.fromString(playerIdRaw);
 				proxyServer.getPlayer(playerId).ifPresent(player -> selectorConnectCommand.connectByName(player, backendName));
@@ -572,6 +582,26 @@ public final class LunaCoreVelocityPlugin {
 
 			return PluginMessageDispatchResult.HANDLED;
 		});
+	}
+
+	private boolean isDuplicateConnectRequest(String playerIdRaw, String backendNameRaw) {
+		if (playerIdRaw == null || playerIdRaw.isBlank()) {
+			return false;
+		}
+
+		String normalizedBackend = backendNameRaw == null ? "" : backendNameRaw.trim().toLowerCase(Locale.ROOT);
+		String key = playerIdRaw.trim() + "|" + normalizedBackend;
+		long now = System.currentTimeMillis();
+		Long previous = recentConnectRequests.put(key, now);
+		if (previous == null) {
+			return false;
+		}
+
+		if (now - previous <= CONNECT_REQUEST_DEBOUNCE_MS) {
+			return true;
+		}
+
+		return false;
 	}
 
 	private void unregisterOwnedCommands() {
