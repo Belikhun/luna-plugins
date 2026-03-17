@@ -119,11 +119,12 @@ public final class VelocityPlayerDisplayFormat {
 		values.put("player_suffix", playerSuffix(playerId));
 		values.put("player_group_name", playerGroupName(playerId));
 		values.put("player_group_display", playerGroupDisplay(playerId));
-		values.put("displayname", displayName == null ? "" : displayName);
-		values.put("player_name", displayName == null ? "" : displayName);
-		values.put("sender_name", displayName == null ? "" : displayName);
-		values.put("target_name", displayName == null ? "" : displayName);
-		values.put("receiver_name", displayName == null ? "" : displayName);
+		String safeDisplayName = MINI_MESSAGE.escapeTags(displayName == null ? "" : displayName);
+		values.put("displayname", safeDisplayName);
+		values.put("player_name", safeDisplayName);
+		values.put("sender_name", safeDisplayName);
+		values.put("target_name", safeDisplayName);
+		values.put("receiver_name", safeDisplayName);
 		return values;
 	}
 
@@ -149,7 +150,7 @@ public final class VelocityPlayerDisplayFormat {
 		String output = template == null ? "" : template;
 		for (Map.Entry<String, String> entry : values.entrySet()) {
 			String percentPlaceholder = "%" + entry.getKey() + "%";
-			String replacement = MINI_MESSAGE.escapeTags(entry.getValue() == null ? "" : entry.getValue());
+			String replacement = entry.getValue() == null ? "" : entry.getValue();
 			output = output.replace(percentPlaceholder, replacement);
 		}
 		return output;

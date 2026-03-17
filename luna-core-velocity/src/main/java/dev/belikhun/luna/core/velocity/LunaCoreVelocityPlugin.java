@@ -423,7 +423,7 @@ public final class LunaCoreVelocityPlugin {
 
 	private void registerMiniPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
 		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
-			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace luna.");
+			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunav.");
 			return;
 		}
 
@@ -431,14 +431,14 @@ public final class LunaCoreVelocityPlugin {
 			lunaMiniPlaceholders = new VelocityLunaMiniPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
 			lunaMiniPlaceholders.register();
 		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký MiniPlaceholders namespace luna: " + throwable.getMessage());
+			logger.error("Không thể đăng ký MiniPlaceholders namespace lunav.", throwable);
 			lunaMiniPlaceholders = null;
 		}
 	}
 
 	private void registerTabPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
 		if (proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholders %luna_*%.");
+			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholders %lunav-*%.");
 			return;
 		}
 
@@ -446,7 +446,7 @@ public final class LunaCoreVelocityPlugin {
 			lunaTabPlaceholders = new VelocityLunaTabPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
 			lunaTabPlaceholders.register();
 		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký TAB placeholders %luna_*%: " + throwable.getMessage());
+			logger.error("Không thể đăng ký TAB placeholders %lunav-*%.", throwable);
 			lunaTabPlaceholders = null;
 		}
 	}

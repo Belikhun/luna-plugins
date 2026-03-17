@@ -26,13 +26,13 @@ public final class VelocityVaultMiniPlaceholders {
 			return;
 		}
 
-		expansion = Expansion.builder("lunavault")
+		expansion = Expansion.builder("lunavaultv")
 			.author("Belikhun")
 			.version(BuildConstants.VERSION)
 			.audiencePlaceholder(Player.class, "balance", (player, queue, context) -> textTag(balance(player)))
 			.build();
 		expansion.register();
-		logger.success("Đã đăng ký MiniPlaceholders namespace <lunavault> cho Velocity.");
+		logger.success("Đã đăng ký MiniPlaceholders namespace <lunavaultv> cho Velocity.");
 	}
 
 	public void unregister() {

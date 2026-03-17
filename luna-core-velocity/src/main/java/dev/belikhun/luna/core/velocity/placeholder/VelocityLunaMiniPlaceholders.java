@@ -35,7 +35,7 @@ public final class VelocityLunaMiniPlaceholders {
 			return;
 		}
 
-		Expansion.Builder builder = Expansion.builder("luna")
+		Expansion.Builder builder = Expansion.builder("lunav")
 			.author("Belikhun")
 			.version(BuildConstants.VERSION)
 			.globalPlaceholder("online_servers", (queue, context) -> textTag(Integer.toString(values.onlineServers())))
@@ -68,7 +68,7 @@ public final class VelocityLunaMiniPlaceholders {
 
 		expansion = builder.build();
 		expansion.register();
-		logger.success("Đã đăng ký MiniPlaceholders namespace <luna> cho Velocity.");
+		logger.success("Đã đăng ký MiniPlaceholders namespace <lunav> cho Velocity.");
 	}
 
 	public void unregister() {

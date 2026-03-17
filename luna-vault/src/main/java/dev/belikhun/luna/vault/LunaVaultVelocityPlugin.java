@@ -173,7 +173,7 @@ public final class LunaVaultVelocityPlugin {
 
 	private void registerMiniPlaceholders() {
 		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
-			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunavault.");
+			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunavaultv.");
 			return;
 		}
 
@@ -181,14 +181,14 @@ public final class LunaVaultVelocityPlugin {
 			miniPlaceholders = new VelocityVaultMiniPlaceholders(logger, vaultService);
 			miniPlaceholders.register();
 		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký MiniPlaceholders namespace lunavault: " + throwable.getMessage());
+			logger.warn("Không thể đăng ký MiniPlaceholders namespace lunavaultv: " + throwable.getMessage());
 			miniPlaceholders = null;
 		}
 	}
 
 	private void registerTabPlaceholders() {
 		if (proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholder %lunavault_balance%.");
+			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholder %lunavaultv-balance%.");
 			return;
 		}
 
@@ -196,7 +196,7 @@ public final class LunaVaultVelocityPlugin {
 			tabPlaceholders = new VelocityVaultTabPlaceholders(logger, vaultService);
 			tabPlaceholders.register();
 		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký TAB placeholder %lunavault_balance%: " + throwable.getMessage());
+			logger.warn("Không thể đăng ký TAB placeholder %lunavaultv-balance%: " + throwable.getMessage());
 			tabPlaceholders = null;
 		}
 	}

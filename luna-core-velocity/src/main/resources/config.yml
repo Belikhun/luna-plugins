@@ -54,24 +54,24 @@ messaging:
     requestedHeartbeatSeconds: 15
 
 # Luna placeholders (Velocity, MiniPlaceholders):
-#   format: <luna:key>
+#   format: <lunav:key>
 #   examples:
-#     <luna:online_servers>
-#     <luna:total_players>
-#     <luna:player_name>
-#     <luna:player_group_name>
-#     <luna:player_group_display>
-#     <luna:player_prefix>
-#     <luna:player_suffix>
-#     <luna:player_display>
-#     <luna:server_status_survival>
-#     <luna:server_online_survival>
-#     <luna:server_max_survival>
-#     <luna:server_tps_survival>
-#     <luna:server_version_survival>
-#     <luna:server_display_survival>
-#     <luna:server_color_survival>
-#     <luna:server_whitelist_survival>
+#     <lunav:online_servers>
+#     <lunav:total_players>
+#     <lunav:player_name>
+#     <lunav:player_group_name>
+#     <lunav:player_group_display>
+#     <lunav:player_prefix>
+#     <lunav:player_suffix>
+#     <lunav:player_display>
+#     <lunav:server_status_survival>
+#     <lunav:server_online_survival>
+#     <lunav:server_max_survival>
+#     <lunav:server_tps_survival>
+#     <lunav:server_version_survival>
+#     <lunav:server_display_survival>
+#     <lunav:server_color_survival>
+#     <lunav:server_whitelist_survival>
 # Luna player display format:
 #   path: strings.user-display-format
 #   supported built-in placeholders:

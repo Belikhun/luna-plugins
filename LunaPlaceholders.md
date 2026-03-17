@@ -93,62 +93,62 @@ LunaVault backend PlaceholderAPI expansion:
 
 Luna Core Velocity MiniPlaceholders:
 
-- Namespace: `luna`
-- Format: `<luna:key>`
+- Namespace: `lunav`
+- Format: `<lunav:key>`
 
 Available placeholders:
 
-- `<luna:online_servers>`
-- `<luna:registered_servers>`
-- `<luna:total_servers>`
-- `<luna:total_players>`
-- `<luna:player_name>`
-- `<luna:player_group_name>`
-- `<luna:player_group_display>`
-- `<luna:player_prefix>`
-- `<luna:player_suffix>`
-- `<luna:player_display>`
-- `<luna:server_status_<backend>>`
-- `<luna:server_online_<backend>>`
-- `<luna:server_max_<backend>>`
-- `<luna:server_tps_<backend>>`
-- `<luna:server_version_<backend>>`
-- `<luna:server_display_<backend>>`
-- `<luna:server_color_<backend>>`
-- `<luna:server_whitelist_<backend>>`
+- `<lunav:online_servers>`
+- `<lunav:registered_servers>`
+- `<lunav:total_servers>`
+- `<lunav:total_players>`
+- `<lunav:player_name>`
+- `<lunav:player_group_name>`
+- `<lunav:player_group_display>`
+- `<lunav:player_prefix>`
+- `<lunav:player_suffix>`
+- `<lunav:player_display>`
+- `<lunav:server_status_<backend>>`
+- `<lunav:server_online_<backend>>`
+- `<lunav:server_max_<backend>>`
+- `<lunav:server_tps_<backend>>`
+- `<lunav:server_version_<backend>>`
+- `<lunav:server_display_<backend>>`
+- `<lunav:server_color_<backend>>`
+- `<lunav:server_whitelist_<backend>>`
 
 LunaVault Velocity MiniPlaceholders:
 
-- Namespace: `lunavault`
-- Format: `<lunavault:key>`
-- Available placeholder: `<lunavault:balance>`
+- Namespace: `lunavaultv`
+- Format: `<lunavaultv:key>`
+- Available placeholder: `<lunavaultv:balance>`
 
 ## Velocity TAB
 
 Luna Core Velocity TAB placeholders:
 
-- `%luna_online_servers%`
-- `%luna_registered_servers%`
-- `%luna_total_servers%`
-- `%luna_total_players%`
-- `%luna_player_name%`
-- `%luna_player_group_name%`
-- `%luna_player_group_display%`
-- `%luna_player_prefix%`
-- `%luna_player_suffix%`
-- `%luna_player_display%`
-- `%luna_server_status_<backend>%`
-- `%luna_server_online_<backend>%`
-- `%luna_server_max_<backend>%`
-- `%luna_server_tps_<backend>%`
-- `%luna_server_version_<backend>%`
-- `%luna_server_display_<backend>%`
-- `%luna_server_color_<backend>%`
-- `%luna_server_whitelist_<backend>%`
+- `%lunav-online-servers%`
+- `%lunav-registered-servers%`
+- `%lunav-total-servers%`
+- `%lunav-total-players%`
+- `%lunav-player-name%`
+- `%lunav-player-group-name%`
+- `%lunav-player-group-display%`
+- `%lunav-player-prefix%`
+- `%lunav-player-suffix%`
+- `%lunav-player-display%`
+- `%lunav-server-status-<backend>%`
+- `%lunav-server-online-<backend>%`
+- `%lunav-server-max-<backend>%`
+- `%lunav-server-tps-<backend>%`
+- `%lunav-server-version-<backend>%`
+- `%lunav-server-display-<backend>%`
+- `%lunav-server-color-<backend>%`
+- `%lunav-server-whitelist-<backend>%`
 
 LunaVault Velocity TAB placeholder:
 
-- `%lunavault_balance%`
+- `%lunavaultv-balance%`
 
 ## Notes
 

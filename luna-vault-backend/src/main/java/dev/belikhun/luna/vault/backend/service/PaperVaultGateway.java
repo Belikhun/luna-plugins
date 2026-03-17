@@ -1,6 +1,7 @@
 package dev.belikhun.luna.vault.backend.service;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.logging.LogLevel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
@@ -181,6 +182,8 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			return CompletableFuture.failedFuture(new IllegalStateException("Không có người chơi online để chuyển tiếp yêu cầu lên Velocity."));
 		}
 
+		logRpcTrigger(request, carrier);
+
 		CompletableFuture<VaultRpcResponse> future = new CompletableFuture<>();
 		pendingRequests.put(request.correlationId(), future);
 		boolean sent = bus.send(carrier, VaultChannels.RPC, writer -> request.writeTo(writer));
@@ -197,6 +200,40 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			}
 		}, timeoutTicks);
 		return future;
+	}
+
+	private void logRpcTrigger(VaultRpcRequest request, Player carrier) {
+		Throwable trace = new IllegalStateException("LunaVault RPC trigger trace");
+		trace.setStackTrace(trimmedStackTrace(trace.getStackTrace()));
+		logger.log(
+			LogLevel.WARN,
+			"Đang gửi luna:vault_rpc action=" + request.action()
+				+ ", player=" + safeValue(request.playerName())
+				+ ", actor=" + safeValue(request.actorName())
+				+ ", source=" + safeValue(request.source())
+				+ ", carrier=" + carrier.getName()
+				+ ", correlationId=" + request.correlationId(),
+			trace
+		);
+	}
+
+	private StackTraceElement[] trimmedStackTrace(StackTraceElement[] stackTrace) {
+		int startIndex = 0;
+		while (startIndex < stackTrace.length && stackTrace[startIndex].getClassName().equals(PaperVaultGateway.class.getName())) {
+			startIndex++;
+		}
+
+		if (startIndex <= 0) {
+			return stackTrace;
+		}
+
+		StackTraceElement[] trimmed = new StackTraceElement[stackTrace.length - startIndex];
+		System.arraycopy(stackTrace, startIndex, trimmed, 0, trimmed.length);
+		return trimmed;
+	}
+
+	private String safeValue(String value) {
+		return value == null || value.isBlank() ? "-" : value;
 	}
 
 	private Player selectCarrier(UUID... preferredPlayers) {
