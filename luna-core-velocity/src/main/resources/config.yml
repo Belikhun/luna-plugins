@@ -27,6 +27,12 @@ diagnostics:
     fail-on-validation-error: true
     unknown-placeholder-as-error: false
 
+strings:
+  money:
+    currencySymbol: '<#FCF0A0>⛃</#FCF0A0>'
+    grouping: true
+    format: '<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}'
+
 logging:
   ansi: true
   defaultScope: "LunaCoreVelocity"

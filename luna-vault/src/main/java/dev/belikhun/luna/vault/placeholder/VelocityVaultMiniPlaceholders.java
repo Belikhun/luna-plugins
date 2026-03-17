@@ -2,14 +2,18 @@ package dev.belikhun.luna.vault.placeholder;
 
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.BuildConstants;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 import io.github.miniplaceholders.api.Expansion;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.Tag;
 
 public final class VelocityVaultMiniPlaceholders {
+	private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
+
 	private final LunaLogger logger;
 	private final VelocityVaultService vaultService;
 	private Expansion expansion;
@@ -50,10 +54,14 @@ public final class VelocityVaultMiniPlaceholders {
 		}
 
 		long balanceMinor = vaultService.balance(player.getUniqueId(), player.getUsername()).join();
-		return VaultMoney.formatDefault(balanceMinor);
+		return LunaCoreVelocity.services().moneyFormat().formatMinor(balanceMinor, VaultMoney.SCALE);
 	}
 
 	private Tag textTag(String value) {
-		return Tag.inserting(Component.text(value == null ? "" : value));
+		if (value == null || value.isEmpty()) {
+			return Tag.inserting(Component.empty());
+		}
+
+		return Tag.inserting(MINI_MESSAGE.deserialize(value));
 	}
 }

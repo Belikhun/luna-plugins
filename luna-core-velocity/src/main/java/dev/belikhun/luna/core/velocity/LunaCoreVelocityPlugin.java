@@ -66,7 +66,7 @@ import java.util.logging.Logger;
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
-	private static final int CURRENT_CONFIG_VERSION = 2;
+	private static final int CURRENT_CONFIG_VERSION = 3;
 
 	private final LunaLogger logger;
 	private final Path dataDirectory;
@@ -124,6 +124,7 @@ public final class LunaCoreVelocityPlugin {
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
 		AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(rootConfig);
+		VelocityMoneyFormat moneyFormat = VelocityMoneyFormat.fromConfig(rootConfig);
 
 		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
 		Database nextDatabase = createSharedDatabase(databaseConfig);
@@ -177,8 +178,9 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(Database.class, sharedDatabase);
 		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
+		dependencyManager.registerSingleton(VelocityMoneyFormat.class, moneyFormat);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
-		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
+		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
 
 		unregisterOwnedCommands();
 		registerCommands(serverSelectorConfig);
@@ -214,6 +216,7 @@ public final class LunaCoreVelocityPlugin {
 				switch (nextVersion) {
 					case 1 -> migrateConfigV1(current);
 					case 2 -> migrateConfigV2(current);
+					case 3 -> migrateConfigV3(current);
 					default -> throw new IllegalStateException("Unknown LunaCore Velocity config migration version: " + nextVersion);
 				}
 				version = nextVersion;
@@ -254,6 +257,9 @@ public final class LunaCoreVelocityPlugin {
 		ensureDefault(rootConfig, "diagnostics.selector.enabled", true);
 		ensureDefault(rootConfig, "diagnostics.selector.fail-on-validation-error", true);
 		ensureDefault(rootConfig, "diagnostics.selector.unknown-placeholder-as-error", false);
+		ensureDefault(rootConfig, "strings.money.currencySymbol", "<#FCF0A0>⛃</#FCF0A0>");
+		ensureDefault(rootConfig, "strings.money.grouping", true);
+		ensureDefault(rootConfig, "strings.money.format", "<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}");
 		ensureDefault(rootConfig, "logging.ansi", true);
 		ensureDefault(rootConfig, "logging.defaultScope", "LunaCoreVelocity");
 		ensureDefault(rootConfig, "logging.level", "INFO");
@@ -269,6 +275,12 @@ public final class LunaCoreVelocityPlugin {
 
 	private void migrateConfigV2(Map<String, Object> rootConfig) {
 		ensureDefault(rootConfig, "logging.heartbeatTransport.enabled", false);
+	}
+
+	private void migrateConfigV3(Map<String, Object> rootConfig) {
+		ensureDefault(rootConfig, "strings.money.currencySymbol", "<#FCF0A0>⛃</#FCF0A0>");
+		ensureDefault(rootConfig, "strings.money.grouping", true);
+		ensureDefault(rootConfig, "strings.money.format", "<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}");
 	}
 
 	private void ensureDefault(Map<String, Object> rootConfig, String path, Object value) {

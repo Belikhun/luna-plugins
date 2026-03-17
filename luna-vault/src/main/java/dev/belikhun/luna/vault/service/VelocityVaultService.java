@@ -5,6 +5,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultFailureReason;
 import dev.belikhun.luna.vault.api.VaultMoney;
@@ -251,7 +252,7 @@ public final class VelocityVaultService implements LunaVaultApi {
 		}
 
 		String message = "<yellow>⚠ Giao dịch lớn: <white>" + describeActor(transaction.senderName(), transaction.senderId())
-			+ "</white> <gold>" + VaultMoney.formatDefault(transaction.amountMinor()) + "</gold> → <white>"
+			+ "</white> " + LunaCoreVelocity.services().moneyFormat().formatMinor(transaction.amountMinor(), VaultMoney.SCALE) + " <white>"
 			+ describeActor(transaction.receiverName(), transaction.receiverId()) + "</white> <gray>(nguồn: "
 			+ transaction.source() + ")</gray></yellow>";
 		proxyServer.getAllPlayers().stream()
@@ -268,7 +269,7 @@ public final class VelocityVaultService implements LunaVaultApi {
 			.append(" -> ")
 			.append(describeActor(transaction.receiverName(), transaction.receiverId()))
 			.append(" | amount=")
-			.append(VaultMoney.formatDefault(transaction.amountMinor()))
+			.append(stripMiniMessage(LunaCoreVelocity.services().moneyFormat().formatMinor(transaction.amountMinor(), VaultMoney.SCALE)))
 			.append(" | source=")
 			.append(transaction.source());
 		if (transaction.details() != null && !transaction.details().isBlank()) {

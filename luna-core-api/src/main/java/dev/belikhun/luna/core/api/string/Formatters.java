@@ -52,13 +52,18 @@ public final class Formatters {
 	}
 
 	public static String money(double value, String currencySymbol, boolean grouping, String template) {
-		DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.forLanguageTag("vi-VN"));
-		symbols.setGroupingSeparator('.');
-		symbols.setDecimalSeparator(',');
-		DecimalFormat format = new DecimalFormat(grouping ? "#,##0.##" : "0.##", symbols);
-		String amount = format.format(value);
+		String amount = formatAmount(BigDecimal.valueOf(value), grouping ? "#,##0.##" : "0.##");
 		String normalizedSymbol = currencySymbol == null ? "" : currencySymbol;
 		String normalizedTemplate = (template == null || template.isBlank()) ? "{amount} {symbol}" : template;
+		return normalizedTemplate
+			.replace("{amount}", amount)
+			.replace("{symbol}", normalizedSymbol);
+	}
+
+	public static String money(long minorUnits, int scale, String currencySymbol, boolean grouping, String template) {
+		String amount = formatAmount(BigDecimal.valueOf(minorUnits, scale), moneyPattern(grouping, scale));
+		String normalizedSymbol = currencySymbol == null ? "" : currencySymbol;
+		String normalizedTemplate = (template == null || template.isBlank()) ? "{amount}{symbol}" : template;
 		return normalizedTemplate
 			.replace("{amount}", amount)
 			.replace("{symbol}", normalizedSymbol);
@@ -69,7 +74,7 @@ public final class Formatters {
 	}
 
 	public static String money(ConfigStore configStore, long minorUnits, int scale) {
-		return money(configStore, BigDecimal.valueOf(minorUnits, scale).doubleValue());
+		return money(minorUnits, scale, moneySymbol(configStore), moneyGrouping(configStore), moneyTemplate(configStore));
 	}
 
 	public static String moneySymbol(ConfigStore configStore) {
@@ -94,6 +99,25 @@ public final class Formatters {
 		}
 
 		return configStore.get("strings.money.format").asString("{amount}{symbol}");
+	}
+
+	private static String formatAmount(BigDecimal value, String pattern) {
+		DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.forLanguageTag("vi-VN"));
+		symbols.setGroupingSeparator('.');
+		symbols.setDecimalSeparator(',');
+		DecimalFormat format = new DecimalFormat(pattern, symbols);
+		return format.format(value);
+	}
+
+	private static String moneyPattern(boolean grouping, int scale) {
+		StringBuilder builder = new StringBuilder(grouping ? "#,##0" : "0");
+		if (scale > 0) {
+			builder.append('.');
+			for (int index = 0; index < scale; index++) {
+				builder.append('0');
+			}
+		}
+		return builder.toString();
 	}
 
 	public static String date(Instant instant) {

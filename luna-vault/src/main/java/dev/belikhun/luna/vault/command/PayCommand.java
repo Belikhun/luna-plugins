@@ -4,6 +4,7 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 
@@ -63,9 +64,9 @@ public final class PayCommand implements SimpleCommand {
 				return;
 			}
 
-			String formattedAmount = VaultMoney.formatDefault(amountMinor.getAsLong());
-			sender.sendRichMessage("<green>✔ Đã chuyển <gold>" + formattedAmount + "</gold> cho <white>" + target.get().getUsername() + "</white>.</green>");
-			target.get().sendRichMessage("<green>✔ Bạn vừa nhận <gold>" + formattedAmount + "</gold> từ <white>" + sender.getUsername() + "</white>.</green>");
+			String formattedAmount = LunaCoreVelocity.services().moneyFormat().formatMinor(amountMinor.getAsLong(), VaultMoney.SCALE);
+			sender.sendRichMessage("<green>✔ Đã chuyển " + formattedAmount + " <green>cho <white>" + target.get().getUsername() + "</white>.</green>");
+			target.get().sendRichMessage("<green>✔ Bạn vừa nhận " + formattedAmount + " <green>từ <white>" + sender.getUsername() + "</white>.</green>");
 		});
 	}
 
