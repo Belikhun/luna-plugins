@@ -47,9 +47,15 @@ public final class LunaCorePlugin extends JavaPlugin {
 
 		ConfigStore configStore = ConfigStore.of(this, "config.yml");
 		boolean colorsEnabled = configStore.get("logging.ansi").asBoolean(true);
+		String loggingLevel = configStore.get("logging.level").asString("INFO").trim();
+		boolean debugLogging = "DEBUG".equalsIgnoreCase(loggingLevel) || "TRACE".equalsIgnoreCase(loggingLevel);
 		LunaLogger logger = LunaLogger.forPlugin(this, colorsEnabled)
+			.withDebug(debugLogging)
 			.registerLevel(LogLevel.custom("BOOT", 325, LogColor.BRIGHT_CYAN));
 		LunaLogger coreLogger = logger.scope("Core");
+		if (debugLogging) {
+			coreLogger.info("Đang bật debug logging cho Luna Core (logging.level=" + loggingLevel + ").");
+		}
 		coreLogger.log("BOOT", "Bắt đầu khởi tạo Luna Core.");
 
 		ConfigStoreMigrator configMigrator = new ConfigStoreMigrator(configStore, logger);
