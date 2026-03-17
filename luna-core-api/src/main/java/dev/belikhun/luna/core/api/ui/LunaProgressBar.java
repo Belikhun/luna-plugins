@@ -347,10 +347,7 @@ public final class LunaProgressBar {
 
 	private static String colorTag(String hexColor) {
 		String value = colorOrDefault(hexColor, LunaPalette.NEUTRAL_50);
-		if (value.startsWith("#")) {
-			return "<" + value + ">";
-		}
-		return "<" + value + ">";
+		return "<c:" + value + ">";
 	}
 
 	private static String gradientTag(String[] colors) {
