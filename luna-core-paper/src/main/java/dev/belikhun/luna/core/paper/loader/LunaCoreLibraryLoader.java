@@ -20,6 +20,7 @@ public final class LunaCoreLibraryLoader implements PluginLoader {
 	private static final String SQLITE_COORDINATE = "org.xerial:sqlite-jdbc:3.47.2.0";
 	private static final String MYSQL_COORDINATE = "com.mysql:mysql-connector-j:9.1.0";
 	private static final String MARIADB_COORDINATE = "org.mariadb.jdbc:mariadb-java-client:3.4.1";
+	private static final String RABBITMQ_COORDINATE = "com.rabbitmq:amqp-client:5.24.0";
 
 	@Override
 	public void classloader(PluginClasspathBuilder classpathBuilder) {
@@ -40,6 +41,8 @@ public final class LunaCoreLibraryLoader implements PluginLoader {
 				addCoordinate(resolver, MARIADB_COORDINATE, "mariadb");
 			}
 		}
+
+		addCoordinate(resolver, RABBITMQ_COORDINATE, "rabbitmq");
 
 		classpathBuilder.addLibrary(resolver);
 	}

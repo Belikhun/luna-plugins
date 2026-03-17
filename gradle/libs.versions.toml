@@ -15,6 +15,7 @@ luckperms = "5.4"
 interactivechat = "4.3.5.1"
 huskhomes = "4.10"
 spark = "0.1-SNAPSHOT"
+rabbitmq = "5.24.0"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -30,3 +31,4 @@ luckperms-api = { module = "net.luckperms:api", version.ref = "luckperms" }
 interactivechat-api = { module = "com.loohp:InteractiveChat", version.ref = "interactivechat" }
 huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", version.ref = "huskhomes" }
 spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }
+rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq" }

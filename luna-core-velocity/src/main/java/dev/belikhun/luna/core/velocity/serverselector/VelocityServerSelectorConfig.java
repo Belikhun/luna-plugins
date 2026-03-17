@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.velocity.serverselector;
 
 import dev.belikhun.luna.core.api.config.ConfigValues;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -157,6 +158,33 @@ public record VelocityServerSelectorConfig(
 			return null;
 		}
 		return serverInfo.get(normalize(backendName));
+	}
+
+	public BackendMetadata backendMetadata(String backendName) {
+		String normalized = normalize(backendName);
+		if (normalized.isBlank()) {
+			return new BackendMetadata("", "", "").sanitize();
+		}
+
+		ServerDefinition definition = server(normalized);
+		ServerInfo info = serverInfo(normalized);
+		String displayName = "";
+		String accentColor = "";
+
+		if (definition != null) {
+			displayName = definition.displayName();
+			accentColor = definition.accentColor();
+		}
+
+		if ((displayName == null || displayName.isBlank()) && info != null) {
+			displayName = info.displayName();
+		}
+
+		if ((accentColor == null || accentColor.isBlank()) && info != null) {
+			accentColor = info.accentColor();
+		}
+
+		return new BackendMetadata(normalized, displayName, accentColor).sanitize();
 	}
 
 	public List<String> knownServerNames() {

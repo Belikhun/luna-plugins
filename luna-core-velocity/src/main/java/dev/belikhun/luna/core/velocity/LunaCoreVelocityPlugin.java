@@ -26,6 +26,8 @@ import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
+import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
@@ -52,8 +54,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
 
 @Plugin(
 	id = "lunacore",
@@ -66,6 +67,8 @@ import java.nio.charset.StandardCharsets;
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
+	private static final int CURRENT_CONFIG_VERSION = 2;
+
 	private final LunaLogger logger;
 	private final Path dataDirectory;
 	private VelocityHttpServerManager httpServerManager;
@@ -110,6 +113,7 @@ public final class LunaCoreVelocityPlugin {
 		Map<String, Object> selectorRootConfig = LunaYamlConfig.loadMap(serversConfigPath);
 		Map<String, Object> loggingConfig = ConfigValues.map(rootConfig, "logging");
 		Map<String, Object> pluginMessagingConfig = ConfigValues.map(loggingConfig, "pluginMessaging");
+		Map<String, Object> heartbeatTransportLoggingConfig = ConfigValues.map(loggingConfig, "heartbeatTransport");
 		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
 		Map<String, Object> databaseConfig = ConfigValues.map(rootConfig, "database");
 
@@ -117,8 +121,10 @@ public final class LunaCoreVelocityPlugin {
 		runSelectorValidation(selectorRootConfig, nextSelectorConfig);
 
 		boolean pluginMessagingLogsEnabled = ConfigValues.booleanValue(pluginMessagingConfig, "enabled", false);
+		boolean heartbeatTransportLogsEnabled = ConfigValues.booleanValue(heartbeatTransportLoggingConfig, "enabled", false);
 		long heartbeatTimeoutMillis = Math.max(1000L, ConfigValues.intValue(heartbeatConfig, "timeoutSeconds", 20) * 1000L);
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
+		AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(rootConfig);
 
 		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
 		Database nextDatabase = createSharedDatabase(databaseConfig);
@@ -141,10 +147,13 @@ public final class LunaCoreVelocityPlugin {
 			nextBackendStatusRegistry,
 			new VelocityBackendNameResolver(proxyServer),
 			nextSelectorConfig,
-			forwardingSecret
+			amqpMessagingConfig,
+			forwardingSecret,
+			heartbeatTransportLogsEnabled
 		).register(nextHttpServerManager.router());
 
 		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
+		nextPluginMessagingBus.updateAmqpConfig(amqpMessagingConfig);
 		registerMessagingHandlers(nextPluginMessagingBus);
 
 		teardownRuntime();
@@ -184,6 +193,7 @@ public final class LunaCoreVelocityPlugin {
 		Path servers = dataDirectory.resolve("servers.yml");
 		try {
 			LunaYamlConfig.ensureFile(config, () -> getClass().getClassLoader().getResourceAsStream("config.yml"));
+			migrateConfig(config);
 			boolean migrated = migrateServerSelectorConfig(config, servers);
 			if (!migrated && !Files.exists(servers)) {
 				LunaYamlConfig.ensureFile(servers, () -> getClass().getClassLoader().getResourceAsStream("servers.yml"));
@@ -192,6 +202,102 @@ public final class LunaCoreVelocityPlugin {
 		} catch (RuntimeException exception) {
 			logger.error("Không thể khởi tạo config.yml mặc định cho LunaCore Velocity.", exception);
 		}
+	}
+
+	private void migrateConfig(Path configPath) {
+		try {
+			Map<String, Object> current = new LinkedHashMap<>(LunaYamlConfig.loadMap(configPath));
+			int version = ConfigValues.intValue(current, "configVersion", 0);
+			boolean changed = false;
+
+			while (version < CURRENT_CONFIG_VERSION) {
+				int nextVersion = version + 1;
+				switch (nextVersion) {
+					case 1 -> migrateConfigV1(current);
+					case 2 -> migrateConfigV2(current);
+					default -> throw new IllegalStateException("Unknown LunaCore Velocity config migration version: " + nextVersion);
+				}
+				version = nextVersion;
+				current.put("configVersion", version);
+				changed = true;
+				logger.audit("Đã áp dụng LunaCore Velocity config migration v" + version + ".");
+			}
+
+			if (!current.containsKey("configVersion")) {
+				current.put("configVersion", CURRENT_CONFIG_VERSION);
+				changed = true;
+			}
+
+			if (changed) {
+				LunaYamlConfig.dumpMap(configPath, current);
+				logger.success("Đã migrate config.yml theo configVersion=" + CURRENT_CONFIG_VERSION + ".");
+			}
+		} catch (RuntimeException exception) {
+			logger.warn("Không thể migrate config.yml tự động: " + exception.getMessage());
+		}
+	}
+
+	private void migrateConfigV1(Map<String, Object> rootConfig) {
+		ensureDefault(rootConfig, "database.enabled", true);
+		ensureDefault(rootConfig, "database.type", "mariadb");
+		ensureDefault(rootConfig, "database.host", "127.0.0.1");
+		ensureDefault(rootConfig, "database.port", 3306);
+		ensureDefault(rootConfig, "database.name", "luna");
+		ensureDefault(rootConfig, "database.username", "root");
+		ensureDefault(rootConfig, "database.password", "");
+		ensureDefault(rootConfig, "database.options.useSSL", false);
+		ensureDefault(rootConfig, "database.options.serverTimezone", "UTC");
+		ensureDefault(rootConfig, "http.enabled", true);
+		ensureDefault(rootConfig, "http.host", "0.0.0.0");
+		ensureDefault(rootConfig, "http.port", 32452);
+		ensureDefault(rootConfig, "http.pathPrefix", "/api");
+		ensureDefault(rootConfig, "heartbeat.timeoutSeconds", 20);
+		ensureDefault(rootConfig, "diagnostics.selector.enabled", true);
+		ensureDefault(rootConfig, "diagnostics.selector.fail-on-validation-error", true);
+		ensureDefault(rootConfig, "diagnostics.selector.unknown-placeholder-as-error", false);
+		ensureDefault(rootConfig, "logging.ansi", true);
+		ensureDefault(rootConfig, "logging.defaultScope", "LunaCoreVelocity");
+		ensureDefault(rootConfig, "logging.level", "INFO");
+		ensureDefault(rootConfig, "logging.pluginMessaging.enabled", false);
+		ensureDefault(rootConfig, "messaging.rabbitmq.enabled", false);
+		ensureDefault(rootConfig, "messaging.rabbitmq.uri", "amqp://guest:guest@127.0.0.1:5672/%2F");
+		ensureDefault(rootConfig, "messaging.rabbitmq.exchange", "luna.plugin-messaging");
+		ensureDefault(rootConfig, "messaging.rabbitmq.proxyQueue", "luna.proxy.messaging");
+		ensureDefault(rootConfig, "messaging.rabbitmq.backendQueuePrefix", "luna.backend.");
+		ensureDefault(rootConfig, "messaging.rabbitmq.connectionTimeoutMillis", 5000);
+		ensureDefault(rootConfig, "messaging.rabbitmq.requestedHeartbeatSeconds", 15);
+	}
+
+	private void migrateConfigV2(Map<String, Object> rootConfig) {
+		ensureDefault(rootConfig, "logging.heartbeatTransport.enabled", false);
+	}
+
+	private void ensureDefault(Map<String, Object> rootConfig, String path, Object value) {
+		if (rootConfig == null || path == null || path.isBlank()) {
+			return;
+		}
+
+		String[] parts = path.split("\\.");
+		Map<String, Object> current = rootConfig;
+		for (int index = 0; index < parts.length - 1; index++) {
+			String part = parts[index];
+			Object next = current.get(part);
+			if (next instanceof Map<?, ?> nextMap) {
+				current = castMap(nextMap);
+				continue;
+			}
+
+			Map<String, Object> created = new LinkedHashMap<>();
+			current.put(part, created);
+			current = created;
+		}
+
+		current.putIfAbsent(parts[parts.length - 1], value);
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> castMap(Map<?, ?> map) {
+		return (Map<String, Object>) map;
 	}
 
 	private boolean migrateServerSelectorConfig(Path configPath, Path serversPath) {
@@ -205,7 +311,7 @@ public final class LunaCoreVelocityPlugin {
 		}
 
 		serversConfig.put("server-selector", deepCopy(legacySelector));
-		dumpYamlMap(serversPath, serversConfig);
+		LunaYamlConfig.dumpMap(serversPath, serversConfig);
 		logger.success("Đã migrate server-selector từ config.yml sang servers.yml.");
 		return true;
 	}
@@ -226,23 +332,6 @@ public final class LunaCoreVelocityPlugin {
 			return copied;
 		}
 		return value;
-	}
-
-	private void dumpYamlMap(Path outputPath, Map<String, Object> data) {
-		try {
-			Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
-			Object yaml = yamlClass.getConstructor().newInstance();
-			Path parent = outputPath.getParent();
-			if (parent != null) {
-				Files.createDirectories(parent);
-			}
-
-			try (Writer writer = Files.newBufferedWriter(outputPath, StandardCharsets.UTF_8)) {
-				yamlClass.getMethod("dump", Object.class, Writer.class).invoke(yaml, data, writer);
-			}
-		} catch (Exception exception) {
-			throw new IllegalStateException("Không thể ghi file YAML: " + outputPath, exception);
-		}
 	}
 
 	private void registerCommands(VelocityServerSelectorConfig selectorConfig) {

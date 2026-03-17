@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.paper.placeholder;
 
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.string.Formatters;
@@ -256,20 +257,34 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	}
 
 	private String currentDisplayName() {
-		return currentSnapshotStatus()
-			.map(BackendServerStatus::serverDisplay)
+		return statusView.currentBackendMetadata()
+			.map(BackendMetadata::displayName)
 			.filter(value -> value != null && !value.isBlank())
-			.orElse(currentServerName());
+			.orElseGet(() -> currentSnapshotStatus()
+				.map(BackendServerStatus::serverDisplay)
+				.filter(value -> value != null && !value.isBlank())
+				.orElse(currentServerName()));
 	}
 
 	private String currentAccentColor() {
-		return currentSnapshotStatus()
-			.map(BackendServerStatus::serverAccentColor)
+		return statusView.currentBackendMetadata()
+			.map(BackendMetadata::accentColor)
 			.filter(value -> value != null && !value.isBlank())
-			.orElse("#F1FF68");
+			.orElseGet(() -> currentSnapshotStatus()
+				.map(BackendServerStatus::serverAccentColor)
+				.filter(value -> value != null && !value.isBlank())
+				.orElse("#F1FF68"));
 	}
 
 	private Optional<BackendServerStatus> currentSnapshotStatus() {
+		Optional<BackendMetadata> currentMetadata = statusView.currentBackendMetadata();
+		if (currentMetadata.isPresent()) {
+			Optional<BackendServerStatus> currentStatus = statusView.status(currentMetadata.get().name());
+			if (currentStatus.isPresent()) {
+				return currentStatus;
+			}
+		}
+
 		int currentPort = plugin.getServer().getPort();
 		for (BackendServerStatus status : statusView.snapshot().values()) {
 			if (status == null || status.stats() == null) {
@@ -378,6 +393,11 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	}
 
 	private String currentServerName() {
+		Optional<BackendMetadata> currentMetadata = statusView.currentBackendMetadata();
+		if (currentMetadata.isPresent() && currentMetadata.get().name() != null && !currentMetadata.get().name().isBlank()) {
+			return currentMetadata.get().name();
+		}
+
 		String configured = plugin.getConfig().getString("heartbeat.serverName", "");
 		if (configured != null && !configured.isBlank()) {
 			return configured.trim().toLowerCase(Locale.ROOT);

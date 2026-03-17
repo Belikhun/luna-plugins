@@ -8,4 +8,7 @@ public record BackendServerStatus(
 	long lastHeartbeatEpochMillis,
 	BackendHeartbeatStats stats
 ) {
+	public BackendMetadata metadata() {
+		return new BackendMetadata(serverName, serverDisplay, serverAccentColor).sanitize();
+	}
 }

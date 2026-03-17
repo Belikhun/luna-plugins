@@ -1,3 +1,5 @@
+configVersion: 2
+
 database:
   enabled: true
   type: "mariadb"
@@ -29,8 +31,20 @@ logging:
   ansi: true
   defaultScope: "LunaCoreVelocity"
   level: "INFO"
+  heartbeatTransport:
+    enabled: false
   pluginMessaging:
     enabled: false
+
+messaging:
+  rabbitmq:
+    enabled: false
+    uri: "amqp://guest:guest@127.0.0.1:5672/%2F"
+    exchange: "luna.plugin-messaging"
+    proxyQueue: "luna.proxy.messaging"
+    backendQueuePrefix: "luna.backend."
+    connectionTimeoutMillis: 5000
+    requestedHeartbeatSeconds: 15
 
 # Luna placeholders (Velocity, MiniPlaceholders):
 #   format: <luna:key>

@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.paper.heartbeat;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -18,6 +19,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -38,8 +40,11 @@ public final class PaperHeartbeatPublisher {
 	private volatile long revisionLagWarnThreshold;
 	private volatile long responseWarnThresholdMs;
 	private volatile boolean sparkProbeWarned;
+	private volatile boolean transportLoggingEnabled;
 	private volatile Consumer<byte[]> selectorPayloadConsumer;
+	private volatile Consumer<byte[]> messagingConfigConsumer;
 	private volatile long selectorPayloadChecksum;
+	private volatile long messagingConfigChecksum;
 
 	public PaperHeartbeatPublisher(Plugin plugin, ConfigStore configStore, LunaLogger logger, PaperBackendStatusView statusView) {
 		this.plugin = plugin;
@@ -57,12 +62,19 @@ public final class PaperHeartbeatPublisher {
 		this.revisionLagWarnThreshold = 25L;
 		this.responseWarnThresholdMs = 250L;
 		this.sparkProbeWarned = false;
+		this.transportLoggingEnabled = false;
 		this.selectorPayloadConsumer = null;
+		this.messagingConfigConsumer = null;
 		this.selectorPayloadChecksum = 0L;
+		this.messagingConfigChecksum = 0L;
 	}
 
 	public void setSelectorPayloadConsumer(Consumer<byte[]> consumer) {
 		this.selectorPayloadConsumer = consumer;
+	}
+
+	public void setMessagingConfigConsumer(Consumer<byte[]> consumer) {
+		this.messagingConfigConsumer = consumer;
 	}
 
 	public void start() {
@@ -73,7 +85,7 @@ public final class PaperHeartbeatPublisher {
 		}
 
 		String endpoint = configStore.get("heartbeat.endpoint").asString("http://127.0.0.1:32452/api/heartbeat").trim();
-		String serverName = configuredServerName();
+		String serverName = resolveServerName(plugin, configStore);
 		String secret = PaperForwardingSecretResolver.resolve(plugin, logger);
 		if (secret.isBlank()) {
 			return;
@@ -102,14 +114,21 @@ public final class PaperHeartbeatPublisher {
 		diagnosticsEnabled = configStore.get("diagnostics.heartbeat.enabled").asBoolean(true);
 		revisionLagWarnThreshold = Math.max(0L, configStore.get("diagnostics.heartbeat.revisionLagWarnThreshold").asLong(25L));
 		responseWarnThresholdMs = Math.max(1L, configStore.get("diagnostics.heartbeat.responseWarnThresholdMs").asLong(250L));
+		transportLoggingEnabled = configStore.get("logging.heartbeatTransport.enabled").asBoolean(false);
 		selectorPayloadChecksum = 0L;
+		messagingConfigChecksum = 0L;
 		syncServerSelectorConfigNow();
+		syncMessagingConfigNow();
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, () -> postHeartbeat(uri, secret, readTimeoutMillis), 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
 	}
 
 	public void syncServerSelectorConfigNow() {
 		fetchServerSelectorConfig(heartbeatUri, heartbeatSecret, heartbeatReadTimeoutMillis);
+	}
+
+	public void syncMessagingConfigNow() {
+		fetchMessagingConfig(heartbeatUri, heartbeatSecret, heartbeatReadTimeoutMillis);
 	}
 
 	public void publishNowIfPlayerCountChanged() {
@@ -165,6 +184,7 @@ public final class PaperHeartbeatPublisher {
 			bodyFields.put("online", String.valueOf(online));
 			bodyFields.put("clientSentEpochMillis", String.valueOf(startedAt));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
+			transportLog("[TX] POST " + requestUri + " online=" + online + " since=" + lastSnapshotRevision + " body=" + body);
 
 			HttpRequest request = HttpRequest.newBuilder(requestUri)
 				.header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
@@ -174,17 +194,20 @@ public final class PaperHeartbeatPublisher {
 				.build();
 
 			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+			transportLog("[RX] POST " + requestUri + " status=" + response.statusCode() + " body=" + formatFormBody(response.body()));
 			if (response.statusCode() != 200) {
 				logger.warn("Heartbeat nhận statusCode=" + response.statusCode() + " online=" + online);
 				return;
 			}
 
 			HeartbeatFormCodec.HeartbeatSnapshotPayload payload = HeartbeatFormCodec.decodeSnapshotPayload(response.body());
+			BackendMetadata previousMetadata = statusView.currentBackendMetadata().orElse(null);
 			if (payload.fullSync()) {
-				statusView.updateSnapshot(payload.statuses());
+				statusView.updateSnapshot(payload);
 			} else {
-				statusView.applyDelta(payload.statuses());
+				statusView.applyDelta(payload);
 			}
+			logCurrentBackendMetadataChange(previousMetadata, statusView.currentBackendMetadata().orElse(null));
 
 			long revisionLag = computeRevisionLag(payload.revision(), lastSnapshotRevision);
 			long responseMs = Math.max(0L, System.currentTimeMillis() - startedAt);
@@ -196,9 +219,43 @@ public final class PaperHeartbeatPublisher {
 			}
 
 			lastSnapshotRevision = Math.max(lastSnapshotRevision, payload.revision());
+			fetchMessagingConfig(uri, secret, readTimeoutMillis);
 		} catch (Exception exception) {
 			logger.debug("Heartbeat lỗi online=" + online + ": " + exception.getMessage());
 		}
+	}
+
+	private void logCurrentBackendMetadataChange(BackendMetadata previous, BackendMetadata current) {
+		if (sameMetadata(previous, current)) {
+			return;
+		}
+
+		if (current == null || current.isBlank()) {
+			if (previous != null && !previous.isBlank()) {
+				logger.warn("Heartbeat đã mất BackendMetadata hiện tại của backend.");
+			}
+			return;
+		}
+
+		String summary = "name=" + current.name()
+			+ " display=" + current.displayName()
+			+ " accent=" + (current.accentColor().isBlank() ? "<empty>" : current.accentColor());
+		if (previous == null || previous.isBlank()) {
+			logger.success("Heartbeat đã resolve BackendMetadata hiện tại: " + summary);
+			return;
+		}
+
+		logger.audit("Heartbeat đã cập nhật BackendMetadata hiện tại: " + summary);
+	}
+
+	private boolean sameMetadata(BackendMetadata left, BackendMetadata right) {
+		if (left == right) {
+			return true;
+		}
+		if (left == null || right == null) {
+			return false;
+		}
+		return left.sanitize().equals(right.sanitize());
 	}
 
 	private void fetchServerSelectorConfig(URI heartbeatRequestUri, String secret, int readTimeoutMillis) {
@@ -212,6 +269,7 @@ public final class PaperHeartbeatPublisher {
 			if (selectorUri == null) {
 				return;
 			}
+			transportLog("[TX] GET " + selectorUri + " kind=server-selector-config");
 			HttpRequest request = HttpRequest.newBuilder(selectorUri)
 				.header("X-Luna-Forwarding-Secret", secret)
 				.timeout(Duration.ofMillis(readTimeoutMillis))
@@ -219,6 +277,7 @@ public final class PaperHeartbeatPublisher {
 				.build();
 
 			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+			transportLog("[RX] GET " + selectorUri + " status=" + response.statusCode() + " kind=server-selector-config body=" + formatBinaryBody(response.body()));
 			if (response.statusCode() != 200 || response.body() == null || response.body().length == 0) {
 				return;
 			}
@@ -235,7 +294,67 @@ public final class PaperHeartbeatPublisher {
 		}
 	}
 
+	private void fetchMessagingConfig(URI heartbeatRequestUri, String secret, int readTimeoutMillis) {
+		Consumer<byte[]> consumer = messagingConfigConsumer;
+		if (consumer == null || heartbeatRequestUri == null || secret == null || secret.isBlank()) {
+			return;
+		}
+
+		try {
+			URI configUri = messagingConfigUri(heartbeatRequestUri);
+			if (configUri == null) {
+				return;
+			}
+			transportLog("[TX] GET " + configUri + " kind=messaging-config");
+
+			HttpRequest request = HttpRequest.newBuilder(configUri)
+				.header("X-Luna-Forwarding-Secret", secret)
+				.timeout(Duration.ofMillis(readTimeoutMillis))
+				.GET()
+				.build();
+
+			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+			transportLog("[RX] GET " + configUri + " status=" + response.statusCode() + " kind=messaging-config body=" + formatFormBody(response.body()));
+			if (response.statusCode() != 200 || response.body() == null || response.body().length == 0) {
+				return;
+			}
+
+			long checksum = checksum(response.body());
+			if (checksum == messagingConfigChecksum) {
+				return;
+			}
+
+			messagingConfigChecksum = checksum;
+			consumer.accept(response.body());
+		} catch (Exception exception) {
+			logger.debug("Heartbeat messaging config sync lỗi: " + exception.getMessage());
+		}
+	}
+
 	private URI selectorConfigUri(URI heartbeatRequestUri) {
+		return siblingConfigUri(heartbeatRequestUri, "/server-selector-config");
+	}
+
+	private URI messagingConfigUri(URI heartbeatRequestUri) {
+		if (heartbeatRequestUri == null) {
+			return null;
+		}
+
+		String path = heartbeatRequestUri.getPath();
+		if (path == null || path.isBlank()) {
+			return null;
+		}
+
+		int lastSlash = path.lastIndexOf('/');
+		if (lastSlash < 0 || lastSlash >= path.length() - 1) {
+			return siblingConfigUri(heartbeatRequestUri, "/messaging-config");
+		}
+
+		String encodedServer = path.substring(lastSlash + 1);
+		return siblingConfigUri(heartbeatRequestUri, "/messaging-config/" + encodedServer);
+	}
+
+	private URI siblingConfigUri(URI heartbeatRequestUri, String endpointSuffix) {
 		if (heartbeatRequestUri == null) {
 			return null;
 		}
@@ -246,20 +365,20 @@ public final class PaperHeartbeatPublisher {
 		}
 
 		int heartbeatMarker = path.indexOf("/heartbeat/");
-		String selectorPath;
+		String siblingPath;
 		if (heartbeatMarker >= 0) {
 			String prefix = path.substring(0, heartbeatMarker);
-			selectorPath = (prefix.isBlank() ? "" : prefix) + "/server-selector-config";
+			siblingPath = (prefix.isBlank() ? "" : prefix) + endpointSuffix;
 		} else {
 			int slashIndex = path.lastIndexOf('/');
 			if (slashIndex < 0) {
 				return null;
 			}
 			String prefix = path.substring(0, slashIndex);
-			selectorPath = (prefix.isBlank() ? "" : prefix) + "/server-selector-config";
+			siblingPath = (prefix.isBlank() ? "" : prefix) + endpointSuffix;
 		}
 
-		return URI.create(heartbeatRequestUri.getScheme() + "://" + heartbeatRequestUri.getAuthority() + selectorPath);
+		return URI.create(heartbeatRequestUri.getScheme() + "://" + heartbeatRequestUri.getAuthority() + siblingPath);
 	}
 
 	private long checksum(byte[] bytes) {
@@ -429,7 +548,7 @@ public final class PaperHeartbeatPublisher {
 	) {
 	}
 
-	private String configuredServerName() {
+	public static String resolveServerName(Plugin plugin, ConfigStore configStore) {
 		String configured = configStore.get("heartbeat.serverName").asString("").trim();
 		if (!configured.isBlank()) {
 			return configured;
@@ -468,5 +587,26 @@ public final class PaperHeartbeatPublisher {
 
 		String separator = baseUri.toString().contains("?") ? "&" : "?";
 		return URI.create(baseUri + separator + "since=" + sinceRevision);
+	}
+
+	private void transportLog(String message) {
+		if (!transportLoggingEnabled) {
+			return;
+		}
+		logger.audit("Heartbeat transport: " + message);
+	}
+
+	private String formatFormBody(byte[] body) {
+		if (body == null || body.length == 0) {
+			return "<empty>";
+		}
+		return new String(body, StandardCharsets.UTF_8);
+	}
+
+	private String formatBinaryBody(byte[] body) {
+		if (body == null || body.length == 0) {
+			return "<empty>";
+		}
+		return "base64=" + Base64.getEncoder().encodeToString(body);
 	}
 }

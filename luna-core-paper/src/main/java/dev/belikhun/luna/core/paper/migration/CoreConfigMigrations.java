@@ -104,6 +104,23 @@ public final class CoreConfigMigrations {
 				ensureDefault(store, "heartbeat.readTimeoutMillis", 3000);
 			}
 		});
+
+		migrator.register(new ConfigMigration() {
+			@Override
+			public int version() {
+				return 4;
+			}
+
+			@Override
+			public String name() {
+				return "add_heartbeat_transport_logging_toggle";
+			}
+
+			@Override
+			public void migrate(dev.belikhun.luna.core.api.config.ConfigStore store) {
+				ensureDefault(store, "logging.heartbeatTransport.enabled", false);
+			}
+		});
 	}
 
 	private static void ensureDefault(dev.belikhun.luna.core.api.config.ConfigStore store, String path, Object value) {

@@ -5,7 +5,9 @@ import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEvent;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventType;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatListener;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
+import dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -25,6 +27,7 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 	private final LunaEventManager eventManager;
 	private final LunaLogger logger;
 	private final ConcurrentMap<String, Long> statusRevisions;
+	private final ConcurrentMap<String, BackendServerStatusDelta> statusDeltas;
 	private final AtomicLong revisionCounter;
 	private volatile long timeoutMillis;
 
@@ -33,6 +36,7 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 		this.eventManager = new LunaEventManager();
 		this.logger = logger.scope("HeartbeatRegistry");
 		this.statusRevisions = new ConcurrentHashMap<>();
+		this.statusDeltas = new ConcurrentHashMap<>();
 		this.revisionCounter = new AtomicLong(0L);
 		this.timeoutMillis = Math.max(1000L, timeoutMillis);
 	}
@@ -41,29 +45,42 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 		this.timeoutMillis = Math.max(1000L, timeoutMillis);
 	}
 
-	public BackendServerStatus upsert(String serverName, String serverDisplay, String serverAccentColor, BackendHeartbeatStats stats, long nowEpochMillis) {
-		return update(serverName, serverDisplay, serverAccentColor, stats, nowEpochMillis, true);
+	public BackendServerStatus upsert(BackendMetadata metadata, BackendHeartbeatStats stats, long nowEpochMillis) {
+		return update(metadata, stats, nowEpochMillis, true);
 	}
 
-	public BackendServerStatus markOffline(String serverName, String serverDisplay, String serverAccentColor, BackendHeartbeatStats stats, long nowEpochMillis) {
-		return update(serverName, serverDisplay, serverAccentColor, stats, nowEpochMillis, false);
+	public BackendServerStatus markOffline(BackendMetadata metadata, BackendHeartbeatStats stats, long nowEpochMillis) {
+		return update(metadata, stats, nowEpochMillis, false);
 	}
 
-	private BackendServerStatus update(String serverName, String serverDisplay, String serverAccentColor, BackendHeartbeatStats stats, long nowEpochMillis, boolean online) {
+	private BackendServerStatus update(BackendMetadata metadata, BackendHeartbeatStats stats, long nowEpochMillis, boolean online) {
 		sweepTimeouts(nowEpochMillis);
 
-		String normalized = normalizeKey(serverName);
+		BackendMetadata sanitizedMetadata = metadata == null ? new BackendMetadata("", "", "") : metadata.sanitize();
+		String normalized = sanitizedMetadata.normalizedName();
 		if (normalized.isBlank()) {
 			throw new IllegalArgumentException("serverName cannot be blank");
 		}
 
 		BackendServerStatus previous = statuses.get(normalized);
-		String resolvedDisplay = resolveDisplay(serverName, serverDisplay, previous);
-		String resolvedAccentColor = resolveAccentColor(serverAccentColor, previous);
-		BackendServerStatus stored = new BackendServerStatus(serverName.trim(), resolvedDisplay, resolvedAccentColor, online, nowEpochMillis, stats);
+		BackendMetadata resolvedMetadata = new BackendMetadata(
+			sanitizedMetadata.name(),
+			resolveDisplay(sanitizedMetadata, previous),
+			resolveAccentColor(sanitizedMetadata, previous)
+		).sanitize();
+		BackendServerStatus stored = new BackendServerStatus(
+			resolvedMetadata.name(),
+			resolvedMetadata.displayName(),
+			resolvedMetadata.accentColor(),
+			online,
+			nowEpochMillis,
+			stats
+		);
+		BackendServerStatusDelta delta = BackendServerStatusDelta.diff(previous, stored);
 		statuses.put(normalized, stored);
 		long revision = revisionCounter.incrementAndGet();
 		statusRevisions.put(normalized, revision);
+		statusDeltas.put(normalized, delta);
 
 		if (online && (previous == null || !previous.online())) {
 			logger.success("Backend online: " + stored.serverName());
@@ -105,6 +122,7 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 			);
 
 			if (statuses.replace(entry.getKey(), stored, offline)) {
+				statusDeltas.put(entry.getKey(), BackendServerStatusDelta.diff(stored, offline));
 				long revision = revisionCounter.incrementAndGet();
 				statusRevisions.put(entry.getKey(), revision);
 				logger.warn("Backend offline do timeout: " + offline.serverName());
@@ -156,6 +174,20 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 		return out;
 	}
 
+	public Map<String, BackendServerStatusDelta> deltaFieldsSince(long sinceRevision) {
+		sweepTimeouts(System.currentTimeMillis());
+
+		Map<String, BackendServerStatusDelta> out = new LinkedHashMap<>();
+		for (Map.Entry<String, BackendServerStatusDelta> entry : statusDeltas.entrySet()) {
+			Long revision = statusRevisions.get(entry.getKey());
+			if (revision == null || revision <= sinceRevision) {
+				continue;
+			}
+			out.put(entry.getKey(), entry.getValue());
+		}
+		return out;
+	}
+
 	public long currentRevision() {
 		return Math.max(0L, revisionCounter.get());
 	}
@@ -186,19 +218,19 @@ public final class VelocityBackendStatusRegistry implements BackendStatusView, B
 		return serverName.trim().toLowerCase(Locale.ROOT);
 	}
 
-	private String resolveDisplay(String serverName, String serverDisplay, BackendServerStatus previous) {
-		if (serverDisplay != null && !serverDisplay.isBlank()) {
-			return serverDisplay.trim();
+	private String resolveDisplay(BackendMetadata metadata, BackendServerStatus previous) {
+		if (metadata != null && metadata.displayName() != null && !metadata.displayName().isBlank()) {
+			return metadata.displayName().trim();
 		}
 		if (previous != null && previous.serverDisplay() != null && !previous.serverDisplay().isBlank()) {
 			return previous.serverDisplay();
 		}
-		return serverName == null ? "" : serverName.trim();
+		return metadata == null || metadata.name() == null ? "" : metadata.name().trim();
 	}
 
-	private String resolveAccentColor(String serverAccentColor, BackendServerStatus previous) {
-		if (serverAccentColor != null && !serverAccentColor.isBlank()) {
-			return serverAccentColor.trim();
+	private String resolveAccentColor(BackendMetadata metadata, BackendServerStatus previous) {
+		if (metadata != null && metadata.accentColor() != null && !metadata.accentColor().isBlank()) {
+			return metadata.accentColor().trim();
 		}
 		if (previous != null && previous.serverAccentColor() != null && !previous.serverAccentColor().isBlank()) {
 			return previous.serverAccentColor();

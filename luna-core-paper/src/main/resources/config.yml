@@ -54,6 +54,8 @@ logging:
   ansi: true
   defaultScope: "LunaCore"
   level: "INFO"
+  heartbeatTransport:
+    enabled: false
   pluginMessaging:
     enabled: false
 

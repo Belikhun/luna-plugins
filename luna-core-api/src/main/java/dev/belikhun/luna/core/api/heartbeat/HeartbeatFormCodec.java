@@ -150,6 +150,42 @@ public final class HeartbeatFormCodec {
 		return encode(out);
 	}
 
+	public static byte[] encodeDelta(Map<String, BackendServerStatusDelta> delta, long revision, String selfServerName) {
+		Map<String, String> out = new LinkedHashMap<>();
+		out.put("revision", String.valueOf(Math.max(0L, revision)));
+		out.put("fullSync", String.valueOf(false));
+		out.put("serverCount", String.valueOf(delta == null ? 0 : delta.size()));
+		if (delta == null || delta.isEmpty()) {
+			return encode(out);
+		}
+
+		String normalizedSelf = normalize(selfServerName);
+		int index = 0;
+		for (BackendServerStatusDelta serverDelta : delta.values()) {
+			String prefix = "server." + index + ".";
+			String serverName = emptySafe(serverDelta.serverName());
+			out.put(prefix + "server_name", serverName);
+			out.put(prefix + "name", serverName);
+			out.put(prefix + "self", String.valueOf(serverDelta.self() || normalize(serverDelta.serverName()).equals(normalizedSelf)));
+			if (serverDelta.serverDisplay() != null) {
+				out.put(prefix + "server_display", serverDelta.serverDisplay());
+			}
+			if (serverDelta.serverAccentColor() != null) {
+				out.put(prefix + "server_accent_color", serverDelta.serverAccentColor());
+			}
+			if (serverDelta.online() != null) {
+				out.put(prefix + "online", String.valueOf(serverDelta.online()));
+			}
+			if (serverDelta.lastHeartbeatEpochMillis() != null) {
+				out.put(prefix + "lastHeartbeatEpochMillis", String.valueOf(serverDelta.lastHeartbeatEpochMillis()));
+			}
+			encodeStatsDelta(prefix, out, serverDelta.stats());
+			index++;
+		}
+
+		return encode(out);
+	}
+
 	public static Map<String, BackendServerStatus> decodeSnapshot(byte[] body) {
 		return decodeSnapshotPayload(body).statuses();
 	}
@@ -157,13 +193,31 @@ public final class HeartbeatFormCodec {
 	public static HeartbeatSnapshotPayload decodeSnapshotPayload(byte[] body) {
 		Map<String, String> fields = decode(body);
 		Map<String, BackendServerStatus> out = new LinkedHashMap<>();
+		Map<String, BackendServerStatusDelta> deltas = new LinkedHashMap<>();
 		long revision = longValue(fields, "revision", 0L);
 		boolean fullSync = boolValue(fields, "fullSync", true);
 		int count = intValue(fields, "serverCount", 0);
+		BackendMetadata currentBackendMetadata = null;
 		for (int index = 0; index < count; index++) {
 			String prefix = "server." + index + ".";
 			String name = string(fields, prefix + "server_name", string(fields, prefix + "name", "")).trim();
 			if (name.isBlank()) {
+				continue;
+			}
+			boolean self = boolValue(fields, prefix + "self", false);
+
+			if (!fullSync) {
+				Map<String, String> prefixed = withPrefix(fields, prefix);
+				BackendServerStatusDelta delta = new BackendServerStatusDelta(
+					name,
+					self,
+					prefixed.containsKey("server_display") ? prefixed.get("server_display") : null,
+					prefixed.containsKey("server_accent_color") ? prefixed.get("server_accent_color") : null,
+					prefixed.containsKey("online") ? boolValue(prefixed, "online", false) : null,
+					prefixed.containsKey("lastHeartbeatEpochMillis") ? longValue(prefixed, "lastHeartbeatEpochMillis", 0L) : null,
+					decodeStatsDelta(prefixed)
+				);
+				deltas.put(name.toLowerCase(), delta);
 				continue;
 			}
 
@@ -176,17 +230,70 @@ public final class HeartbeatFormCodec {
 				longValue(fields, prefix + "lastHeartbeatEpochMillis", 0L),
 				stats
 			);
+			if (self) {
+				currentBackendMetadata = status.metadata();
+			}
 			out.put(name.toLowerCase(), status);
 		}
 
-		return new HeartbeatSnapshotPayload(Math.max(0L, revision), fullSync, out);
+		return new HeartbeatSnapshotPayload(Math.max(0L, revision), fullSync, out, deltas, currentBackendMetadata);
 	}
 
 	public record HeartbeatSnapshotPayload(
 		long revision,
 		boolean fullSync,
-		Map<String, BackendServerStatus> statuses
+		Map<String, BackendServerStatus> statuses,
+		Map<String, BackendServerStatusDelta> deltas,
+		BackendMetadata currentBackendMetadata
 	) {
+	}
+
+	private static void encodeStatsDelta(String prefix, Map<String, String> out, BackendHeartbeatStatsDelta delta) {
+		if (delta == null || delta.isEmpty()) {
+			return;
+		}
+		putIfPresent(out, prefix + "software", delta.software());
+		putIfPresent(out, prefix + "version", delta.version());
+		putIfPresent(out, prefix + "serverPort", delta.serverPort());
+		putIfPresent(out, prefix + "uptimeMillis", delta.uptimeMillis());
+		putIfPresent(out, prefix + "tps", delta.tps());
+		putIfPresent(out, prefix + "onlinePlayers", delta.onlinePlayers());
+		putIfPresent(out, prefix + "maxPlayers", delta.maxPlayers());
+		putIfPresent(out, prefix + "motd", delta.motd());
+		putIfPresent(out, prefix + "whitelistEnabled", delta.whitelistEnabled());
+		putIfPresent(out, prefix + "systemCpuUsagePercent", delta.systemCpuUsagePercent());
+		putIfPresent(out, prefix + "processCpuUsagePercent", delta.processCpuUsagePercent());
+		putIfPresent(out, prefix + "cpuUsagePercent", delta.systemCpuUsagePercent());
+		putIfPresent(out, prefix + "ramUsedBytes", delta.ramUsedBytes());
+		putIfPresent(out, prefix + "ramFreeBytes", delta.ramFreeBytes());
+		putIfPresent(out, prefix + "ramMaxBytes", delta.ramMaxBytes());
+		putIfPresent(out, prefix + "heartbeatLatencyMillis", delta.heartbeatLatencyMillis());
+	}
+
+	private static BackendHeartbeatStatsDelta decodeStatsDelta(Map<String, String> fields) {
+		return new BackendHeartbeatStatsDelta(
+			fields.containsKey("software") ? fields.get("software") : null,
+			fields.containsKey("version") ? fields.get("version") : null,
+			fields.containsKey("serverPort") ? intValue(fields, "serverPort", 0) : null,
+			fields.containsKey("uptimeMillis") ? longValue(fields, "uptimeMillis", 0L) : null,
+			fields.containsKey("tps") ? doubleValue(fields, "tps", 0D) : null,
+			fields.containsKey("onlinePlayers") ? intValue(fields, "onlinePlayers", 0) : null,
+			fields.containsKey("maxPlayers") ? intValue(fields, "maxPlayers", 0) : null,
+			fields.containsKey("motd") ? fields.get("motd") : null,
+			fields.containsKey("whitelistEnabled") ? boolValue(fields, "whitelistEnabled", false) : null,
+			fields.containsKey("systemCpuUsagePercent") ? doubleValue(fields, "systemCpuUsagePercent", doubleValue(fields, "cpuUsagePercent", 0D)) : null,
+			fields.containsKey("processCpuUsagePercent") ? doubleValue(fields, "processCpuUsagePercent", 0D) : null,
+			fields.containsKey("ramUsedBytes") ? longValue(fields, "ramUsedBytes", 0L) : null,
+			fields.containsKey("ramFreeBytes") ? longValue(fields, "ramFreeBytes", 0L) : null,
+			fields.containsKey("ramMaxBytes") ? longValue(fields, "ramMaxBytes", 0L) : null,
+			fields.containsKey("heartbeatLatencyMillis") ? longValue(fields, "heartbeatLatencyMillis", 0L) : null
+		);
+	}
+
+	private static void putIfPresent(Map<String, String> out, String key, Object value) {
+		if (value != null) {
+			out.put(key, String.valueOf(value));
+		}
 	}
 
 	private static Map<String, String> withPrefix(Map<String, String> fields, String prefix) {

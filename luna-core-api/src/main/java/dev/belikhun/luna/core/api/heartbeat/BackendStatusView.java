@@ -7,4 +7,8 @@ public interface BackendStatusView {
 	Optional<BackendServerStatus> status(String serverName);
 
 	Map<String, BackendServerStatus> snapshot();
+
+	default Optional<BackendMetadata> currentBackendMetadata() {
+		return Optional.empty();
+	}
 }

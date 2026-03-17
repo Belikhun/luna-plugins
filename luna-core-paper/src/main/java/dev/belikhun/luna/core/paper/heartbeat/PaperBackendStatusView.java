@@ -1,7 +1,9 @@
 package dev.belikhun.luna.core.paper.heartbeat;
 
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
+import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec.HeartbeatSnapshotPayload;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -14,10 +16,28 @@ import java.util.Set;
 public final class PaperBackendStatusView implements BackendStatusView {
 	private final ConcurrentMap<String, BackendServerStatus> statuses;
 	private final Set<Runnable> updateListeners;
+	private volatile BackendMetadata currentBackendMetadata;
 
 	public PaperBackendStatusView() {
 		this.statuses = new ConcurrentHashMap<>();
 		this.updateListeners = ConcurrentHashMap.newKeySet();
+		this.currentBackendMetadata = null;
+	}
+
+	public void updateSnapshot(HeartbeatSnapshotPayload payload) {
+		statuses.clear();
+		currentBackendMetadata = payload == null ? null : sanitizeMetadata(payload.currentBackendMetadata());
+		if (payload == null || payload.statuses() == null || payload.statuses().isEmpty()) {
+			return;
+		}
+
+		for (Map.Entry<String, BackendServerStatus> entry : payload.statuses().entrySet()) {
+			if (entry.getValue() == null) {
+				continue;
+			}
+			statuses.put(normalize(entry.getKey()), entry.getValue());
+		}
+		notifyUpdated();
 	}
 
 	public void updateSnapshot(Map<String, BackendServerStatus> snapshot) {
@@ -31,6 +51,35 @@ public final class PaperBackendStatusView implements BackendStatusView {
 				continue;
 			}
 			statuses.put(normalize(entry.getKey()), entry.getValue());
+		}
+		notifyUpdated();
+	}
+
+	public void applyDelta(HeartbeatSnapshotPayload payload) {
+		if (payload == null || payload.deltas() == null || payload.deltas().isEmpty()) {
+			BackendMetadata metadata = payload == null ? null : sanitizeMetadata(payload.currentBackendMetadata());
+			if (metadata != null) {
+				currentBackendMetadata = metadata;
+			}
+			return;
+		}
+
+		for (Map.Entry<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> entry : payload.deltas().entrySet()) {
+			dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta delta = entry.getValue();
+			if (delta == null) {
+				continue;
+			}
+			String normalizedName = normalize(entry.getKey());
+			BackendServerStatus merged = delta.applyTo(statuses.get(normalizedName));
+			statuses.put(normalizedName, merged);
+			if (delta.self()) {
+				currentBackendMetadata = sanitizeMetadata(merged.metadata());
+			}
+		}
+
+		BackendMetadata metadata = sanitizeMetadata(payload.currentBackendMetadata());
+		if (metadata != null) {
+			currentBackendMetadata = metadata;
 		}
 		notifyUpdated();
 	}
@@ -77,8 +126,22 @@ public final class PaperBackendStatusView implements BackendStatusView {
 		return new LinkedHashMap<>(statuses);
 	}
 
+	@Override
+	public Optional<BackendMetadata> currentBackendMetadata() {
+		return Optional.ofNullable(currentBackendMetadata);
+	}
+
 	private String normalize(String serverName) {
 		return serverName == null ? "" : serverName.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private BackendMetadata sanitizeMetadata(BackendMetadata metadata) {
+		if (metadata == null) {
+			return null;
+		}
+
+		BackendMetadata sanitized = metadata.sanitize();
+		return sanitized.isBlank() ? null : sanitized;
 	}
 
 	private void notifyUpdated() {

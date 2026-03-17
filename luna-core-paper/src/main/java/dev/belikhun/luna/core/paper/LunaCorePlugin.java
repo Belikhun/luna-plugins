@@ -7,6 +7,7 @@ import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.DatabaseManager;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.paper.help.HelpBasicCommand;
 import dev.belikhun.luna.core.paper.help.HelpCommandListener;
@@ -16,6 +17,7 @@ import dev.belikhun.luna.core.api.http.Router;
 import dev.belikhun.luna.core.api.logging.LogColor;
 import dev.belikhun.luna.core.api.logging.LogLevel;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
@@ -72,7 +74,13 @@ public final class LunaCorePlugin extends JavaPlugin {
 		PaperBackendStatusView backendStatusView = new PaperBackendStatusView();
 		PaperHeartbeatPublisher heartbeatPublisher = new PaperHeartbeatPublisher(this, configStore, logger, backendStatusView);
 		boolean pluginMessagingLogsEnabled = configStore.get("logging.pluginMessaging.enabled").asBoolean(false);
-		PluginMessageBus<Player, Player> pluginMessaging = new PaperPluginMessagingBus(this, logger, pluginMessagingLogsEnabled);
+		PaperPluginMessagingBus pluginMessaging = new PaperPluginMessagingBus(
+			this,
+			logger,
+			pluginMessagingLogsEnabled,
+			() -> backendStatusView.currentBackendMetadata()
+				.orElseGet(() -> new BackendMetadata(PaperHeartbeatPublisher.resolveServerName(this, configStore), "", "").sanitize())
+		);
 		ToastService toastService = new AdvancementToastService(this);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
 		boolean selectorDiagnosticsEnabled = configStore.get("diagnostics.selector.enabled").asBoolean(true);
@@ -86,6 +94,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 			selectorRefreshWarnThresholdMs
 		);
 		heartbeatPublisher.setSelectorPayloadConsumer(selectorController::updateSyncedPayload);
+		heartbeatPublisher.setMessagingConfigConsumer(payload -> pluginMessaging.updateAmqpConfig(AmqpMessagingConfigCodec.decode(payload)));
 		heartbeatPublisher.start();
 
 		UserProfileRepository userProfileRepository = new UserProfileRepository(databaseManager.getDatabase());
