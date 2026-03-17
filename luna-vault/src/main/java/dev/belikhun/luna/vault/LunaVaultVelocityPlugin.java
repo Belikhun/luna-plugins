@@ -28,8 +28,10 @@ import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcAction;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcRequest;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcResponse;
+import dev.belikhun.luna.vault.command.BalanceCommand;
 import dev.belikhun.luna.vault.command.EcoAdminCommand;
 import dev.belikhun.luna.vault.command.PayCommand;
+import dev.belikhun.luna.vault.placeholder.VelocityVaultMiniPlaceholders;
 import dev.belikhun.luna.vault.service.VelocityVaultConfig;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 
@@ -45,7 +47,8 @@ import java.util.logging.Logger;
 	version = BuildConstants.VERSION,
 	description = "Network-wide economy authority for Luna",
 	dependencies = {
-		@Dependency(id = "lunacore")
+		@Dependency(id = "lunacore"),
+		@Dependency(id = "miniplaceholders", optional = true)
 	},
 	authors = {"Belikhun"}
 )
@@ -55,6 +58,7 @@ public final class LunaVaultVelocityPlugin {
 	private final LunaLogger logger;
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private VelocityVaultService vaultService;
+	private VelocityVaultMiniPlaceholders miniPlaceholders;
 
 	@Inject
 	public LunaVaultVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -94,6 +98,7 @@ public final class LunaVaultVelocityPlugin {
 
 		LunaCoreVelocity.services().dependencyManager().registerSingleton(LunaVaultApi.class, vaultService);
 		registerCommands();
+		registerMiniPlaceholders();
 		logger.success("LunaVault đã khởi động với vai trò source-of-truth trên Velocity.");
 	}
 
@@ -122,6 +127,10 @@ public final class LunaVaultVelocityPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		if (miniPlaceholders != null) {
+			miniPlaceholders.unregister();
+			miniPlaceholders = null;
+		}
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.unregisterIncoming(VaultChannels.RPC);
 			pluginMessagingBus.unregisterOutgoing(VaultChannels.RPC);
@@ -131,6 +140,12 @@ public final class LunaVaultVelocityPlugin {
 
 	private void registerCommands() {
 		CommandManager manager = proxyServer.getCommandManager();
+		CommandMeta balanceMeta = manager.metaBuilder("balance")
+			.aliases("bal", "money")
+			.plugin(this)
+			.build();
+		manager.register(balanceMeta, new BalanceCommand(vaultService));
+
 		CommandMeta payMeta = manager.metaBuilder("pay")
 			.plugin(this)
 			.build();
@@ -140,6 +155,21 @@ public final class LunaVaultVelocityPlugin {
 			.plugin(this)
 			.build();
 		manager.register(ecoMeta, new EcoAdminCommand(vaultService));
+	}
+
+	private void registerMiniPlaceholders() {
+		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
+			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunavault.");
+			return;
+		}
+
+		try {
+			miniPlaceholders = new VelocityVaultMiniPlaceholders(logger, vaultService);
+			miniPlaceholders.register();
+		} catch (Throwable throwable) {
+			logger.warn("Không thể đăng ký MiniPlaceholders namespace lunavault: " + throwable.getMessage());
+			miniPlaceholders = null;
+		}
 	}
 
 	private VaultRpcResponse handleRequest(VaultRpcRequest request) {
