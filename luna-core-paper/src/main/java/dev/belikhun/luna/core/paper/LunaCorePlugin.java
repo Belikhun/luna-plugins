@@ -18,7 +18,10 @@ import dev.belikhun.luna.core.api.logging.LogColor;
 import dev.belikhun.luna.core.api.logging.LogLevel;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
+import dev.belikhun.luna.core.api.messaging.CoreHeartbeatMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
+import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
@@ -86,6 +89,14 @@ public final class LunaCorePlugin extends JavaPlugin {
 			() -> backendStatusView.currentBackendMetadata()
 				.orElseGet(() -> new BackendMetadata(PaperHeartbeatPublisher.resolveServerName(this, configStore), "", "").sanitize())
 		);
+		pluginMessaging.registerIncoming(CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH, context -> {
+			PluginMessageReader reader = PluginMessageReader.of(context.payload());
+			String reason = reader.readUtf();
+			String backendName = reader.readUtf();
+			coreLogger.debug("Nhận yêu cầu heartbeat publish ngay từ proxy. reason=" + reason + ", backend=" + backendName);
+			heartbeatPublisher.publishNow();
+			return PluginMessageDispatchResult.HANDLED;
+		});
 		ToastService toastService = new AdvancementToastService(this);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
 		boolean selectorDiagnosticsEnabled = configStore.get("diagnostics.selector.enabled").asBoolean(true);

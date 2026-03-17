@@ -147,6 +147,14 @@ public final class PaperHeartbeatPublisher {
 		});
 	}
 
+	public void publishNow() {
+		if (taskId == -1) {
+			return;
+		}
+
+		publishNowAsync();
+	}
+
 	public void stop() {
 		stopInternal(false);
 	}

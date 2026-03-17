@@ -12,9 +12,11 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
+import dev.belikhun.luna.core.api.messaging.CoreHeartbeatMessageChannels;
 import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
+import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventType;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
@@ -165,7 +167,7 @@ public final class LunaCoreVelocityPlugin {
 
 		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
 		nextPluginMessagingBus.updateAmqpConfig(amqpMessagingConfig);
-		registerMessagingHandlers(nextPluginMessagingBus);
+		registerMessagingHandlers(nextPluginMessagingBus, nextBackendStatusRegistry);
 
 		teardownRuntime();
 
@@ -509,7 +511,39 @@ public final class LunaCoreVelocityPlugin {
 		tabLoadHandler = null;
 	}
 
-	private void registerMessagingHandlers(VelocityPluginMessagingBus bus) {
+	private void registerMessagingHandlers(VelocityPluginMessagingBus bus, VelocityBackendStatusRegistry statusRegistry) {
+		bus.registerOutgoing(CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH);
+		statusRegistry.addHeartbeatListener(event -> {
+			if (event == null || event.current() == null) {
+				return;
+			}
+
+			BackendHeartbeatEventType eventType = event.type();
+			if (eventType != BackendHeartbeatEventType.SERVER_OFFLINE && eventType != BackendHeartbeatEventType.SERVER_ONLINE) {
+				return;
+			}
+
+			String changedServer = event.current().serverName();
+			String reason = eventType == BackendHeartbeatEventType.SERVER_ONLINE ? "backend_online" : "backend_offline";
+			int notified = 0;
+			for (com.velocitypowered.api.proxy.server.RegisteredServer registeredServer : proxyServer.getAllServers()) {
+				String targetName = registeredServer.getServerInfo().getName();
+				if (targetName != null && changedServer != null && targetName.equalsIgnoreCase(changedServer)) {
+					continue;
+				}
+
+				boolean sent = bus.send(registeredServer, CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH, writer -> {
+					writer.writeUtf(reason);
+					writer.writeUtf(changedServer == null ? "" : changedServer);
+				});
+				if (sent) {
+					notified++;
+				}
+			}
+
+			logger.debug("Heartbeat relay: event=" + eventType.name() + ", backend=" + changedServer + ", publish-notify sent=" + notified);
+		});
+
 		bus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
 			String message = PluginMessageReader.of(context.payload()).readUtf();
 			if (context.source() instanceof ServerConnection serverConnection) {

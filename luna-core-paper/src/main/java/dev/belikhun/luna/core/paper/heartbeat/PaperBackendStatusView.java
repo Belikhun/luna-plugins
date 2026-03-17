@@ -25,9 +25,14 @@ public final class PaperBackendStatusView implements BackendStatusView {
 	}
 
 	public void updateSnapshot(HeartbeatSnapshotPayload payload) {
+		boolean hadStatuses = !statuses.isEmpty();
+		BackendMetadata previousMetadata = currentBackendMetadata;
 		statuses.clear();
 		currentBackendMetadata = payload == null ? null : sanitizeMetadata(payload.currentBackendMetadata());
 		if (payload == null || payload.statuses() == null || payload.statuses().isEmpty()) {
+			if (hadStatuses || !sameMetadata(previousMetadata, currentBackendMetadata)) {
+				notifyUpdated();
+			}
 			return;
 		}
 
@@ -41,8 +46,12 @@ public final class PaperBackendStatusView implements BackendStatusView {
 	}
 
 	public void updateSnapshot(Map<String, BackendServerStatus> snapshot) {
+		boolean hadStatuses = !statuses.isEmpty();
 		statuses.clear();
 		if (snapshot == null || snapshot.isEmpty()) {
+			if (hadStatuses) {
+				notifyUpdated();
+			}
 			return;
 		}
 
@@ -57,9 +66,13 @@ public final class PaperBackendStatusView implements BackendStatusView {
 
 	public void applyDelta(HeartbeatSnapshotPayload payload) {
 		if (payload == null || payload.deltas() == null || payload.deltas().isEmpty()) {
+			BackendMetadata previousMetadata = currentBackendMetadata;
 			BackendMetadata metadata = payload == null ? null : sanitizeMetadata(payload.currentBackendMetadata());
 			if (metadata != null) {
 				currentBackendMetadata = metadata;
+				if (!sameMetadata(previousMetadata, currentBackendMetadata)) {
+					notifyUpdated();
+				}
 			}
 			return;
 		}
@@ -142,6 +155,16 @@ public final class PaperBackendStatusView implements BackendStatusView {
 
 		BackendMetadata sanitized = metadata.sanitize();
 		return sanitized.isBlank() ? null : sanitized;
+	}
+
+	private boolean sameMetadata(BackendMetadata left, BackendMetadata right) {
+		if (left == right) {
+			return true;
+		}
+		if (left == null || right == null) {
+			return false;
+		}
+		return left.sanitize().equals(right.sanitize());
 	}
 
 	private void notifyUpdated() {
