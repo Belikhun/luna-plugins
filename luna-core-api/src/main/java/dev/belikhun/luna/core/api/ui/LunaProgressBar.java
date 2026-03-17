@@ -13,6 +13,7 @@ public final class LunaProgressBar {
 	}
 
 	private static final String DEFAULT_GLYPH = "▋";
+	private static final String COLOR_CLOSE_TAG = "</c>";
 	private static final BarRenderer DEFAULT_BAR_RENDERER = context -> {
 		double percent = clampPercent(context.percent());
 		int width = Math.max(1, context.width());
@@ -29,13 +30,13 @@ public final class LunaProgressBar {
 			} else {
 				out.append(colorTag(context.filledColor()));
 				appendRepeated(out, context.glyph(), filled);
-				out.append("</color>");
+				out.append(COLOR_CLOSE_TAG);
 			}
 		}
 		if (empty > 0) {
 			out.append(colorTag(context.emptyColor()));
 			appendRepeated(out, context.glyph(), empty);
-			out.append("</color>");
+			out.append(COLOR_CLOSE_TAG);
 		}
 		return out.toString();
 	};
@@ -44,7 +45,7 @@ public final class LunaProgressBar {
 		if (context == null || context.text() == null || context.text().isBlank()) {
 			return "";
 		}
-		return colorTag(context.color()) + context.text() + "</color>";
+		return colorTag(context.color()) + context.text() + COLOR_CLOSE_TAG;
 	};
 
 	private double min;
@@ -310,11 +311,11 @@ public final class LunaProgressBar {
 	private String renderBarWithFrame() {
 		StringBuilder out = new StringBuilder();
 		if (frameEnabled) {
-			out.append(colorTag(frameColor)).append("[").append("</color>");
+			out.append(colorTag(frameColor)).append("[").append(COLOR_CLOSE_TAG);
 		}
 		out.append(renderBar());
 		if (frameEnabled) {
-			out.append(colorTag(frameColor)).append("]").append("</color>");
+			out.append(colorTag(frameColor)).append("]").append(COLOR_CLOSE_TAG);
 		}
 		return out.toString();
 	}
@@ -345,7 +346,11 @@ public final class LunaProgressBar {
 	}
 
 	private static String colorTag(String hexColor) {
-		return "<color:" + colorOrDefault(hexColor, LunaPalette.NEUTRAL_50) + ">";
+		String value = colorOrDefault(hexColor, LunaPalette.NEUTRAL_50);
+		if (value.startsWith("#")) {
+			return "<" + value + ">";
+		}
+		return "<" + value + ">";
 	}
 
 	private static String gradientTag(String[] colors) {

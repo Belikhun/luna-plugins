@@ -87,7 +87,10 @@ Return values:
 LunaVault backend PlaceholderAPI expansion:
 
 - Identifier: `lunavault`
-- Format: `%lunavault_balance%`
+- Format: `%lunavault_<key>%`
+- Available placeholders:
+	- `%lunavault_balance%`
+	- `%lunavault_rank%`
 
 ## Velocity MiniPlaceholders
 
@@ -121,7 +124,9 @@ LunaVault Velocity MiniPlaceholders:
 
 - Namespace: `lunavaultv`
 - Format: `<lunavaultv:key>`
-- Available placeholder: `<lunavaultv:balance>`
+- Available placeholders:
+	- `<lunavaultv:balance>`
+	- `<lunavaultv:rank>`
 
 ## Velocity TAB
 
@@ -149,11 +154,13 @@ Luna Core Velocity TAB placeholders:
 LunaVault Velocity TAB placeholder:
 
 - `%lunavaultv-balance%`
+- `%lunavaultv-rank%`
 
 ## Notes
 
 - Replace `<backend>` with the normalized backend name from the Velocity server selector configuration, for example `survival`.
 - LunaCore Velocity player display placeholders use `strings.user-display-format` from the LunaCore Velocity config.
 - LunaVault balance placeholders use the shared Velocity `strings.money.*` formatting config.
+- LunaVault rank placeholders return the player's current global balance rank as a plain integer string.
 - TAB integration on Velocity is optional and only registers when the `tab` plugin is installed.
 - MiniPlaceholders integration on Velocity is optional and only registers when the `miniplaceholders` plugin is installed.
