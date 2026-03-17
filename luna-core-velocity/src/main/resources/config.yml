@@ -1,4 +1,4 @@
-configVersion: 2
+configVersion: 4
 
 database:
   enabled: true
@@ -28,6 +28,7 @@ diagnostics:
     unknown-placeholder-as-error: false
 
 strings:
+  user-display-format: "%player_prefix% %displayname%"
   money:
     currencySymbol: '<#FCF0A0>⛃</#FCF0A0>'
     grouping: true
@@ -57,6 +58,12 @@ messaging:
 #   examples:
 #     <luna:online_servers>
 #     <luna:total_players>
+#     <luna:player_name>
+#     <luna:player_group_name>
+#     <luna:player_group_display>
+#     <luna:player_prefix>
+#     <luna:player_suffix>
+#     <luna:player_display>
 #     <luna:server_status_survival>
 #     <luna:server_online_survival>
 #     <luna:server_max_survival>
@@ -65,3 +72,8 @@ messaging:
 #     <luna:server_display_survival>
 #     <luna:server_color_survival>
 #     <luna:server_whitelist_survival>
+# Luna player display format:
+#   path: strings.user-display-format
+#   supported built-in placeholders:
+#     %player_prefix% %player_suffix% %player_group_name% %player_group_display% %displayname% %player_name%
+#   MiniPlaceholders tokens are also resolved when available and a player context exists.

@@ -39,6 +39,7 @@ import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolve
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityHeartbeatHttpEndpoints;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaMiniPlaceholders;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaTabPlaceholders;
 import dev.belikhun.luna.core.velocity.serverselector.VelocitySelectorServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidationReport;
@@ -61,12 +62,13 @@ import java.util.logging.Logger;
 	version = BuildConstants.VERSION,
 	description = "Luna core utilities for Velocity",
 	dependencies = {
-		@Dependency(id = "miniplaceholders", optional = true)
+		@Dependency(id = "miniplaceholders", optional = true),
+		@Dependency(id = "tab", optional = true)
 	},
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
-	private static final int CURRENT_CONFIG_VERSION = 3;
+	private static final int CURRENT_CONFIG_VERSION = 4;
 
 	private final LunaLogger logger;
 	private final Path dataDirectory;
@@ -78,6 +80,7 @@ public final class LunaCoreVelocityPlugin {
 	private VelocityServerSelectorConfig serverSelectorConfig;
 	private VelocityServerConnectCommand selectorConnectCommand;
 	private VelocityLunaMiniPlaceholders lunaMiniPlaceholders;
+	private VelocityLunaTabPlaceholders lunaTabPlaceholders;
 	private ScheduledExecutorService heartbeatSweepExecutor;
 	private Database sharedDatabase;
 
@@ -125,6 +128,8 @@ public final class LunaCoreVelocityPlugin {
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
 		AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(rootConfig);
 		VelocityMoneyFormat moneyFormat = VelocityMoneyFormat.fromConfig(rootConfig);
+		LuckPermsService luckPermsService = new LuckPermsService();
+		VelocityPlayerDisplayFormat playerDisplayFormat = VelocityPlayerDisplayFormat.fromConfig(rootConfig, luckPermsService);
 
 		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
 		Database nextDatabase = createSharedDatabase(databaseConfig);
@@ -177,14 +182,16 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(Database.class, sharedDatabase);
-		dependencyManager.registerSingleton(LuckPermsService.class, new LuckPermsService());
+		dependencyManager.registerSingleton(LuckPermsService.class, luckPermsService);
 		dependencyManager.registerSingleton(VelocityMoneyFormat.class, moneyFormat);
+		dependencyManager.registerSingleton(VelocityPlayerDisplayFormat.class, playerDisplayFormat);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
-		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
+		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, playerDisplayFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
 
 		unregisterOwnedCommands();
 		registerCommands(serverSelectorConfig);
-		registerMiniPlaceholders(nextServerDisplayResolver);
+		registerMiniPlaceholders(nextServerDisplayResolver, playerDisplayFormat);
+		registerTabPlaceholders(nextServerDisplayResolver, playerDisplayFormat);
 		httpServerManager.startIfEnabled(configPath);
 		logger.success("Đã reload LunaCore Velocity: config và modules đã được khởi tạo lại.");
 	}
@@ -217,6 +224,7 @@ public final class LunaCoreVelocityPlugin {
 					case 1 -> migrateConfigV1(current);
 					case 2 -> migrateConfigV2(current);
 					case 3 -> migrateConfigV3(current);
+					case 4 -> migrateConfigV4(current);
 					default -> throw new IllegalStateException("Unknown LunaCore Velocity config migration version: " + nextVersion);
 				}
 				version = nextVersion;
@@ -260,6 +268,7 @@ public final class LunaCoreVelocityPlugin {
 		ensureDefault(rootConfig, "strings.money.currencySymbol", "<#FCF0A0>⛃</#FCF0A0>");
 		ensureDefault(rootConfig, "strings.money.grouping", true);
 		ensureDefault(rootConfig, "strings.money.format", "<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}");
+		ensureDefault(rootConfig, "strings.user-display-format", "%player_prefix% %displayname%");
 		ensureDefault(rootConfig, "logging.ansi", true);
 		ensureDefault(rootConfig, "logging.defaultScope", "LunaCoreVelocity");
 		ensureDefault(rootConfig, "logging.level", "INFO");
@@ -281,6 +290,10 @@ public final class LunaCoreVelocityPlugin {
 		ensureDefault(rootConfig, "strings.money.currencySymbol", "<#FCF0A0>⛃</#FCF0A0>");
 		ensureDefault(rootConfig, "strings.money.grouping", true);
 		ensureDefault(rootConfig, "strings.money.format", "<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}");
+	}
+
+	private void migrateConfigV4(Map<String, Object> rootConfig) {
+		ensureDefault(rootConfig, "strings.user-display-format", "%player_prefix% %displayname%");
 	}
 
 	private void ensureDefault(Map<String, Object> rootConfig, String path, Object value) {
@@ -408,18 +421,33 @@ public final class LunaCoreVelocityPlugin {
 		}
 	}
 
-	private void registerMiniPlaceholders(ServerDisplayResolver serverDisplayResolver) {
+	private void registerMiniPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
 		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
 			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace luna.");
 			return;
 		}
 
 		try {
-			lunaMiniPlaceholders = new VelocityLunaMiniPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver);
+			lunaMiniPlaceholders = new VelocityLunaMiniPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
 			lunaMiniPlaceholders.register();
 		} catch (Throwable throwable) {
 			logger.warn("Không thể đăng ký MiniPlaceholders namespace luna: " + throwable.getMessage());
 			lunaMiniPlaceholders = null;
+		}
+	}
+
+	private void registerTabPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
+		if (proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
+			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholders %luna_*%.");
+			return;
+		}
+
+		try {
+			lunaTabPlaceholders = new VelocityLunaTabPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
+			lunaTabPlaceholders.register();
+		} catch (Throwable throwable) {
+			logger.warn("Không thể đăng ký TAB placeholders %luna_*%: " + throwable.getMessage());
+			lunaTabPlaceholders = null;
 		}
 	}
 
@@ -468,6 +496,10 @@ public final class LunaCoreVelocityPlugin {
 		if (lunaMiniPlaceholders != null) {
 			lunaMiniPlaceholders.unregister();
 			lunaMiniPlaceholders = null;
+		}
+		if (lunaTabPlaceholders != null) {
+			lunaTabPlaceholders.unregister();
+			lunaTabPlaceholders = null;
 		}
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.close();

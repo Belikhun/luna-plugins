@@ -15,7 +15,6 @@ import java.util.Set;
 public final class VelocityMessengerConfig {
 	private final FormatProfile defaults;
 	private final Map<String, FormatProfile> perServer;
-	private final String userDisplayFormat;
 	private final MentionConfig mentions;
 	private final SilentBroadcastConfig silentBroadcast;
 	private final DiscordConfig discord;
@@ -25,7 +24,6 @@ public final class VelocityMessengerConfig {
 	private VelocityMessengerConfig(
 		FormatProfile defaults,
 		Map<String, FormatProfile> perServer,
-		String userDisplayFormat,
 		MentionConfig mentions,
 		SilentBroadcastConfig silentBroadcast,
 		DiscordConfig discord,
@@ -34,7 +32,6 @@ public final class VelocityMessengerConfig {
 	) {
 		this.defaults = defaults;
 		this.perServer = perServer;
-		this.userDisplayFormat = userDisplayFormat;
 		this.mentions = mentions;
 		this.silentBroadcast = silentBroadcast;
 		this.discord = discord;
@@ -63,7 +60,6 @@ public final class VelocityMessengerConfig {
 		return new VelocityMessengerConfig(
 			defaults,
 			Map.copyOf(perServer),
-			str(formats.get("user-display-format"), "%player_prefix% %displayname%"),
 			mentions,
 			silentBroadcast,
 			discord,
@@ -89,10 +85,6 @@ public final class VelocityMessengerConfig {
 
 	public SilentBroadcastConfig silentBroadcast() {
 		return silentBroadcast;
-	}
-
-	public String userDisplayFormat() {
-		return userDisplayFormat;
 	}
 
 	public RateLimitConfig rateLimit() {

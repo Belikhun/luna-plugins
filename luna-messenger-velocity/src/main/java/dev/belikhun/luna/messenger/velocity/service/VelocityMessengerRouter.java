@@ -17,8 +17,8 @@ import dev.belikhun.luna.core.api.messenger.MessengerResultType;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
-import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
+import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
@@ -57,7 +57,7 @@ public final class VelocityMessengerRouter {
 	private volatile VelocityMessengerConfig config;
 	private final ProxyMessageTemplateRenderer renderer;
 	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
-	private final LuckPermsService luckPermsService;
+	private final VelocityPlayerDisplayFormat playerDisplayFormat;
 	private final ServerDisplayResolver serverDisplayResolver;
 	private volatile DiscordBridgeGateway discordBridge;
 	private final Map<UUID, MessagingContext> contextByPlayer;
@@ -79,7 +79,7 @@ public final class VelocityMessengerRouter {
 		PluginMessageBus<Object, Object> bus,
 		VelocityMessengerConfig config,
 		ProxyMessageTemplateRenderer renderer,
-		LuckPermsService luckPermsService,
+		VelocityPlayerDisplayFormat playerDisplayFormat,
 		ServerDisplayResolver serverDisplayResolver,
 		DiscordBridgeGateway discordBridge
 	) {
@@ -89,7 +89,7 @@ public final class VelocityMessengerRouter {
 		this.config = config;
 		this.renderer = renderer;
 		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
-		this.luckPermsService = luckPermsService;
+		this.playerDisplayFormat = playerDisplayFormat;
 		this.serverDisplayResolver = serverDisplayResolver;
 		this.discordBridge = discordBridge;
 		this.contextByPlayer = new ConcurrentHashMap<>();
@@ -1508,16 +1508,7 @@ public final class VelocityMessengerRouter {
 	}
 
 	private String resolvePresencePlayerPrefix(Player player) {
-		if (player == null) {
-			return "";
-		}
-
-		try {
-			return luckPermsService.getPlayerPrefix(player.getUniqueId());
-		} catch (Throwable throwable) {
-			logger.debug("Không thể lấy prefix từ LuckPerms cho " + player.getUsername() + ": " + throwable.getMessage());
-			return "";
-		}
+		return playerDisplayFormat.playerPrefix(player);
 	}
 
 	private String serverDisplay(String serverName) {
@@ -1541,20 +1532,7 @@ public final class VelocityMessengerRouter {
 	}
 
 	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {
-		String displayName = fallbackDisplayName == null ? "" : fallbackDisplayName;
-		String format = config.userDisplayFormat();
-		String internalRendered = renderRaw(format, Map.of(
-			"player_prefix", playerPrefix == null ? "" : playerPrefix,
-			"displayname", displayName,
-			"player_name", displayName,
-			"sender_name", displayName,
-			"target_name", displayName,
-			"receiver_name", displayName
-		));
-		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered);
-		String rendered = renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
-		String normalized = rendered == null ? "" : rendered.trim();
-		return normalized.isEmpty() ? displayName : normalized;
+		return playerDisplayFormat.format(player, fallbackDisplayName, backendValues);
 	}
 
 	private String resolveAvatarUrl(Player player, Map<String, String> resolvedValues) {

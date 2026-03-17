@@ -8,6 +8,7 @@ dependencies {
 	implementation(libs.mariadb.jdbc)
 	compileOnly(libs.velocity.api)
 	compileOnly(libs.miniplaceholders.api)
+	compileOnly(libs.tab.api)
 	annotationProcessor(libs.velocity.api)
 }
 

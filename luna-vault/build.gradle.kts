@@ -7,6 +7,7 @@ dependencies {
 	compileOnly(project(":luna-core-velocity"))
 	compileOnly(libs.velocity.api)
 	compileOnly(libs.miniplaceholders.api)
+	compileOnly(libs.tab.api)
 	annotationProcessor(libs.velocity.api)
 }
 

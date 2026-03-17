@@ -12,6 +12,7 @@ public record LunaCoreVelocityServices(
 	ProxyServer proxyServer,
 	LunaLogger logger,
 	VelocityMoneyFormat moneyFormat,
+	VelocityPlayerDisplayFormat playerDisplayFormat,
 	DependencyManager dependencyManager,
 	VelocityHttpServerManager httpServerManager,
 	VelocityPluginMessagingBus pluginMessagingBus,

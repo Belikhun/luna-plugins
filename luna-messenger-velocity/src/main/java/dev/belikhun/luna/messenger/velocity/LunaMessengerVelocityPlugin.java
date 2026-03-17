@@ -19,6 +19,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerBroadcastCommand;
@@ -91,6 +92,7 @@ public final class LunaMessengerVelocityPlugin {
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
 		currentConfig = config;
+		VelocityPlayerDisplayFormat playerDisplayFormat = LunaCoreVelocity.services().playerDisplayFormat();
 		serverDisplayResolver = LunaCoreVelocity.services().dependencyManager()
 			.resolveOptional(ServerDisplayResolver.class)
 			.orElse(new ServerDisplayResolver() {
@@ -106,7 +108,7 @@ public final class LunaMessengerVelocityPlugin {
 			});
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
 		discordBridge = createDiscordGateway(config, discordCommandRegistry);
-		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), luckPermsService, serverDisplayResolver, discordBridge);
+		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), playerDisplayFormat, serverDisplayResolver, discordBridge);
 		stateStore = new VelocityMessengerStateStore(dataDirectory.resolve("state.bin"), logger);
 		router.restorePersistentState(stateStore.load());
 		router.registerChannels();

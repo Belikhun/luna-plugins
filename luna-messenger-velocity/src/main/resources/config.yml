@@ -42,9 +42,9 @@ server-protection:
 #
 # 1) Channel/Chat format placeholders
 #    - %sender_name%: Tên người gửi
-#    - %player_display%: Tên hiển thị người chơi theo formats.user-display-format
-#    - %sender_display%: Tên hiển thị người gửi theo formats.user-display-format
-#    - %receiver_display%: Tên hiển thị người nhận theo formats.user-display-format
+#    - %player_display%: Tên hiển thị người chơi theo LunaCore strings.user-display-format
+#    - %sender_display%: Tên hiển thị người gửi theo LunaCore strings.user-display-format
+#    - %receiver_display%: Tên hiển thị người nhận theo LunaCore strings.user-display-format
 #    - %server_name%: Tên backend server hiện tại (Velocity)
 #    - %server_display%: Tên hiển thị server (resolve từ LunaCore selector)
 #    - %server_color%: Màu nhấn của server (resolve từ LunaCore selector)
@@ -126,10 +126,6 @@ silent-broadcast:
   prefix: "<dark_gray>[xuỵt]</dark_gray> "
 
 formats:
-  # Format tập trung để hiển thị người chơi, dùng cho %player_display%/%sender_display%/%receiver_display%.
-  # Placeholder dùng được: %player_prefix%, %displayname%, %player_name% và third-party placeholders.
-  user-display-format: "%player_prefix% %displayname%"
-
   defaults:
     # Placeholder dùng được: %player_name%, %player_prefix%, %player_display%, %server_name%, %channel_name%, %message%, %player_avatar_url%
     channel:
