@@ -44,6 +44,9 @@ import dev.belikhun.luna.core.velocity.serverselector.VelocitySelectorServerDisp
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidationReport;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidator;
+import me.neznamy.tab.api.TabAPI;
+import me.neznamy.tab.api.event.EventHandler;
+import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -81,6 +84,7 @@ public final class LunaCoreVelocityPlugin {
 	private VelocityServerConnectCommand selectorConnectCommand;
 	private VelocityLunaMiniPlaceholders lunaMiniPlaceholders;
 	private VelocityLunaTabPlaceholders lunaTabPlaceholders;
+	private EventHandler<TabLoadEvent> tabLoadHandler;
 	private ScheduledExecutorService heartbeatSweepExecutor;
 	private Database sharedDatabase;
 
@@ -96,12 +100,14 @@ public final class LunaCoreVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		ensureTabReloadHookRegistered();
 		reloadModules();
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		unregisterTabReloadHook();
 		teardownRuntime();
 		unregisterOwnedCommands();
 		dependencyManager.clear();
@@ -449,6 +455,58 @@ public final class LunaCoreVelocityPlugin {
 			logger.error("Không thể đăng ký TAB placeholders %lunav-*%.", throwable);
 			lunaTabPlaceholders = null;
 		}
+	}
+
+	private void ensureTabReloadHookRegistered() {
+		if (tabLoadHandler != null || proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() == null) {
+				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholders sau /tab reload.");
+				return;
+			}
+
+			tabLoadHandler = event -> {
+				if (dependencyManager == null) {
+					return;
+				}
+
+				ServerDisplayResolver serverDisplayResolver = dependencyManager.resolveOptional(ServerDisplayResolver.class).orElse(null);
+				VelocityPlayerDisplayFormat playerDisplayFormat = dependencyManager.resolveOptional(VelocityPlayerDisplayFormat.class).orElse(null);
+				if (serverDisplayResolver == null || playerDisplayFormat == null) {
+					logger.warn("Bỏ qua đăng ký lại TAB placeholders vì LunaCore Velocity services chưa sẵn sàng.");
+					return;
+				}
+
+				try {
+					registerTabPlaceholders(serverDisplayResolver, playerDisplayFormat);
+					logger.audit("Đã đăng ký lại TAB placeholders của LunaCore sau /tab reload.");
+				} catch (Throwable throwable) {
+					logger.error("Không thể đăng ký lại TAB placeholders của LunaCore sau /tab reload.", throwable);
+				}
+			};
+			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
+		} catch (Throwable throwable) {
+			tabLoadHandler = null;
+			logger.warn("Không thể gắn listener TabLoadEvent cho LunaCore Velocity: " + throwable.getMessage());
+		}
+	}
+
+	private void unregisterTabReloadHook() {
+		if (tabLoadHandler == null) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() != null) {
+				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
+			}
+		} catch (Throwable ignored) {
+		}
+
+		tabLoadHandler = null;
 	}
 
 	private void registerMessagingHandlers(VelocityPluginMessagingBus bus) {

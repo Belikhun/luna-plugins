@@ -36,6 +36,9 @@ import dev.belikhun.luna.vault.placeholder.VelocityVaultMiniPlaceholders;
 import dev.belikhun.luna.vault.placeholder.VelocityVaultTabPlaceholders;
 import dev.belikhun.luna.vault.service.VelocityVaultConfig;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
+import me.neznamy.tab.api.TabAPI;
+import me.neznamy.tab.api.event.EventHandler;
+import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.io.InputStream;
 import java.nio.file.Path;
@@ -64,6 +67,7 @@ public final class LunaVaultVelocityPlugin {
 	private VelocityVaultService vaultService;
 	private VelocityVaultMiniPlaceholders miniPlaceholders;
 	private VelocityVaultTabPlaceholders tabPlaceholders;
+	private EventHandler<TabLoadEvent> tabLoadHandler;
 
 	@Inject
 	public LunaVaultVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -75,6 +79,7 @@ public final class LunaVaultVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		ensureTabReloadHookRegistered();
 		dependencyManager = LunaCoreVelocity.services().dependencyManager();
 		VelocityVaultConfig config = VelocityVaultConfig.load(dataDirectory.resolve("config.yml"));
 		Database database = dependencyManager.resolveOptional(Database.class).orElse(new NoopDatabase());
@@ -134,6 +139,7 @@ public final class LunaVaultVelocityPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		unregisterTabReloadHook();
 		if (miniPlaceholders != null) {
 			miniPlaceholders.unregister();
 			miniPlaceholders = null;
@@ -199,6 +205,51 @@ public final class LunaVaultVelocityPlugin {
 			logger.warn("Không thể đăng ký TAB placeholder %lunavaultv-balance%: " + throwable.getMessage());
 			tabPlaceholders = null;
 		}
+	}
+
+	private void ensureTabReloadHookRegistered() {
+		if (tabLoadHandler != null || proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() == null) {
+				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholder LunaVault sau /tab reload.");
+				return;
+			}
+
+			tabLoadHandler = event -> {
+				if (vaultService == null) {
+					return;
+				}
+
+				try {
+					registerTabPlaceholders();
+					logger.audit("Đã đăng ký lại TAB placeholder của LunaVault sau /tab reload.");
+				} catch (Throwable throwable) {
+					logger.warn("Không thể đăng ký lại TAB placeholder của LunaVault sau /tab reload: " + throwable.getMessage());
+				}
+			};
+			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
+		} catch (Throwable throwable) {
+			tabLoadHandler = null;
+			logger.warn("Không thể gắn listener TabLoadEvent cho LunaVault: " + throwable.getMessage());
+		}
+	}
+
+	private void unregisterTabReloadHook() {
+		if (tabLoadHandler == null) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() != null) {
+				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
+			}
+		} catch (Throwable ignored) {
+		}
+
+		tabLoadHandler = null;
 	}
 
 	private VaultRpcResponse handleRequest(VaultRpcRequest request) {
