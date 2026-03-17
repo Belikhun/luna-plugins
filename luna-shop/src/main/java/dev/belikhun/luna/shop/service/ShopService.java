@@ -1,7 +1,6 @@
 package dev.belikhun.luna.shop.service;
 
 import dev.belikhun.luna.core.paper.LunaCore;
-import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;

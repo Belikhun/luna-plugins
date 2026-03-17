@@ -272,10 +272,6 @@ public final class LunaVaultEconomyProvider implements Economy {
 		return online != null ? online : Bukkit.getOfflinePlayer(playerName);
 	}
 
-	private String formatMinor(long minor) {
-		return Formatters.money(coreConfig, minor, VaultMoney.SCALE);
-	}
-
 	private EconomyResponse success(double amount, double balance, String message) {
 		return new EconomyResponse(amount, balance, EconomyResponse.ResponseType.SUCCESS, message == null ? "Successful" : message);
 	}

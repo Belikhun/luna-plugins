@@ -37,7 +37,6 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -52,7 +51,6 @@ import java.util.logging.Logger;
 )
 public final class LunaVaultVelocityPlugin {
 	private final ProxyServer proxyServer;
-	@SuppressWarnings("unused")
 	private final Path dataDirectory;
 	private final LunaLogger logger;
 	private VelocityPluginMessagingBus pluginMessagingBus;

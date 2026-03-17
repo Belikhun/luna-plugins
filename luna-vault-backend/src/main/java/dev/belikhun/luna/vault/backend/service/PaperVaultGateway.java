@@ -23,6 +23,7 @@ import java.util.concurrent.TimeoutException;
 
 public final class PaperVaultGateway implements LunaVaultApi {
 	private final JavaPlugin plugin;
+	@SuppressWarnings("unused")
 	private final LunaLogger logger;
 	private final PluginMessageBus<Player, Player> bus;
 	private final long requestTimeoutMillis;
