@@ -62,6 +62,8 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private static final long SYNC_REQUEST_THROTTLE_MS = 1500L;
 	private static final float DEFAULT_WALK_SPEED = 0.2F;
 	private static final float DEFAULT_FLY_SPEED = 0.1F;
+	private static final int BLINDNESS_DURATION_TICKS = 600;
+	private static final int LOCK_EFFECT_DURATION_TICKS = 220;
 	private static final Component MODE_SELECTOR_TITLE = Component.text("Chọn kiểu tài khoản");
 	private static final int SLOT_PREMIUM = 3;
 	private static final int SLOT_OFFLINE = 5;
@@ -148,6 +150,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 					hidePrompt(player);
 					continue;
 				}
+				if (spawnService.hasSpawn()) {
+					spawnService.teleportToSpawn(player);
+				}
+				refreshLockEffects(player);
 				showPrompt(player);
 			}
 		}, 20L, 20L);
@@ -552,9 +558,13 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		player.setWalkSpeed(0F);
 		player.setFlySpeed(0F);
 		player.setVelocity(new Vector(0D, 0D, 0D));
-		player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, 220, 0, false, false, false));
-		player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 220, 10, false, false, false));
-		player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, 220, 128, false, false, false));
+		refreshLockEffects(player);
+	}
+
+	private void refreshLockEffects(Player player) {
+		player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, BLINDNESS_DURATION_TICKS, 0, false, false, false));
+		player.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, LOCK_EFFECT_DURATION_TICKS, 10, false, false, false));
+		player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP_BOOST, LOCK_EFFECT_DURATION_TICKS, 128, false, false, false));
 	}
 
 	private void releaseAuthLock(Player player) {

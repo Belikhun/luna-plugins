@@ -103,7 +103,7 @@ public final class LunaYamlConfig {
 			Class<?> dumperOptionsClass = Class.forName("org.yaml.snakeyaml.DumperOptions");
 			Object dumperOptions = dumperOptionsClass.getConstructor().newInstance();
 			Class<?> flowStyleClass = Class.forName("org.yaml.snakeyaml.DumperOptions$FlowStyle");
-			Object blockFlowStyle = Enum.valueOf((Class<Enum>) flowStyleClass.asSubclass(Enum.class), "BLOCK");
+			Object blockFlowStyle = flowStyleClass.getField("BLOCK").get(null);
 			dumperOptionsClass.getMethod("setDefaultFlowStyle", flowStyleClass).invoke(dumperOptions, blockFlowStyle);
 			dumperOptionsClass.getMethod("setPrettyFlow", boolean.class).invoke(dumperOptions, true);
 			dumperOptionsClass.getMethod("setIndent", int.class).invoke(dumperOptions, 2);

@@ -54,7 +54,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
-import java.io.InputStream;
 
 @Plugin(
 	id = "lunacore",

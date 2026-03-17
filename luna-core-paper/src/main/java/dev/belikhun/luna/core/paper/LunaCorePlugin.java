@@ -34,7 +34,6 @@ import dev.belikhun.luna.core.paper.toast.AdvancementToastService;
 import dev.belikhun.luna.core.paper.toast.ToastService;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
