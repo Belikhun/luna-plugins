@@ -3,6 +3,7 @@ package dev.belikhun.luna.vault.command;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
@@ -25,7 +26,7 @@ public final class BalanceCommand implements SimpleCommand {
 		}
 
 		if (invocation.arguments().length > 0) {
-			player.sendRichMessage("<yellow>ℹ Dùng: /balance</yellow>");
+			player.sendRichMessage(CommandStrings.usage("/balance"));
 			return;
 		}
 

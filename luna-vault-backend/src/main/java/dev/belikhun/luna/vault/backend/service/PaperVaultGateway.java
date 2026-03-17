@@ -5,8 +5,11 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
+import dev.belikhun.luna.vault.api.VaultCacheRefresh;
 import dev.belikhun.luna.vault.api.VaultChannels;
+import dev.belikhun.luna.vault.api.VaultLeaderboardPage;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
+import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcAction;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcRequest;
@@ -28,6 +31,7 @@ public final class PaperVaultGateway implements LunaVaultApi {
 	private final PluginMessageBus<Player, Player> bus;
 	private final long requestTimeoutMillis;
 	private final Map<UUID, CompletableFuture<VaultRpcResponse>> pendingRequests;
+	private final PaperVaultPlayerStateCache stateCache;
 
 	public PaperVaultGateway(JavaPlugin plugin, LunaLogger logger, PluginMessageBus<Player, Player> bus, long requestTimeoutMillis) {
 		this.plugin = plugin;
@@ -35,10 +39,21 @@ public final class PaperVaultGateway implements LunaVaultApi {
 		this.bus = bus;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.pendingRequests = new ConcurrentHashMap<>();
+		this.stateCache = new PaperVaultPlayerStateCache();
 	}
 
 	public void registerChannels() {
 		bus.registerOutgoing(VaultChannels.RPC);
+		bus.registerIncoming(VaultChannels.CACHE_SYNC, context -> {
+			PluginMessageReader reader = PluginMessageReader.of(context.payload());
+			String kind = reader.readUtf();
+			if (!"refresh".equals(kind)) {
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
+			stateCache.apply(VaultCacheRefresh.readFrom(reader));
+			return PluginMessageDispatchResult.HANDLED;
+		});
 		bus.registerIncoming(VaultChannels.RPC, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String kind = reader.readUtf();
@@ -56,6 +71,7 @@ public final class PaperVaultGateway implements LunaVaultApi {
 	}
 
 	public void close() {
+		bus.unregisterIncoming(VaultChannels.CACHE_SYNC);
 		bus.unregisterOutgoing(VaultChannels.RPC);
 		bus.unregisterIncoming(VaultChannels.RPC);
 		pendingRequests.values().forEach(future -> future.completeExceptionally(new IllegalStateException("LunaVaultBackend đang tắt.")));
@@ -63,10 +79,19 @@ public final class PaperVaultGateway implements LunaVaultApi {
 	}
 
 	@Override
-	public CompletableFuture<Long> balance(UUID playerId, String playerName) {
+	public CompletableFuture<VaultPlayerSnapshot> snapshot(UUID playerId, String playerName) {
+		if (playerId == null) {
+			return CompletableFuture.completedFuture(VaultPlayerSnapshot.empty(null, playerName));
+		}
+
+		VaultPlayerSnapshot cached = stateCache.get(playerId);
+		if (cached != null) {
+			return CompletableFuture.completedFuture(cached);
+		}
+
 		return send(selectCarrier(playerId), new VaultRpcRequest(
 			UUID.randomUUID(),
-			VaultRpcAction.BALANCE,
+			VaultRpcAction.SNAPSHOT,
 			null,
 			null,
 			playerId,
@@ -78,7 +103,19 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			null,
 			0,
 			1
-		)).thenApply(response -> response.result().balanceMinor());
+		)).thenApply(response -> {
+			VaultPlayerSnapshot snapshot = response.snapshot();
+			if (snapshot != null && snapshot.playerId() != null) {
+				stateCache.put(snapshot);
+				return snapshot;
+			}
+			return VaultPlayerSnapshot.empty(playerId, playerName);
+		});
+	}
+
+	@Override
+	public CompletableFuture<Long> balance(UUID playerId, String playerName) {
+		return snapshot(playerId, playerName).thenApply(VaultPlayerSnapshot::balanceMinor);
 	}
 
 	@Override
@@ -97,7 +134,13 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			details,
 			0,
 			1
-		)).thenApply(VaultRpcResponse::result);
+		)).thenApply(response -> {
+			VaultOperationResult result = response.result();
+			if (result.success()) {
+				stateCache.remove(playerId);
+			}
+			return result;
+		});
 	}
 
 	@Override
@@ -116,7 +159,13 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			details,
 			0,
 			1
-		)).thenApply(VaultRpcResponse::result);
+		)).thenApply(response -> {
+			VaultOperationResult result = response.result();
+			if (result.success()) {
+				stateCache.remove(playerId);
+			}
+			return result;
+		});
 	}
 
 	@Override
@@ -135,7 +184,14 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			details,
 			0,
 			1
-		)).thenApply(VaultRpcResponse::result);
+		)).thenApply(response -> {
+			VaultOperationResult result = response.result();
+			if (result.success()) {
+				stateCache.remove(senderId);
+				stateCache.remove(receiverId);
+			}
+			return result;
+		});
 	}
 
 	@Override
@@ -154,7 +210,13 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			details,
 			0,
 			1
-		)).thenApply(VaultRpcResponse::result);
+		)).thenApply(response -> {
+			VaultOperationResult result = response.result();
+			if (result.success()) {
+				stateCache.remove(playerId);
+			}
+			return result;
+		});
 	}
 
 	@Override
@@ -174,6 +236,11 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			page,
 			pageSize
 		)).thenApply(VaultRpcResponse::page);
+	}
+
+	@Override
+	public CompletableFuture<VaultLeaderboardPage> leaderboard(int page, int pageSize) {
+		return CompletableFuture.failedFuture(new UnsupportedOperationException("Bảng xếp hạng chỉ hỗ trợ trên Velocity."));
 	}
 
 	private CompletableFuture<VaultRpcResponse> send(Player carrier, VaultRpcRequest request) {

@@ -8,6 +8,7 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.core.velocity.serverselector.ServerSelectorStatus;
@@ -64,7 +65,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		String[] args = invocation.arguments();
 		if (args.length == 0) {
 			if (!openMenuOnEmpty) {
-				source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/connect <server></white></yellow>");
+				source.sendRichMessage(CommandStrings.usage("/connect", CommandStrings.required("server", "text")));
 				return;
 			}
 			openSelector(player);

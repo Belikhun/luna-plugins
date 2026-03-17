@@ -30,6 +30,7 @@ public final class VelocityVaultMiniPlaceholders {
 			.author("Belikhun")
 			.version(BuildConstants.VERSION)
 			.audiencePlaceholder(Player.class, "balance", (player, queue, context) -> textTag(balance(player)))
+			.audiencePlaceholder(Player.class, "rank", (player, queue, context) -> textTag(rank(player)))
 			.build();
 		expansion.register();
 		logger.success("Đã đăng ký MiniPlaceholders namespace <lunavaultv> cho Velocity.");
@@ -52,6 +53,14 @@ public final class VelocityVaultMiniPlaceholders {
 		}
 
 		return values.balance(player.getUniqueId(), player.getUsername());
+	}
+
+	private String rank(Player player) {
+		if (player == null) {
+			return "";
+		}
+
+		return values.rank(player.getUniqueId(), player.getUsername());
 	}
 
 	private Tag textTag(String value) {

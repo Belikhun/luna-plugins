@@ -3,18 +3,23 @@ package dev.belikhun.luna.vault.command;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.service.LegacyBalanceImportService;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 public final class EcoAdminCommand implements SimpleCommand {
 	private static final String PERMISSION_ADMIN = "lunavault.admin";
-	private static final List<String> SUBCOMMANDS = List.of("get", "set", "add", "take");
+	private static final List<String> SUBCOMMANDS = List.of("get", "set", "add", "take", "importbalances");
 	private static final List<String> AMOUNT_SUGGESTIONS = List.of("10.00", "100.00", "1000.00");
+	private static final List<String> IMPORT_FLAGS = List.of("--apply", "--overwrite", "--include-zero");
 
 	private final VelocityVaultService vaultService;
 
@@ -38,8 +43,13 @@ public final class EcoAdminCommand implements SimpleCommand {
 
 		String subcommand = args[0].trim().toLowerCase();
 		if (!SUBCOMMANDS.contains(subcommand)) {
-			source.sendRichMessage("<red>❌ Hành động không hợp lệ. Dùng: get, set, add, take.</red>");
+			source.sendRichMessage("<red>❌ Hành động không hợp lệ. Dùng: get, set, add, take, importbalances.</red>");
 			sendUsage(source);
+			return;
+		}
+
+		if ("importbalances".equals(subcommand)) {
+			handleImportBalances(source, args);
 			return;
 		}
 
@@ -94,6 +104,12 @@ public final class EcoAdminCommand implements SimpleCommand {
 		if (args.length == 2) {
 			return vaultService.suggestTargets(args[1]);
 		}
+		if (args.length >= 2 && "importbalances".equalsIgnoreCase(args[0])) {
+			String partial = args[args.length - 1];
+			return IMPORT_FLAGS.stream()
+				.filter(value -> partial.isBlank() || value.regionMatches(true, 0, partial, 0, partial.length()))
+				.toList();
+		}
 		if (args.length == 3 && !"get".equalsIgnoreCase(args[0])) {
 			String partial = args[2];
 			return AMOUNT_SUGGESTIONS.stream()
@@ -114,10 +130,88 @@ public final class EcoAdminCommand implements SimpleCommand {
 	}
 
 	private void sendUsage(CommandSource source) {
-		source.sendRichMessage("<yellow>ℹ Dùng: /eco get <người_chơi></yellow>");
-		source.sendRichMessage("<yellow>ℹ Dùng: /eco set <người_chơi> <số_tiền></yellow>");
-		source.sendRichMessage("<yellow>ℹ Dùng: /eco add <người_chơi> <số_tiền></yellow>");
-		source.sendRichMessage("<yellow>ℹ Dùng: /eco take <người_chơi> <số_tiền></yellow>");
+		source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("get"), CommandStrings.required("người_chơi", "text")));
+		source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("set"), CommandStrings.required("người_chơi", "text"), CommandStrings.required("số_tiền", "number")));
+		source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("add"), CommandStrings.required("người_chơi", "text"), CommandStrings.required("số_tiền", "number")));
+		source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("take"), CommandStrings.required("người_chơi", "text"), CommandStrings.required("số_tiền", "number")));
+		source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("importbalances"), CommandStrings.required("đường_dẫn_balances.yml", "path"), CommandStrings.optional("--apply", "flag"), CommandStrings.optional("--overwrite", "flag"), CommandStrings.optional("--include-zero", "flag")));
+	}
+
+	private void handleImportBalances(CommandSource source, String[] args) {
+		if (args.length < 2) {
+			source.sendRichMessage("<red>❌ Thiếu đường dẫn tới file balances.yml.</red>");
+			sendUsage(source);
+			return;
+		}
+
+		StringBuilder pathBuilder = new StringBuilder();
+		boolean applyChanges = false;
+		boolean overwriteExisting = false;
+		boolean includeZeroBalances = false;
+		for (int index = 1; index < args.length; index++) {
+			String token = args[index].trim();
+			if (token.isBlank()) {
+				continue;
+			}
+
+			switch (token.toLowerCase()) {
+				case "--apply" -> applyChanges = true;
+				case "--overwrite" -> overwriteExisting = true;
+				case "--include-zero" -> includeZeroBalances = true;
+				default -> {
+					if (pathBuilder.length() > 0) {
+						pathBuilder.append(' ');
+					}
+					pathBuilder.append(token);
+				}
+			}
+		}
+
+		if (pathBuilder.length() <= 0) {
+			source.sendRichMessage("<red>❌ Không thể đọc đường dẫn file import.</red>");
+			return;
+		}
+
+		Path sourcePath;
+		try {
+			sourcePath = Path.of(pathBuilder.toString());
+		} catch (InvalidPathException exception) {
+			source.sendRichMessage("<red>❌ Đường dẫn không hợp lệ: " + exception.getInput() + "</red>");
+			return;
+		}
+
+		LegacyBalanceImportService.ImportOptions options = new LegacyBalanceImportService.ImportOptions(applyChanges, overwriteExisting, includeZeroBalances);
+		LegacyBalanceImportService.ImportSummary summary;
+		try {
+			summary = vaultService.legacyBalanceImportService().importBalances(sourcePath, options);
+		} catch (IllegalArgumentException exception) {
+			source.sendRichMessage("<red>❌ " + exception.getMessage() + "</red>");
+			return;
+		} catch (RuntimeException exception) {
+			source.sendRichMessage("<red>❌ Import thất bại: " + exception.getMessage() + "</red>");
+			return;
+		}
+
+		source.sendRichMessage("<yellow>ℹ File nguồn:</yellow> <white>" + summary.sourcePath() + "</white>");
+		source.sendRichMessage("<yellow>ℹ Tổng dòng:</yellow> <white>" + summary.totalEntries() + "</white> <gray>| hợp lệ để import: " + summary.candidateEntries() + "</gray>");
+		source.sendRichMessage("<yellow>ℹ Tổng số dư hợp lệ:</yellow> " + LunaCoreVelocity.services().moneyFormat().formatMinor(summary.candidateMinor(), VaultMoney.SCALE) + "<gray>.</gray>");
+		source.sendRichMessage("<yellow>ℹ Bỏ qua:</yellow> <white>existing=" + summary.existingSkipped() + "</white> <gray>| zero=" + summary.zeroSkipped() + " | invalidUuid=" + summary.invalidUuid() + " | invalidAmount=" + summary.invalidAmount() + "</gray>");
+
+		if (!summary.options().applyChanges()) {
+			source.sendRichMessage("<green>✔ Đây là dry-run. Chưa có dữ liệu nào được ghi vào LunaVault.</green>");
+			source.sendRichMessage("<yellow>ℹ Chạy lại với </yellow>" + CommandStrings.syntaxRaw("/eco importbalances " + summary.sourcePath() + " --apply") + "<yellow> để thực thi.</yellow>");
+			if (summary.existingSkipped() > 0) {
+				source.sendRichMessage("<yellow>ℹ Thêm </yellow>" + CommandStrings.syntaxRaw("--overwrite") + "<yellow> nếu muốn ghi đè tài khoản đã tồn tại.</yellow>");
+			}
+			return;
+		}
+
+		if (summary.insertedEntries() > 0 || summary.updatedEntries() > 0) {
+			vaultService.invalidateBackendCaches();
+		}
+
+		source.sendRichMessage("<green>✔ Import hoàn tất:</green> <white>inserted=" + summary.insertedEntries() + "</white> <gray>| updated=" + summary.updatedEntries() + "</gray>");
+		source.sendRichMessage("<green>✔ Tổng số dư đã ghi:</green> " + LunaCoreVelocity.services().moneyFormat().formatMinor(summary.appliedMinor(), VaultMoney.SCALE) + "<gray> | delta=" + LunaCoreVelocity.services().moneyFormat().formatMinor(summary.deltaMinor(), VaultMoney.SCALE) + "</gray>");
 	}
 
 	private String actorName(CommandSource source) {

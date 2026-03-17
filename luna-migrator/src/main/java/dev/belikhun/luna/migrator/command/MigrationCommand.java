@@ -112,7 +112,7 @@ public final class MigrationCommand implements BasicCommand {
 			long remainMs = Math.max(1000L, pending.expiresAtEpochMillis() - System.currentTimeMillis());
 			sender.sendRichMessage(info("ℹ Đang chờ xác nhận migrate từ tên cũ ") + accent(pending.legacyUsername())
 				+ muted(" (còn " + Formatters.duration(Duration.ofMillis(remainMs)) + ").")
-				+ info(" Dùng ") + accent("/migrate confirm") + info("."));
+				+ info(" Dùng ") + CommandStrings.syntaxRaw("/migrate confirm") + info("."));
 			return;
 		}
 
@@ -356,7 +356,7 @@ public final class MigrationCommand implements BasicCommand {
 		if (legacyUsername.length() < 3 || legacyUsername.length() > 16) {
 			if (autoDetected) {
 				player.sendRichMessage(error("❌ Không tìm thấy dữ liệu cũ để migrate tự động."));
-				player.sendRichMessage(info("ℹ Nếu tên cũ khác hiện tại, dùng: ") + accent("/migrate <oldname>"));
+				player.sendRichMessage(info("ℹ Nếu tên cũ khác hiện tại, dùng: ") + CommandStrings.syntaxRaw("/migrate <oldname>"));
 				return;
 			}
 
@@ -366,7 +366,7 @@ public final class MigrationCommand implements BasicCommand {
 
 		if (!validateMigrationCandidate(player.getUniqueId(), legacyUsername, player)) {
 			if (autoDetected) {
-				player.sendRichMessage(info("ℹ Nếu tên cũ khác tên hiện tại, thử: ") + accent("/migrate <oldname>"));
+				player.sendRichMessage(info("ℹ Nếu tên cũ khác tên hiện tại, thử: ") + CommandStrings.syntaxRaw("/migrate <oldname>"));
 			}
 			return;
 		}
@@ -408,7 +408,7 @@ public final class MigrationCommand implements BasicCommand {
 		for (String line : includedDataLines()) {
 			player.sendRichMessage(promptBase("• ") + promptKeyword(line));
 		}
-		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Thực hiện ngay") + promptBase(": ") + promptAction("/migrate confirm"));
+		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Thực hiện ngay") + promptBase(": ") + CommandStrings.syntaxRaw("/migrate confirm"));
 		player.sendRichMessage(promptBase("ℹ ") + promptKeyword("Xác nhận còn hiệu lực") + promptBase(": ") + promptValue(Formatters.duration(Duration.ofMillis(remainMs))));
 		if (plugin.getConfig().getBoolean("migration.transfer.kick-after-success", true)) {
 			int countdown = Math.max(1, plugin.getConfig().getInt("migration.disconnect-countdown-seconds", DEFAULT_DISCONNECT_COUNTDOWN_SECONDS));
@@ -649,7 +649,7 @@ public final class MigrationCommand implements BasicCommand {
 
 		Player targetOnline = Bukkit.getPlayer(targetUuid);
 		if (targetOnline != null && targetOnline.isOnline() && targetOnline != sender) {
-			targetOnline.sendRichMessage(info("ℹ Quản trị viên đã clear trạng thái migrate của bạn. Bạn có thể chạy lại ") + accent("/migrate") + info(" để test."));
+			targetOnline.sendRichMessage(info("ℹ Quản trị viên đã clear trạng thái migrate của bạn. Bạn có thể chạy lại ") + CommandStrings.syntaxRaw("/migrate") + info(" để test."));
 		}
 	}
 
@@ -732,9 +732,5 @@ public final class MigrationCommand implements BasicCommand {
 
 	private String promptValue(String text) {
 		return "<color:" + LunaPalette.AMBER_300 + ">" + text + "</color>";
-	}
-
-	private String promptAction(String text) {
-		return "<color:" + LunaPalette.SUCCESS_500 + "><u>" + text + "</u></color>";
 	}
 }

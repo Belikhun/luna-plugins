@@ -7,6 +7,7 @@ import me.neznamy.tab.api.placeholder.PlaceholderManager;
 
 public final class VelocityVaultTabPlaceholders {
 	private static final String BALANCE_PLACEHOLDER = "%lunavaultv-balance%";
+	private static final String RANK_PLACEHOLDER = "%lunavaultv-rank%";
 	private static final int REFRESH_INTERVAL = -1;
 
 	private final LunaLogger logger;
@@ -23,8 +24,9 @@ public final class VelocityVaultTabPlaceholders {
 
 		PlaceholderManager manager = TabAPI.getInstance().getPlaceholderManager();
 		manager.registerPlayerPlaceholder(BALANCE_PLACEHOLDER, REFRESH_INTERVAL, player -> values.balance(player.getUniqueId(), player.getName()));
+		manager.registerPlayerPlaceholder(RANK_PLACEHOLDER, REFRESH_INTERVAL, player -> values.rank(player.getUniqueId(), player.getName()));
 		registered = true;
-		logger.success("Đã đăng ký TAB placeholder %lunavaultv-balance% cho Velocity.");
+		logger.success("Đã đăng ký TAB placeholder %lunavaultv-balance% và %lunavaultv-rank% cho Velocity.");
 	}
 
 	public void unregister() {
@@ -34,6 +36,7 @@ public final class VelocityVaultTabPlaceholders {
 
 		try {
 			TabAPI.getInstance().getPlaceholderManager().unregisterPlaceholder(BALANCE_PLACEHOLDER);
+			TabAPI.getInstance().getPlaceholderManager().unregisterPlaceholder(RANK_PLACEHOLDER);
 		} catch (Throwable ignored) {
 		}
 

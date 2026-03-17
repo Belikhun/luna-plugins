@@ -3,6 +3,7 @@ package dev.belikhun.luna.messenger.velocity.service.discord;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.messenger.velocity.service.DiscordAccountLinkService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.User;
@@ -42,7 +43,7 @@ public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 	@Override
 	public boolean handleMessage(MessageReceivedEvent event, List<String> args) {
 		if (args.isEmpty()) {
-			replyMessage(event, "❌ Sai cú pháp. Dùng: /link <mã_4_số>");
+			replyMessage(event, "❌ Sai cú pháp. " + CommandStrings.plainUsage("/link", CommandStrings.required("mã_4_số", "text")));
 			return true;
 		}
 
@@ -54,7 +55,7 @@ public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 	public boolean handleSlash(SlashCommandInteractionEvent event) {
 		OptionMapping codeOption = event.getOption("code");
 		if (codeOption == null) {
-			event.reply("❌ Thiếu mã liên kết. Vui lòng dùng /link code:<mã_4_số>").setEphemeral(true).queue();
+			event.reply("❌ Thiếu mã liên kết. Vui lòng dùng " + CommandStrings.plainSyntaxRaw("/link code:<mã_4_số>")).setEphemeral(true).queue();
 			return true;
 		}
 
@@ -74,7 +75,7 @@ public final class LinkDiscordCommandHandler implements DiscordCommandHandler {
 			return;
 		}
 		if (result.expiredCode()) {
-			reply.accept("⌛ Mã liên kết đã hết hạn. Hãy chạy lại /discord link trong game để lấy mã mới.");
+			reply.accept("⌛ Mã liên kết đã hết hạn. Hãy chạy lại " + CommandStrings.plainSyntaxRaw("/discord link") + " trong game để lấy mã mới.");
 			return;
 		}
 		if (result.discordAlreadyLinked()) {

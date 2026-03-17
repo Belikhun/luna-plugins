@@ -5,6 +5,7 @@ import com.velocitypowered.api.command.SimpleCommand;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -45,7 +46,7 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 
 		String[] args = invocation.arguments();
 		if (args.length == 0) {
-			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white> <gray>|</gray> <white>/lunacoreproxy reload</white></yellow>");
+			sendUsage(source);
 			return;
 		}
 
@@ -61,7 +62,7 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 		}
 
 		if (!args[0].equalsIgnoreCase("status")) {
-			source.sendRichMessage("<yellow>ℹ Cú pháp: <white>/lunacoreproxy status [server]</white> <gray>|</gray> <white>/lunacoreproxy reload</white></yellow>");
+			sendUsage(source);
 			return;
 		}
 
@@ -94,6 +95,11 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 		}
 
 		return List.of();
+	}
+
+	private void sendUsage(CommandSource source) {
+		source.sendRichMessage(CommandStrings.usage("/lunacoreproxy", CommandStrings.literal("status"), CommandStrings.optional("server", "text")));
+		source.sendRichMessage(CommandStrings.usage("/lunacoreproxy", CommandStrings.literal("reload")));
 	}
 
 	private void showAll(CommandSource source) {

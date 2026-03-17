@@ -3,6 +3,7 @@ package dev.belikhun.luna.vault.backend.placeholder;
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import dev.belikhun.luna.vault.backend.service.PaperVaultGateway;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import org.bukkit.OfflinePlayer;
@@ -51,15 +52,18 @@ public final class PaperVaultPlaceholderExpansion extends PlaceholderExpansion {
 		}
 
 		String normalized = params.trim().toLowerCase(Locale.ROOT);
-		if (!normalized.equals("balance")) {
+		if (!normalized.equals("balance") && !normalized.equals("rank")) {
 			return "";
 		}
 
 		try {
-			long balanceMinor = gateway.balance(player.getUniqueId(), player.getName()).get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
-			return Formatters.money(coreConfig, balanceMinor, VaultMoney.SCALE);
+			VaultPlayerSnapshot snapshot = gateway.snapshot(player.getUniqueId(), player.getName()).get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
+			if (normalized.equals("rank")) {
+				return String.valueOf(snapshot.rank());
+			}
+			return Formatters.money(coreConfig, snapshot.balanceMinor(), VaultMoney.SCALE);
 		} catch (Exception exception) {
-			return Formatters.money(coreConfig, 0D);
+			return normalized.equals("rank") ? "0" : Formatters.money(coreConfig, 0D);
 		}
 	}
 }

@@ -14,6 +14,10 @@ public final class CommandStrings {
 		return "<color:" + LunaPalette.AMBER_500 + ">ℹ Dùng: </color>" + syntax(root, segments);
 	}
 
+	public static String plainUsage(String root, Segment... segments) {
+		return "ℹ Dùng: " + plainSyntax(root, segments);
+	}
+
 	public static String syntax(String root, Segment... segments) {
 		StringBuilder builder = new StringBuilder();
 		StringBuilder suggest = new StringBuilder();
@@ -25,6 +29,16 @@ public final class CommandStrings {
 			suggest.append(" ").append(plainSegment(segment));
 		}
 		return clickable(builder.toString(), suggest.toString());
+	}
+
+	public static String plainSyntax(String root, Segment... segments) {
+		StringBuilder builder = new StringBuilder();
+		String normalizedRoot = normalize(root);
+		builder.append(normalizedRoot);
+		for (Segment segment : segments) {
+			builder.append(" ").append(plainVisibleSegment(segment));
+		}
+		return builder.toString();
 	}
 
 	public static String arguments(Segment... segments) {
@@ -40,6 +54,10 @@ public final class CommandStrings {
 
 	public static String syntaxRaw(String rawCommand) {
 		return syntaxRaw(rawCommand, new Segment[0]);
+	}
+
+	public static String plainSyntaxRaw(String rawCommand) {
+		return plainSyntaxRaw(rawCommand, new Segment[0]);
 	}
 
 	public static String syntaxRaw(String rawCommand, Segment... segments) {
@@ -65,6 +83,26 @@ public final class CommandStrings {
 		return clickable(builder.toString(), suggest.toString());
 	}
 
+	public static String plainSyntaxRaw(String rawCommand, Segment... segments) {
+		if (rawCommand == null || rawCommand.isBlank()) {
+			return "";
+		}
+
+		String[] tokens = rawCommand.trim().split("\\s+");
+		if (tokens.length == 0) {
+			return "";
+		}
+
+		StringBuilder builder = new StringBuilder(normalize(tokens[0]));
+		for (int i = 1; i < tokens.length; i++) {
+			builder.append(" ").append(plainRawToken(tokens[i]));
+		}
+		for (Segment segment : segments) {
+			builder.append(" ").append(plainVisibleSegment(segment));
+		}
+		return builder.toString();
+	}
+
 	public static Segment literal(String text) {
 		return new Segment(SegmentKind.LITERAL, normalize(text), "");
 	}
@@ -86,7 +124,7 @@ public final class CommandStrings {
 	}
 
 	private static String commandName(String text) {
-		return "<color:" + LunaPalette.VIOLET_500 + ">" + normalize(text) + "</color>";
+		return "<color:" + LunaPalette.VIOLET_300 + ">" + normalize(text) + "</color>";
 	}
 
 	private static String render(Segment segment) {
@@ -121,6 +159,14 @@ public final class CommandStrings {
 			case LITERAL -> segment.name();
 			case REQUIRED -> segment.name();
 			case OPTIONAL -> segment.name();
+		};
+	}
+
+	private static String plainVisibleSegment(Segment segment) {
+		return switch (segment.kind()) {
+			case LITERAL -> segment.name();
+			case REQUIRED -> "<" + segment.name() + ">";
+			case OPTIONAL -> "[" + segment.name() + "]";
 		};
 	}
 
@@ -162,6 +208,35 @@ public final class CommandStrings {
 		}
 
 		return render(literal(value));
+	}
+
+	private static String plainRawToken(String token) {
+		String value = normalize(token);
+		if (value.startsWith("<") && value.endsWith(">") && value.length() > 2) {
+			String body = value.substring(1, value.length() - 1);
+			String[] parts = body.split(":", 2);
+			if (parts.length == 2) {
+				return plainVisibleSegment(required(parts[0], parts[1]));
+			}
+			if (body.contains("|")) {
+				return plainVisibleSegment(required("giá_trị", body));
+			}
+			return plainVisibleSegment(required(body, "text"));
+		}
+
+		if (value.startsWith("[") && value.endsWith("]") && value.length() > 2) {
+			String body = value.substring(1, value.length() - 1);
+			String[] parts = body.split(":", 2);
+			if (parts.length == 2) {
+				return plainVisibleSegment(optional(parts[0], parts[1]));
+			}
+			if (body.contains("|")) {
+				return plainVisibleSegment(optional("giá_trị", body));
+			}
+			return plainVisibleSegment(optional(body, "text"));
+		}
+
+		return literal(value).name();
 	}
 
 	private static String normalize(String value) {

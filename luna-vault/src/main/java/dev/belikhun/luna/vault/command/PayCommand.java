@@ -4,6 +4,7 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
@@ -33,7 +34,11 @@ public final class PayCommand implements SimpleCommand {
 
 		String[] args = invocation.arguments();
 		if (args.length < 2) {
-			sender.sendRichMessage("<yellow>ℹ Dùng: /pay <người_chơi> <số_tiền> [ghi_chú]</yellow>");
+			sender.sendRichMessage(CommandStrings.usage("/pay",
+				CommandStrings.required("người_chơi", "text"),
+				CommandStrings.required("số_tiền", "number"),
+				CommandStrings.optional("ghi_chú", "text")
+			));
 			return;
 		}
 

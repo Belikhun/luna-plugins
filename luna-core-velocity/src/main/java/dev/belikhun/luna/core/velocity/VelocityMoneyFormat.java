@@ -3,7 +3,6 @@ package dev.belikhun.luna.core.velocity;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.string.Formatters;
 
-import java.math.BigDecimal;
 import java.util.Map;
 
 public record VelocityMoneyFormat(

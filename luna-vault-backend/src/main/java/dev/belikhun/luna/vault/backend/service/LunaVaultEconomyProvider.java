@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
+import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
@@ -61,7 +62,7 @@ public final class LunaVaultEconomyProvider implements Economy {
 
 	@Override
 	public boolean hasAccount(OfflinePlayer player) {
-		return player != null && await(gateway.balance(player.getUniqueId(), player.getName()), 0L) >= 0L;
+		return player != null && snapshot(player) != null;
 	}
 
 	@Override
@@ -70,8 +71,8 @@ public final class LunaVaultEconomyProvider implements Economy {
 			return 0D;
 		}
 
-		long balanceMinor = await(gateway.balance(player.getUniqueId(), player.getName()), 0L);
-		return VaultMoney.toMajorDouble(balanceMinor);
+		VaultPlayerSnapshot snapshot = snapshot(player);
+		return VaultMoney.toMajorDouble(snapshot == null ? 0L : snapshot.balanceMinor());
 	}
 
 	@Override
@@ -290,5 +291,13 @@ public final class LunaVaultEconomyProvider implements Economy {
 		} catch (Exception exception) {
 			return fallback;
 		}
+	}
+
+	private VaultPlayerSnapshot snapshot(OfflinePlayer player) {
+		if (player == null) {
+			return null;
+		}
+
+		return await(gateway.snapshot(player.getUniqueId(), player.getName()), null);
 	}
 }

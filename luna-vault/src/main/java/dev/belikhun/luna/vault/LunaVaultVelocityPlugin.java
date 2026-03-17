@@ -23,12 +23,14 @@ import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultChannels;
 import dev.belikhun.luna.vault.api.VaultFailureReason;
+import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcAction;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcRequest;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcResponse;
+import dev.belikhun.luna.vault.command.BalTopCommand;
 import dev.belikhun.luna.vault.command.BalanceCommand;
 import dev.belikhun.luna.vault.command.EcoAdminCommand;
 import dev.belikhun.luna.vault.command.PayCommand;
@@ -91,8 +93,9 @@ public final class LunaVaultVelocityPlugin {
 			logger.error("Không thể chuẩn bị schema cho LunaVault.", exception);
 		}
 
-		vaultService = new VelocityVaultService(proxyServer, database, logger, config);
 		pluginMessagingBus = LunaCoreVelocity.services().pluginMessagingBus();
+		vaultService = new VelocityVaultService(proxyServer, database, logger, config, pluginMessagingBus);
+		pluginMessagingBus.registerOutgoing(VaultChannels.CACHE_SYNC);
 		pluginMessagingBus.registerOutgoing(VaultChannels.RPC);
 		pluginMessagingBus.registerIncoming(VaultChannels.RPC, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
@@ -150,6 +153,7 @@ public final class LunaVaultVelocityPlugin {
 		}
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.unregisterIncoming(VaultChannels.RPC);
+			pluginMessagingBus.unregisterOutgoing(VaultChannels.CACHE_SYNC);
 			pluginMessagingBus.unregisterOutgoing(VaultChannels.RPC);
 		}
 		if (dependencyManager != null) {
@@ -170,6 +174,12 @@ public final class LunaVaultVelocityPlugin {
 			.plugin(this)
 			.build();
 		manager.register(payMeta, new PayCommand(proxyServer, vaultService));
+
+		CommandMeta baltopMeta = manager.metaBuilder("baltop")
+			.aliases("topbalance")
+			.plugin(this)
+			.build();
+		manager.register(baltopMeta, new BalTopCommand(vaultService));
 
 		CommandMeta ecoMeta = manager.metaBuilder("eco")
 			.plugin(this)
@@ -255,40 +265,56 @@ public final class LunaVaultVelocityPlugin {
 	private VaultRpcResponse handleRequest(VaultRpcRequest request) {
 		try {
 			return switch (request.action()) {
+				case SNAPSHOT -> {
+					VaultPlayerSnapshot snapshot = vaultService.snapshot(request.playerId(), request.playerName()).join();
+					yield new VaultRpcResponse(
+						request.correlationId(),
+						VaultRpcAction.SNAPSHOT,
+						VaultOperationResult.success(null, snapshot.balanceMinor(), null),
+						snapshot,
+						VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
+					);
+				}
 				case BALANCE -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.BALANCE,
 					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
+					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case DEPOSIT -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.DEPOSIT,
 					vaultService.deposit(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
+					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case WITHDRAW -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.WITHDRAW,
 					vaultService.withdraw(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
+					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case TRANSFER -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.TRANSFER,
 					vaultService.transfer(request.playerId(), request.playerName(), request.targetId(), request.targetName(), request.amountMinor(), request.source(), request.details()).join(),
+					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case SET_BALANCE -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.SET_BALANCE,
 					vaultService.setBalance(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
+					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case HISTORY -> new VaultRpcResponse(
 					request.correlationId(),
 					VaultRpcAction.HISTORY,
 					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
+					null,
 					vaultService.history(request.playerId(), request.page(), request.pageSize()).join()
 				);
 			};
@@ -298,6 +324,7 @@ public final class LunaVaultVelocityPlugin {
 				request.correlationId(),
 				request.action(),
 				VaultOperationResult.failed(VaultFailureReason.INTERNAL_ERROR, "Yêu cầu kinh tế thất bại ở proxy.", 0L),
+				null,
 				VaultTransactionPage.empty(request.page(), Math.max(1, request.pageSize()))
 			);
 		}

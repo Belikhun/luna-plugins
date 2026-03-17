@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.vault.api.VaultFailureReason;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
+import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.VaultTransactionRecord;
 
@@ -15,6 +16,7 @@ public record VaultRpcResponse(
 	UUID correlationId,
 	VaultRpcAction action,
 	VaultOperationResult result,
+	VaultPlayerSnapshot snapshot,
 	VaultTransactionPage page
 ) {
 	public void writeTo(PluginMessageWriter writer) {
@@ -28,6 +30,10 @@ public record VaultRpcResponse(
 		writer.writeBoolean(result.transaction() != null);
 		if (result.transaction() != null) {
 			result.transaction().writeTo(writer);
+		}
+		writer.writeBoolean(snapshot != null);
+		if (snapshot != null) {
+			snapshot.writeTo(writer);
 		}
 		writer.writeInt(page.page());
 		writer.writeInt(page.pageSize());
@@ -47,6 +53,7 @@ public record VaultRpcResponse(
 		String message = reader.readUtf();
 		long balanceMinor = reader.readLong();
 		VaultTransactionRecord transaction = reader.readBoolean() ? VaultTransactionRecord.readFrom(reader) : null;
+		VaultPlayerSnapshot snapshot = reader.readBoolean() ? VaultPlayerSnapshot.readFrom(reader) : null;
 		int page = reader.readInt();
 		int pageSize = reader.readInt();
 		int maxPage = reader.readInt();
@@ -60,6 +67,7 @@ public record VaultRpcResponse(
 			correlationId,
 			action,
 			new VaultOperationResult(success, reason, message == null || message.isBlank() ? null : message, balanceMinor, transaction),
+			snapshot,
 			new VaultTransactionPage(entries, page, pageSize, maxPage, totalCount)
 		);
 	}

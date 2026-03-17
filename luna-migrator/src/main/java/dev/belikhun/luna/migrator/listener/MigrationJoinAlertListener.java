@@ -1,5 +1,6 @@
 package dev.belikhun.luna.migrator.listener;
 
+import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.migrator.service.MigrationEligibilityService;
 import org.bukkit.Bukkit;
@@ -54,7 +55,7 @@ public final class MigrationJoinAlertListener implements Listener {
 		}
 
 		player.sendRichMessage("<color:" + LunaPalette.WARNING_300 + ">⚠ Phát hiện dữ liệu cũ có thể migrate. Dùng </color>"
-			+ "<color:" + LunaPalette.PRIMARY_300 + "><b>/migrate</b></color>"
+			+ CommandStrings.syntaxRaw("/migrate")
 			+ "<color:" + LunaPalette.WARNING_300 + "> để xem chi tiết.</color>");
 	}
 
