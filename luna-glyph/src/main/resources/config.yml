@@ -1,0 +1,11 @@
+pack:
+  name: "lunaglyph"
+  description: "Luna Glyph Resource Pack"
+  filename: "lunaglyph.zip"
+  namespace: "lunaglyph"
+  priority: 100
+  required: false
+  enabled: true
+  start-codepoint: "0xE000"
+  servers:
+    - "*"

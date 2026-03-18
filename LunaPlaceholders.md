@@ -142,6 +142,15 @@ LunaVault Velocity MiniPlaceholders:
 	- `<lunavaultv:balance>`
 	- `<lunavaultv:rank>`
 
+LunaGlyph Velocity MiniPlaceholders:
+
+- Namespace: `lunaglyph`
+- Format: `<lunaglyph:key>`
+- Available placeholders:
+	- Dynamic from `luna-glyph/glyphs.yml` keys under `glyphs`.
+	- Example key `sample_icon` -> `<lunaglyph:sample_icon>`
+	- Example key `sample_image` -> `<lunaglyph:sample_image>`
+
 ## Velocity TAB
 
 Luna Core Velocity TAB placeholders:
@@ -169,6 +178,14 @@ LunaVault Velocity TAB placeholder:
 
 - `%lunavaultv-balance%`
 - `%lunavaultv-rank%`
+
+LunaGlyph Velocity TAB placeholders:
+
+- Format: `%lunaglyph-<key>%`
+- Available placeholders:
+	- Dynamic from `luna-glyph/glyphs.yml` keys under `glyphs`.
+	- Example key `sample_icon` -> `%lunaglyph-sample_icon%`
+	- Example key `sample_image` -> `%lunaglyph-sample_image%`
 
 ## Notes
 

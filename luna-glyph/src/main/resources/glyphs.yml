@@ -1,0 +1,6 @@
+glyphs:
+  sample_icon:
+    type: "icon"
+  sample_image:
+    type: "image"
+    width: 32

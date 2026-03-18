@@ -16,12 +16,14 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class PackCatalogService {
 	private final LunaLogger logger;
 	private final PackRepository repository;
+	private final PackDynamicRegistry dynamicRegistry;
 	private final PackHashService hashService;
 	private final AtomicReference<PackCatalogSnapshot> snapshot;
 
-	public PackCatalogService(Path dataDirectory, LunaLogger logger) {
+	public PackCatalogService(Path dataDirectory, LunaLogger logger, PackDynamicRegistry dynamicRegistry) {
 		this.logger = logger.scope("Catalog");
 		this.repository = new PackRepository(dataDirectory, this.logger);
+		this.dynamicRegistry = dynamicRegistry;
 		this.hashService = new PackHashService(this.logger);
 		this.snapshot = new AtomicReference<>(PackCatalogSnapshot.empty());
 	}
@@ -29,7 +31,16 @@ public final class PackCatalogService {
 	public PackReloadReport reload(LoaderConfig config) {
 		repository.setPacksDirectory(config.packPath());
 		PackRepository.LoadResult loadResult = repository.load();
-		Map<String, PackDefinition> definitions = loadResult.definitions();
+		Map<String, PackDefinition> definitions = new java.util.LinkedHashMap<>(loadResult.definitions());
+		PackDynamicRegistry.CollectResult dynamicResult = dynamicRegistry.collect(config);
+		for (Map.Entry<String, PackDefinition> entry : dynamicResult.definitions().entrySet()) {
+			if (definitions.containsKey(entry.getKey())) {
+				logger.warn("Tên pack động trùng với pack file: '" + entry.getValue().name() + "', bỏ qua đăng ký động.");
+				continue;
+			}
+			definitions.put(entry.getKey(), entry.getValue());
+		}
+
 		List<ResolvedPack> resolved = hashService.resolveAll(config, definitions.values());
 
 		int available = 0;
@@ -51,14 +62,14 @@ public final class PackCatalogService {
 		PackReloadReport report = new PackReloadReport(
 			loadResult.discoveredFiles(),
 			definitions.size(),
-			loadResult.invalidFiles().size(),
+			loadResult.invalidFiles().size() + dynamicResult.skippedRegistrations(),
 			available,
 			missing,
 			invalidUrls
 		);
 
 		snapshot.set(PackCatalogSnapshot.from(definitions, resolved, report));
-		logger.audit("Đã nạp " + report.validDefinitions() + " pack hợp lệ từ " + report.discoveredFiles() + " file.");
+		logger.audit("Đã nạp " + report.validDefinitions() + " pack hợp lệ từ " + report.discoveredFiles() + " file + " + dynamicResult.definitions().size() + " pack động.");
 		return report;
 	}
 
