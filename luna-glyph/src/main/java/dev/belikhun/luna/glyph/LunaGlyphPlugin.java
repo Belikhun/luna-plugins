@@ -102,7 +102,7 @@ public final class LunaGlyphPlugin {
 		reloadDynamicPackRegistration();
 		if (miniPlaceholders != null) {
 			report("Đang đăng ký lại MiniPlaceholders.");
-			miniPlaceholders.register(state.placeholderValues()::get);
+			miniPlaceholders.register(state.placeholderValues());
 			report("Đã đăng ký lại MiniPlaceholders thành công.");
 		}
 		if (tabPlaceholders != null) {
@@ -175,7 +175,7 @@ public final class LunaGlyphPlugin {
 
 		try {
 			miniPlaceholders = new GlyphMiniPlaceholders(logger);
-			miniPlaceholders.register(state.placeholderValues()::get);
+			miniPlaceholders.register(state.placeholderValues());
 		} catch (Throwable throwable) {
 			logger.error("Không thể đăng ký MiniPlaceholders cho LunaGlyph.", throwable);
 			miniPlaceholders = null;

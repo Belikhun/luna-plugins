@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 public final class GlyphTabPlaceholders {
-	private static final int REFRESH_INTERVAL = 500;
+	private static final int REFRESH_INTERVAL = 10000;
 
 	private final LunaLogger logger;
 	private final List<String> registeredPlaceholders;

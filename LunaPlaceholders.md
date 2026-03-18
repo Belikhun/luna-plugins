@@ -145,7 +145,9 @@ LunaVault Velocity MiniPlaceholders:
 LunaGlyph Velocity MiniPlaceholders:
 
 - Namespace: `lunaglyph`
-- Format: `<lunaglyph:glyph:<key>>`
+- Formats:
+	- `<lunaglyph:glyph:<key>>`
+	- `<lunaglyph:glyph <key>>`
 - Available placeholders:
 	- Dynamic lookup from `luna-glyph/glyphs.yml` keys under `glyphs`.
 	- Example key `sample_icon` -> `<lunaglyph:glyph:sample_icon>`

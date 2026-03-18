@@ -7,7 +7,9 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.ArgumentQueue;
 
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -21,18 +23,28 @@ public final class GlyphMiniPlaceholders {
 		this.glyphResolver = key -> null;
 	}
 
-	public void register(Function<String, String> glyphResolver) {
+	public void register(Map<String, String> glyphValues) {
 		unregister();
-		this.glyphResolver = Objects.requireNonNullElse(glyphResolver, key -> null);
+		Map<String, String> resolvedGlyphValues = Objects.requireNonNullElse(glyphValues, Map.of());
+		this.glyphResolver = key -> resolvedGlyphValues.get(normalizeKey(key));
 
 		Expansion.Builder builder = Expansion.builder("lunaglyph")
 			.author("Belikhun")
 			.version(BuildConstants.VERSION)
 			.globalPlaceholder("glyph", (queue, context) -> resolveGlyphTag(queue));
 
+		for (String key : new LinkedHashSet<>(resolvedGlyphValues.keySet())) {
+			String normalizedKey = normalizeKey(key);
+			if (normalizedKey.isBlank()) {
+				continue;
+			}
+
+			builder.globalPlaceholder("glyph:" + normalizedKey, (queue, context) -> textTag(this.glyphResolver.apply(normalizedKey)));
+		}
+
 		expansion = builder.build();
 		expansion.register();
-		logger.success("Đã đăng ký MiniPlaceholders namespace <lunaglyph> với resolver động <lunaglyph:glyph:key>.");
+		logger.success("Đã đăng ký MiniPlaceholders namespace <lunaglyph> với resolver động <lunaglyph:glyph:key> và alias <lunaglyph:glyph key>.");
 	}
 
 	public void unregister() {
