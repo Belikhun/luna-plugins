@@ -13,6 +13,9 @@ General rules:
 
 - Width placeholders are optional and clamped to `1..120`.
 - Default width is `25` when width is omitted.
+- Any Paper luna placeholder also supports a `_safe` suffix before the closing `%`, for example `%luna_system_cpu_safe%` or `%luna_system_cpu_bar_safe%`.
+- Safe variants escape `%` as `%%` in the returned text so TAB does not parse stray placeholders from values that already contain a percent sign.
+- Use `_safe` variants in TAB whenever the placeholder output may include `%`, especially CPU or progress-bar placeholders.
 
 Current server value placeholders:
 
@@ -83,6 +86,17 @@ Return values:
 - CPU placeholders return percent number strings.
 - `uptime_ms` returns raw milliseconds.
 - `uptime` returns formatted duration text.
+
+TAB-safe examples:
+
+- `%luna_system_cpu_safe%`
+- `%luna_process_cpu_safe%`
+- `%luna_system_cpu_bar_safe%`
+- `%luna_system_cpu_bar_10_safe%`
+- `%luna_tps_bar_25_safe%`
+- `%luna_process_cpu_bar_only_safe%`
+- `%luna_process_cpu_bar_only_32_safe%`
+- `%luna_tps_bar_value_only_safe%`
 
 LunaVault backend PlaceholderAPI expansion:
 

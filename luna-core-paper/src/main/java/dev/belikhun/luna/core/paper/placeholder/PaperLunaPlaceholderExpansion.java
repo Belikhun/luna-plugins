@@ -27,6 +27,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private static final int DEFAULT_BAR_WIDTH = 25;
 	private static final int MIN_BAR_WIDTH = 1;
 	private static final int MAX_BAR_WIDTH = 120;
+	private static final String SAFE_SUFFIX = "_safe";
 
 	private final JavaPlugin plugin;
 	private final BackendStatusView statusView;
@@ -63,7 +64,14 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		}
 
 		String normalized = params.trim().toLowerCase(Locale.ROOT);
-		String value = resolveCurrent(player, normalized);
+		boolean safeVariant = normalized.endsWith(SAFE_SUFFIX) && normalized.length() > SAFE_SUFFIX.length();
+		String lookupKey = safeVariant
+			? normalized.substring(0, normalized.length() - SAFE_SUFFIX.length())
+			: normalized;
+		String value = resolveCurrent(player, lookupKey);
+		if (safeVariant && value != null) {
+			value = escapePlaceholderPercents(value);
+		}
 		return value == null ? "" : value;
 	}
 
@@ -307,6 +315,10 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 
 	private String buildValueOnly(LunaProgressBar bar) {
 		return bar.renderValue();
+	}
+
+	private String escapePlaceholderPercents(String value) {
+		return value.indexOf('%') >= 0 ? value.replace("%", "%%") : value;
 	}
 
 	private int clampWidth(int width) {
