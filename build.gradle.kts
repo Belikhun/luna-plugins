@@ -16,14 +16,17 @@ subprojects {
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
     val isApiModule = project.name.endsWith("-api")
+    val isFabricModule = project.name.endsWith("-fabric")
     val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth" || project.name == "luna-vault" || project.name == "luna-glyph"
-    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule)
+    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule && !isFabricModule)
     val platformTarget = when {
+        isFabricModule -> "fabric"
         isVelocityModule -> "velocity"
         isPaperModule -> "paper"
         else -> "api"
     }
     val moduleBaseName = when {
+        isFabricModule -> project.name.removeSuffix("-fabric")
         isVelocityModule -> project.name.removeSuffix("-velocity")
         project.name.endsWith("-paper") -> project.name.removeSuffix("-paper")
         isApiModule -> project.name
@@ -35,7 +38,8 @@ subprojects {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
-            maven("https://repo.lucko.me/")
+        maven("https://repo.lucko.me/")
+        maven("https://maven.fabricmc.net/")
         maven("https://repo.helpch.at/releases/")
         maven("https://repo.loohpjames.com/repository")
         maven("https://repo.william278.net/releases")

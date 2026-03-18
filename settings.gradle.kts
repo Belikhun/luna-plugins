@@ -6,6 +6,14 @@
  * This project uses @Incubating APIs which are subject to change.
  */
 
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven("https://maven.fabricmc.net/")
+        mavenCentral()
+    }
+}
+
 plugins {
     // Apply the foojay-resolver plugin to allow automatic download of JDKs
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
@@ -15,6 +23,7 @@ rootProject.name = "luna"
 include("luna-core-api")
 include("luna-core-paper")
 include("luna-core-velocity")
+include("luna-core-fabric")
 include("luna-vault-api")
 include("luna-vault")
 include("luna-vault-backend")
@@ -22,9 +31,11 @@ include("luna-pack")
 include("luna-glyph")
 include("luna-shop")
 include("luna-countdown")
+include("luna-countdown-fabric")
 include("luna-hat")
 include("luna-smp")
 include("luna-messenger")
+include("luna-messenger-fabric")
 include("luna-messenger-velocity")
 include("luna-auth")
 include("luna-auth-backend")

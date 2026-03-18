@@ -17,6 +17,16 @@ huskhomes = "4.10"
 spark = "0.1-SNAPSHOT"
 rabbitmq = "5.24.0"
 tab = "5.5.0"
+fabric-loader-mc1165 = "0.14.25"
+fabric-loader-mc1182 = "0.16.10"
+fabric-loader-mc119x = "0.16.10"
+fabric-loader-mc1201 = "0.16.10"
+fabric-loader-mc121x = "0.16.10"
+fabric-api-mc1165 = "0.42.0+1.16"
+fabric-api-mc1182 = "0.76.0+1.18.2"
+fabric-api-mc119x = "0.87.2+1.19.4"
+fabric-api-mc1201 = "0.92.5+1.20.1"
+fabric-api-mc121x = "0.116.6+1.21.1"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -34,3 +44,13 @@ huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", versi
 spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }
 rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq" }
 tab-api = { module = "com.github.NEZNAMY:TAB-API", version.ref = "tab" }
+fabric-loader-mc1165 = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader-mc1165" }
+fabric-loader-mc1182 = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader-mc1182" }
+fabric-loader-mc119x = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader-mc119x" }
+fabric-loader-mc1201 = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader-mc1201" }
+fabric-loader-mc121x = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader-mc121x" }
+fabric-api-mc1165 = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc1165" }
+fabric-api-mc1182 = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc1182" }
+fabric-api-mc119x = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc119x" }
+fabric-api-mc1201 = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc1201" }
+fabric-api-mc121x = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc121x" }
