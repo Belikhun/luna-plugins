@@ -39,6 +39,7 @@ public final class GlyphConfigService {
 	}
 
 	public GlyphPluginState loadState() {
+		ensureDirectory(dataDirectory.resolve("glyphs"));
 		GlyphPackConfig packConfig = loadPackConfig();
 		Map<String, GlyphDefinition> glyphs = loadGlyphs(packConfig.startCodepoint());
 		Map<String, String> placeholders = new LinkedHashMap<>();
