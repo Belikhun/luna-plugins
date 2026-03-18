@@ -23,6 +23,9 @@ dependencies:
     Vault:
       load: BEFORE
       required: true
+    HuskHomes:
+      load: AFTER
+      required: false
     PlaceholderAPI:
       load: BEFORE
       required: false
