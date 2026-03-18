@@ -22,6 +22,9 @@ import dev.belikhun.luna.glyph.service.GlyphPackBuilder;
 import dev.belikhun.luna.pack.api.LunaPackApi;
 import dev.belikhun.luna.pack.api.LunaPackDynamicContext;
 import dev.belikhun.luna.pack.api.LunaPackRegistration;
+import me.neznamy.tab.api.TabAPI;
+import me.neznamy.tab.api.event.EventHandler;
+import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -54,6 +57,7 @@ public final class LunaGlyphPlugin {
 	private LunaPackApi lunaPackApi;
 	private GlyphMiniPlaceholders miniPlaceholders;
 	private GlyphTabPlaceholders tabPlaceholders;
+	private EventHandler<TabLoadEvent> tabLoadHandler;
 	private volatile Consumer<String> reloadReporter;
 
 	@Inject
@@ -75,6 +79,7 @@ public final class LunaGlyphPlugin {
 		reloadDynamicPackRegistration();
 		registerMiniPlaceholders();
 		registerTabPlaceholders();
+		ensureTabReloadHookRegistered();
 
 		logger.success("LunaGlyph đã khởi động.");
 	}
@@ -196,8 +201,54 @@ public final class LunaGlyphPlugin {
 		}
 	}
 
+	private void ensureTabReloadHookRegistered() {
+		if (tabLoadHandler != null || server.getPluginManager().getPlugin("tab").isEmpty()) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() == null) {
+				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholders LunaGlyph sau /tab reload.");
+				return;
+			}
+
+			tabLoadHandler = event -> {
+				if (state == null) {
+					return;
+				}
+
+				try {
+					registerTabPlaceholders();
+					logger.audit("Đã đăng ký lại TAB placeholders của LunaGlyph sau /tab reload.");
+				} catch (Throwable throwable) {
+					logger.error("Không thể đăng ký lại TAB placeholders của LunaGlyph sau /tab reload.", throwable);
+				}
+			};
+			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
+		} catch (Throwable throwable) {
+			tabLoadHandler = null;
+			logger.warn("Không thể gắn listener TabLoadEvent cho LunaGlyph: " + throwable.getMessage());
+		}
+	}
+
+	private void unregisterTabReloadHook() {
+		if (tabLoadHandler == null) {
+			return;
+		}
+
+		try {
+			if (TabAPI.getInstance().getEventBus() != null) {
+				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
+			}
+		} catch (Throwable ignored) {
+		}
+
+		tabLoadHandler = null;
+	}
+
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
+		unregisterTabReloadHook();
 		if (miniPlaceholders != null) {
 			miniPlaceholders.unregister();
 		}
