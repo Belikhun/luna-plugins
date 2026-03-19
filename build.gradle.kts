@@ -87,3 +87,26 @@ subprojects {
         }
     }
 }
+
+tasks.register("verifyFabricParity") {
+    group = "verification"
+    description = "Run Fabric family verification and tests for core/countdown/messenger Fabric modules"
+    dependsOn(
+        ":luna-core-fabric:verifyFabricFamilies",
+        ":luna-countdown-fabric:verifyFabricFamilies",
+        ":luna-messenger-fabric:verifyFabricFamilies",
+        ":luna-core-fabric:test",
+        ":luna-countdown-fabric:test",
+        ":luna-messenger-fabric:test"
+    )
+}
+
+tasks.register("genSources") {
+    group = "fabric"
+    description = "Generate mapped Minecraft sources for all Fabric modules"
+    dependsOn(
+        ":luna-core-fabric:genSources",
+        ":luna-countdown-fabric:genSources",
+        ":luna-messenger-fabric:genSources"
+    )
+}

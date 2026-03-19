@@ -14,6 +14,8 @@ dependencies {
 
 	compileOnly(project(":luna-core-api"))
 	compileOnly(project(":luna-core-fabric"))
+	testImplementation(project(":luna-core-api"))
+	testImplementation(project(":luna-core-fabric"))
 }
 
 val familyIds = listOf("mc1165", "mc1182", "mc119x", "mc1201", "mc121x")
