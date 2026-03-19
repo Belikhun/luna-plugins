@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -21,6 +23,7 @@ public final class FabricCountdownService implements AutoCloseable {
 	private final ScheduledExecutorService scheduler;
 	private final AtomicInteger nextId = new AtomicInteger(1);
 	private final Map<Integer, ActiveCountdown> activeById = new ConcurrentHashMap<>();
+	private final Set<UUID> onlinePlayers = ConcurrentHashMap.newKeySet();
 
 	public FabricCountdownService(LunaLogger logger) {
 		this.logger = logger.scope("Countdown");
@@ -74,9 +77,28 @@ public final class FabricCountdownService implements AutoCloseable {
 		return snapshots;
 	}
 
+	public void handlePlayerJoin(UUID playerId) {
+		if (playerId == null) {
+			return;
+		}
+		onlinePlayers.add(playerId);
+	}
+
+	public void handlePlayerQuit(UUID playerId) {
+		if (playerId == null) {
+			return;
+		}
+		onlinePlayers.remove(playerId);
+	}
+
+	public int onlinePlayerCount() {
+		return onlinePlayers.size();
+	}
+
 	@Override
 	public void close() {
 		stopAll("runtime shutdown");
+		onlinePlayers.clear();
 		scheduler.shutdownNow();
 	}
 

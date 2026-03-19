@@ -37,6 +37,9 @@
 - Messenger event-side parity:
 	- Fabric messenger now hooks server chat events and forwards chat payloads to proxy messenger gateway
 	- when cancellable message events are available, local vanilla broadcast is suppressed after successful proxy dispatch
+- Countdown event-side parity:
+	- Fabric countdown now hooks player join/disconnect lifecycle events across families
+	- active runtime audience state is synchronized from connection events for countdown flow parity with Paper player-event handling
 - Countdown command metadata hardening:
 	- title metadata is now removed automatically when countdown completes/stops
 - Optional ecosystem diagnostics:
@@ -56,5 +59,4 @@
 	- `./gradlew.bat :luna-countdown-fabric:test`
 
 ## Remaining Gaps
-- Countdown event-side parity (beyond command bindings) is still pending per family-specific gameplay hooks.
 - Cross-proxy integration verification with real FabricProxy-Lite + Velocity should be run as environment tests.
