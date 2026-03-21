@@ -104,7 +104,7 @@ public final class LunaVaultEconomyProvider implements Economy {
 			return failure(amount, 0D, "Người chơi không hợp lệ.");
 		}
 
-		VaultOperationResult result = await(gateway.withdraw(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault withdraw"), null);
+		VaultOperationResult result = awaitOperation(gateway.withdraw(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault withdraw"), null);
 		if (result == null || !result.success()) {
 			return failure(amount, cachedBalance(player), result == null ? "Không thể trừ tiền." : result.message());
 		}
@@ -118,7 +118,7 @@ public final class LunaVaultEconomyProvider implements Economy {
 			return failure(amount, 0D, "Người chơi không hợp lệ.");
 		}
 
-		VaultOperationResult result = await(gateway.deposit(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault deposit"), null);
+		VaultOperationResult result = awaitOperation(gateway.deposit(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault deposit"), null);
 		if (result == null || !result.success()) {
 			return failure(amount, cachedBalance(player), result == null ? "Không thể cộng tiền." : result.message());
 		}
@@ -305,6 +305,10 @@ public final class LunaVaultEconomyProvider implements Economy {
 
 	private <T> T await(CompletableFuture<T> future, T fallback) {
 		return FutureUtils.await(future, timeoutMillis + 250L, fallback, Bukkit.isPrimaryThread());
+	}
+
+	private <T> T awaitOperation(CompletableFuture<T> future, T fallback) {
+		return FutureUtils.await(future, timeoutMillis + 250L, fallback, false);
 	}
 
 	private VaultPlayerSnapshot snapshot(OfflinePlayer player) {

@@ -18,7 +18,10 @@ public record VaultRpcRequest(
 	String source,
 	String details,
 	int page,
-	int pageSize
+	int pageSize,
+	String backendId,
+	long sessionVersion,
+	UUID operationId
 ) {
 	public void writeTo(PluginMessageWriter writer) {
 		writer.writeUuid(correlationId);
@@ -37,6 +40,9 @@ public record VaultRpcRequest(
 		}
 		writer.writeInt(page);
 		writer.writeInt(pageSize);
+		writer.writeUtf(nullToEmpty(backendId));
+		writer.writeLong(sessionVersion);
+		writeNullableUuid(writer, operationId);
 	}
 
 	public static VaultRpcRequest readFrom(PluginMessageReader reader) {
@@ -53,7 +59,10 @@ public record VaultRpcRequest(
 		String details = reader.readBoolean() ? reader.readUtf() : null;
 		int page = reader.readInt();
 		int pageSize = reader.readInt();
-		return new VaultRpcRequest(correlationId, action, actorId, actorName, playerId, playerName, targetId, targetName, amountMinor, source, details, page, pageSize);
+		String backendId = emptyToNull(reader.readUtf());
+		long sessionVersion = reader.readLong();
+		UUID operationId = readNullableUuid(reader);
+		return new VaultRpcRequest(correlationId, action, actorId, actorName, playerId, playerName, targetId, targetName, amountMinor, source, details, page, pageSize, backendId, sessionVersion, operationId);
 	}
 
 	private static void writeNullableUuid(PluginMessageWriter writer, UUID value) {

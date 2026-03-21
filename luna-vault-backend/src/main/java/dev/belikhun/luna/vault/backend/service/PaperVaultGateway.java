@@ -25,18 +25,26 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 public final class PaperVaultGateway implements LunaVaultApi, Listener {
 	private final JavaPlugin plugin;
-	@SuppressWarnings("unused")
 	private final LunaLogger logger;
 	private final PluginMessageBus<Player, Player> bus;
 	private final long requestTimeoutMillis;
 	private final Map<UUID, CompletableFuture<VaultRpcResponse>> pendingRequests;
 	private final Map<UUID, CompletableFuture<VaultPlayerSnapshot>> inFlightSnapshots;
+	private final Map<UUID, Long> playerSessionVersions;
 	private final PaperVaultPlayerStateCache stateCache;
+	private final String backendInstanceId;
+	private static final int MUTATING_RPC_MAX_ATTEMPTS = 3;
+	private final AtomicLong retryScheduledCount;
+	private final AtomicLong retryExhaustedCount;
+	private final AtomicLong retryRecoveredCount;
 
 	public PaperVaultGateway(JavaPlugin plugin, LunaLogger logger, PluginMessageBus<Player, Player> bus, long requestTimeoutMillis) {
 		this.plugin = plugin;
@@ -45,13 +53,19 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.inFlightSnapshots = new ConcurrentHashMap<>();
+		this.playerSessionVersions = new ConcurrentHashMap<>();
 		this.stateCache = new PaperVaultPlayerStateCache();
+		this.backendInstanceId = plugin.getServer().getName() + "-" + UUID.randomUUID();
+		this.retryScheduledCount = new AtomicLong();
+		this.retryExhaustedCount = new AtomicLong();
+		this.retryRecoveredCount = new AtomicLong();
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
 	}
 
 	@EventHandler
 	public void onPlayerJoin(PlayerJoinEvent event) {
 		Player player = event.getPlayer();
+		playerSessionVersions.merge(player.getUniqueId(), 1L, Long::sum);
 		snapshot(player.getUniqueId(), player.getName());
 	}
 
@@ -129,7 +143,10 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 				"lunavaultbackend",
 				null,
 				0,
-				1
+				1,
+				backendInstanceId,
+				sessionVersion(playerId),
+				null
 			)).thenApply(response -> {
 				VaultPlayerSnapshot snapshot = response.snapshot();
 				if (snapshot != null && snapshot.playerId() != null) {
@@ -170,24 +187,34 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 
 	@Override
 	public CompletableFuture<VaultOperationResult> deposit(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		return send(selectCarrier(actorId, playerId), new VaultRpcRequest(
-			UUID.randomUUID(),
-			VaultRpcAction.DEPOSIT,
+		UUID operationId = UUID.randomUUID();
+		long sessionVersion = sessionVersion(playerId);
+		return sendWithRetry(
+			() -> new VaultRpcRequest(
+				UUID.randomUUID(),
+				VaultRpcAction.DEPOSIT,
+				actorId,
+				actorName,
+				playerId,
+				playerName,
+				null,
+				null,
+				amountMinor,
+				source,
+				details,
+				0,
+				1,
+				backendInstanceId,
+				sessionVersion,
+				operationId
+			),
+			MUTATING_RPC_MAX_ATTEMPTS,
 			actorId,
-			actorName,
-			playerId,
-			playerName,
-			null,
-			null,
-			amountMinor,
-			source,
-			details,
-			0,
-			1
-		)).thenApply(response -> {
+			playerId
+		).thenApply(response -> {
 			VaultOperationResult result = response.result();
 			if (result.success()) {
-				stateCache.remove(playerId);
+				updateCachedBalance(playerId, playerName, result.balanceMinor());
 			}
 			return result;
 		});
@@ -195,24 +222,34 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 
 	@Override
 	public CompletableFuture<VaultOperationResult> withdraw(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		return send(selectCarrier(actorId, playerId), new VaultRpcRequest(
-			UUID.randomUUID(),
-			VaultRpcAction.WITHDRAW,
+		UUID operationId = UUID.randomUUID();
+		long sessionVersion = sessionVersion(playerId);
+		return sendWithRetry(
+			() -> new VaultRpcRequest(
+				UUID.randomUUID(),
+				VaultRpcAction.WITHDRAW,
+				actorId,
+				actorName,
+				playerId,
+				playerName,
+				null,
+				null,
+				amountMinor,
+				source,
+				details,
+				0,
+				1,
+				backendInstanceId,
+				sessionVersion,
+				operationId
+			),
+			MUTATING_RPC_MAX_ATTEMPTS,
 			actorId,
-			actorName,
-			playerId,
-			playerName,
-			null,
-			null,
-			amountMinor,
-			source,
-			details,
-			0,
-			1
-		)).thenApply(response -> {
+			playerId
+		).thenApply(response -> {
 			VaultOperationResult result = response.result();
 			if (result.success()) {
-				stateCache.remove(playerId);
+				updateCachedBalance(playerId, playerName, result.balanceMinor());
 			}
 			return result;
 		});
@@ -220,24 +257,35 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 
 	@Override
 	public CompletableFuture<VaultOperationResult> transfer(UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
-		return send(selectCarrier(senderId, receiverId), new VaultRpcRequest(
-			UUID.randomUUID(),
-			VaultRpcAction.TRANSFER,
-			null,
-			null,
+		UUID operationId = UUID.randomUUID();
+		long sessionVersion = sessionVersion(senderId);
+		return sendWithRetry(
+			() -> new VaultRpcRequest(
+				UUID.randomUUID(),
+				VaultRpcAction.TRANSFER,
+				null,
+				null,
+				senderId,
+				senderName,
+				receiverId,
+				receiverName,
+				amountMinor,
+				source,
+				details,
+				0,
+				1,
+				backendInstanceId,
+				sessionVersion,
+				operationId
+			),
+			MUTATING_RPC_MAX_ATTEMPTS,
 			senderId,
-			senderName,
-			receiverId,
-			receiverName,
-			amountMinor,
-			source,
-			details,
-			0,
-			1
-		)).thenApply(response -> {
+			receiverId
+		).thenApply(response -> {
 			VaultOperationResult result = response.result();
 			if (result.success()) {
-				stateCache.remove(senderId);
+				updateCachedBalance(senderId, senderName, result.balanceMinor());
+				// Receiver balance is not included in transfer result, so keep lazy refresh for receiver.
 				stateCache.remove(receiverId);
 			}
 			return result;
@@ -246,24 +294,34 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 
 	@Override
 	public CompletableFuture<VaultOperationResult> setBalance(UUID actorId, String actorName, UUID playerId, String playerName, long newBalanceMinor, String source, String details) {
-		return send(selectCarrier(actorId, playerId), new VaultRpcRequest(
-			UUID.randomUUID(),
-			VaultRpcAction.SET_BALANCE,
+		UUID operationId = UUID.randomUUID();
+		long sessionVersion = sessionVersion(playerId);
+		return sendWithRetry(
+			() -> new VaultRpcRequest(
+				UUID.randomUUID(),
+				VaultRpcAction.SET_BALANCE,
+				actorId,
+				actorName,
+				playerId,
+				playerName,
+				null,
+				null,
+				newBalanceMinor,
+				source,
+				details,
+				0,
+				1,
+				backendInstanceId,
+				sessionVersion,
+				operationId
+			),
+			MUTATING_RPC_MAX_ATTEMPTS,
 			actorId,
-			actorName,
-			playerId,
-			playerName,
-			null,
-			null,
-			newBalanceMinor,
-			source,
-			details,
-			0,
-			1
-		)).thenApply(response -> {
+			playerId
+		).thenApply(response -> {
 			VaultOperationResult result = response.result();
 			if (result.success()) {
-				stateCache.remove(playerId);
+				updateCachedBalance(playerId, playerName, result.balanceMinor());
 			}
 			return result;
 		});
@@ -284,7 +342,10 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 			"transactions",
 			null,
 			page,
-			pageSize
+			pageSize,
+			backendInstanceId,
+			sessionVersion(playerId),
+			null
 		)).thenApply(VaultRpcResponse::page);
 	}
 
@@ -316,6 +377,70 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 		return future;
 	}
 
+	private CompletableFuture<VaultRpcResponse> sendWithRetry(Supplier<VaultRpcRequest> requestFactory, int maxAttempts, UUID... preferredPlayers) {
+		CompletableFuture<VaultRpcResponse> result = new CompletableFuture<>();
+		sendAttempt(requestFactory, result, 1, Math.max(1, maxAttempts), preferredPlayers);
+		return result;
+	}
+
+	private void sendAttempt(Supplier<VaultRpcRequest> requestFactory, CompletableFuture<VaultRpcResponse> result, int attempt, int maxAttempts, UUID... preferredPlayers) {
+		if (result.isDone()) {
+			return;
+		}
+
+		Player carrier = selectCarrier(preferredPlayers);
+		if (carrier == null) {
+			logger.warn("LunaVault RPC abort: không có carrier online (attempt " + attempt + "/" + maxAttempts + ").");
+			result.completeExceptionally(new IllegalStateException("Không có người chơi online để chuyển tiếp yêu cầu lên Velocity."));
+			return;
+		}
+
+		send(carrier, requestFactory.get()).whenComplete((response, throwable) -> {
+			if (throwable == null) {
+				if (attempt > 1) {
+					long recovered = retryRecoveredCount.incrementAndGet();
+					if (recovered % 25L == 0L) {
+						logger.audit("LunaVault RPC recovered sau retry: count=" + recovered + " scheduled=" + retryScheduledCount.get() + " exhausted=" + retryExhaustedCount.get());
+					}
+				}
+				result.complete(response);
+				return;
+			}
+
+			if (attempt >= maxAttempts || !isRetryable(throwable)) {
+				retryExhaustedCount.incrementAndGet();
+				Throwable root = unwrap(throwable);
+				logger.warn("LunaVault RPC thất bại sau " + attempt + " lần thử: " + root.getClass().getSimpleName() + " - " + root.getMessage());
+				result.completeExceptionally(throwable);
+				return;
+			}
+
+			long scheduled = retryScheduledCount.incrementAndGet();
+			if (scheduled % 50L == 0L) {
+				logger.audit("LunaVault RPC retry scheduled=" + scheduled + " exhausted=" + retryExhaustedCount.get() + " recovered=" + retryRecoveredCount.get());
+			}
+
+			plugin.getServer().getScheduler().runTaskLaterAsynchronously(plugin, task ->
+				sendAttempt(requestFactory, result, attempt + 1, maxAttempts, preferredPlayers),
+				2L
+			);
+		});
+	}
+
+	private boolean isRetryable(Throwable throwable) {
+		Throwable root = unwrap(throwable);
+
+		return root instanceof TimeoutException || root instanceof IllegalStateException;
+	}
+
+	private Throwable unwrap(Throwable throwable) {
+		Throwable root = throwable;
+		while (root instanceof CompletionException && root.getCause() != null) {
+			root = root.getCause();
+		}
+		return root;
+	}
+
 	private Player selectCarrier(UUID... preferredPlayers) {
 		if (preferredPlayers != null) {
 			for (UUID preferred : preferredPlayers) {
@@ -330,5 +455,27 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 		}
 
 		return plugin.getServer().getOnlinePlayers().stream().findFirst().orElse(null);
+	}
+
+	private long sessionVersion(UUID playerId) {
+		if (playerId == null) {
+			return 0L;
+		}
+
+		return playerSessionVersions.getOrDefault(playerId, 0L);
+	}
+
+	private void updateCachedBalance(UUID playerId, String playerName, long balanceMinor) {
+		if (playerId == null) {
+			return;
+		}
+
+		VaultPlayerSnapshot existing = stateCache.get(playerId);
+		String resolvedName = playerName;
+		if (resolvedName == null || resolvedName.isBlank()) {
+			resolvedName = existing == null ? "" : existing.playerName();
+		}
+		int rank = existing == null ? 0 : existing.rank();
+		stateCache.put(new VaultPlayerSnapshot(playerId, resolvedName == null ? "" : resolvedName, balanceMinor, rank));
 	}
 }
