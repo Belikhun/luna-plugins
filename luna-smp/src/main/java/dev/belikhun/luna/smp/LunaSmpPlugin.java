@@ -10,6 +10,7 @@ import dev.belikhun.luna.smp.packprotect.PackLoadProtectionManager;
 import dev.belikhun.luna.smp.packprotect.PackLoadStateMessageListener;
 import dev.belikhun.luna.smp.packprotect.messaging.PackLoadStateChannel;
 import dev.belikhun.luna.smp.farmprotect.FarmProtectListener;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.smp.repair.ToolRepairCommand;
 import dev.belikhun.luna.smp.repair.ToolRepairConfirmGui;
 import dev.belikhun.luna.smp.repair.ToolRepairService;
@@ -34,13 +35,11 @@ public class LunaSmpPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng hoặc bật lỗi. LunaSmp sẽ tắt để tránh lỗi classpath.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng hoặc bật lỗi. LunaSmp sẽ tắt để tránh lỗi classpath.")) {
 			return;
 		}
 
-		logger = LunaLogger.forPlugin(this, true).scope("Smp");
+		logger = PaperPluginBootstrap.initLogger(this, "Smp");
 		logger.audit("Bắt đầu khởi tạo LunaSmp.");
 		configStore = ConfigStore.of(this, "config.yml");
 		messageFormatter = LunaCore.services().messageFormatter();

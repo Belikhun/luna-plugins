@@ -1,6 +1,7 @@
 package dev.belikhun.luna.shop;
 
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.command.LunaShopReloadCommand;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
@@ -16,7 +17,6 @@ import dev.belikhun.luna.shop.service.ShopTransactionStore;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 
-import java.io.File;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LunaShopPlugin extends JavaPlugin {
@@ -27,24 +27,15 @@ public final class LunaShopPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng hoặc bật lỗi. LunaShop sẽ tắt để tránh lỗi classpath.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng hoặc bật lỗi. LunaShop sẽ tắt để tránh lỗi classpath.")) {
 			return;
 		}
 
-		this.logger = LunaLogger.forPlugin(this, true).scope("Shop");
+		this.logger = PaperPluginBootstrap.initLogger(this, "Shop");
 		logger.audit("Bắt đầu khởi tạo Luna Shop.");
 
-		if (!getDataFolder().exists()) {
-			getDataFolder().mkdirs();
-		}
-
-		File itemsFile = new File(getDataFolder(), "items.yml");
-		if (!itemsFile.exists()) {
-			saveResource("items.yml", false);
-			logger.audit("Đã tạo items.yml mặc định.");
-		}
+		PaperPluginBootstrap.ensureDataFolder(this);
+		PaperPluginBootstrap.ensureResourceFile(this, "items.yml", logger);
 
 		this.itemStore = new ShopItemStore(this, logger.scope("Store"));
 		itemStore.load();

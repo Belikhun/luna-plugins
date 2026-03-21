@@ -1,5 +1,6 @@
 package dev.belikhun.luna.auth.service;
 
+import dev.belikhun.luna.core.api.cache.ExpiringCache;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
 import java.net.URI;
@@ -7,11 +8,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,8 +20,7 @@ public final class MojangPremiumCheckService {
 	private final LunaLogger logger;
 	private final HttpClient httpClient;
 	private final Duration timeout;
-	private final long cacheMillis;
-	private final Map<String, CachedProfile> cache;
+	private final ExpiringCache<String, Optional<UUID>> cache;
 	private final boolean flowLogsEnabled;
 
 	public MojangPremiumCheckService(LunaLogger logger, long timeoutMillis, long cacheMinutes, boolean flowLogsEnabled) {
@@ -31,8 +29,7 @@ public final class MojangPremiumCheckService {
 			.connectTimeout(Duration.ofMillis(Math.max(500L, timeoutMillis)))
 			.build();
 		this.timeout = Duration.ofMillis(Math.max(500L, timeoutMillis));
-		this.cacheMillis = Math.max(1L, cacheMinutes) * 60_000L;
-		this.cache = new ConcurrentHashMap<>();
+		this.cache = new ExpiringCache<>(Math.max(1L, cacheMinutes) * 60_000L);
 		this.flowLogsEnabled = flowLogsEnabled;
 	}
 
@@ -46,17 +43,16 @@ public final class MojangPremiumCheckService {
 			return Optional.empty();
 		}
 
-		long now = System.currentTimeMillis();
-		CachedProfile cached = cache.get(normalized);
-		if (cached != null && cached.expiresAtEpochMillis() >= now) {
-			flow("Premium-check cache hit username=" + normalized + " premium=" + cached.onlineUuid().isPresent());
-			return cached.onlineUuid();
+		Optional<UUID> cached = cache.get(normalized).orElse(null);
+		if (cached != null) {
+			flow("Premium-check cache hit username=" + normalized + " premium=" + cached.isPresent());
+			return cached;
 		}
 
 		flow("Premium-check cache miss username=" + normalized + ", gọi Mojang API.");
 		Optional<UUID> onlineUuid = queryOnlineUuid(normalized);
-		cache.put(normalized, new CachedProfile(onlineUuid, now + cacheMillis));
-		flow("Premium-check cache store username=" + normalized + " premium=" + onlineUuid.isPresent() + " ttlMillis=" + cacheMillis);
+		cache.put(normalized, onlineUuid);
+		flow("Premium-check cache store username=" + normalized + " premium=" + onlineUuid.isPresent());
 		return onlineUuid;
 	}
 
@@ -118,6 +114,4 @@ public final class MojangPremiumCheckService {
 		}
 	}
 
-	private record CachedProfile(Optional<UUID> onlineUuid, long expiresAtEpochMillis) {
-	}
 }

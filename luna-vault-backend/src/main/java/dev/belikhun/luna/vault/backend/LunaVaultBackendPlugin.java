@@ -3,6 +3,7 @@ package dev.belikhun.luna.vault.backend;
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.backend.command.TransactionsCommand;
 import dev.belikhun.luna.vault.backend.gui.TransactionHistoryGuiController;
@@ -24,14 +25,12 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng. LunaVaultBackend sẽ tắt.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng. LunaVaultBackend sẽ tắt.")) {
 			return;
 		}
 
 		saveDefaultConfig();
-		logger = LunaLogger.forPlugin(this, true).scope("VaultBackend");
+		logger = PaperPluginBootstrap.initLogger(this, "VaultBackend");
 		ConfigStore coreConfig = LunaCore.services().configStore();
 		long timeoutMillis = getConfig().getLong("transport.timeout-millis", 3000L);
 		int pageSize = getConfig().getInt("history.page-size", 45);

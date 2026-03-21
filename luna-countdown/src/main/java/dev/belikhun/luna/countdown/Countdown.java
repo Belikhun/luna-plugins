@@ -2,6 +2,7 @@ package dev.belikhun.luna.countdown;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.ui.LunaUi;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 
 import dev.belikhun.luna.countdown.commands.CountdownCommand;
 import dev.belikhun.luna.countdown.commands.ShutdownCommand;
@@ -24,14 +25,12 @@ public class Countdown extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng hoặc bật lỗi. LunaCountdown sẽ tắt để tránh lỗi classpath.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng hoặc bật lỗi. LunaCountdown sẽ tắt để tránh lỗi classpath.")) {
 			return;
 		}
 
 		instance = this;
-		logger = LunaLogger.forPlugin(this, true).scope("Countdown");
+		logger = PaperPluginBootstrap.initLogger(this, "Countdown");
 		logger.audit("Bắt đầu khởi tạo LunaCountdown.");
 
 		// Register player join/quit events.

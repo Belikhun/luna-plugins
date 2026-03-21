@@ -1,6 +1,7 @@
 package dev.belikhun.luna.vault.backend.service;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.concurrent.FutureUtils;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
@@ -14,11 +15,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public final class LunaVaultEconomyProvider implements Economy {
-	private static final long MAIN_THREAD_AWAIT_MILLIS = 40L;
-
 	private final JavaPlugin plugin;
 	private final PaperVaultGateway gateway;
 	private final long timeoutMillis;
@@ -306,19 +304,7 @@ public final class LunaVaultEconomyProvider implements Economy {
 	}
 
 	private <T> T await(CompletableFuture<T> future, T fallback) {
-		if (future == null) {
-			return fallback;
-		}
-
-		try {
-			if (Bukkit.isPrimaryThread()) {
-				return future.isDone() ? future.getNow(fallback) : fallback;
-			}
-
-			return future.get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
-		} catch (Exception exception) {
-			return fallback;
-		}
+		return FutureUtils.await(future, timeoutMillis + 250L, fallback, Bukkit.isPrimaryThread());
 	}
 
 	private VaultPlayerSnapshot snapshot(OfflinePlayer player) {

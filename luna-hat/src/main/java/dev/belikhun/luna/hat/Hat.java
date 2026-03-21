@@ -1,6 +1,7 @@
 package dev.belikhun.luna.hat;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bukkit.Bukkit;
 import org.bukkit.permissions.Permission;
@@ -12,13 +13,11 @@ public class Hat extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng hoặc bật lỗi. LunaHat sẽ tắt để tránh lỗi classpath.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng hoặc bật lỗi. LunaHat sẽ tắt để tránh lỗi classpath.")) {
 			return;
 		}
 
-		logger = LunaLogger.forPlugin(this, true).scope("Hat");
+		logger = PaperPluginBootstrap.initLogger(this, "Hat");
 		logger.audit("Bắt đầu khởi tạo LunaHat.");
 
 		registerPermissions();

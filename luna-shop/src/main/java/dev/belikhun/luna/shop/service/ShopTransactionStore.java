@@ -1,6 +1,7 @@
 package dev.belikhun.luna.shop.service;
 
 import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.database.DatabaseValues;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
@@ -87,7 +88,7 @@ public final class ShopTransactionStore {
 				List.of(playerUuid.toString())
 			).orElse(Map.of("total", 0));
 
-			return asInt(row.get("total"));
+			return DatabaseValues.intValue(row.get("total"), 0);
 		} catch (Exception exception) {
 			logger.warn("Không thể đếm lịch sử giao dịch từ database: " + exception.getMessage());
 			return 0;
@@ -109,12 +110,12 @@ public final class ShopTransactionStore {
 				return Optional.empty();
 			}
 
-			String uuidRaw = asString(row.get().get("player_uuid"));
+			String uuidRaw = DatabaseValues.string(row.get().get("player_uuid"), "");
 			if (uuidRaw.isBlank()) {
 				return Optional.empty();
 			}
 
-			return Optional.of(new ShopTransactionPlayer(UUID.fromString(uuidRaw), asString(row.get().get("player_name"))));
+			return Optional.of(new ShopTransactionPlayer(UUID.fromString(uuidRaw), DatabaseValues.string(row.get().get("player_name"), "")));
 		} catch (Exception exception) {
 			logger.warn("Không thể tìm người chơi lịch sử từ database: " + exception.getMessage());
 			return Optional.empty();
@@ -136,7 +137,7 @@ public final class ShopTransactionStore {
 			);
 
 			return rows.stream()
-				.map(row -> asString(row.get("player_name")))
+				.map(row -> DatabaseValues.string(row.get("player_name"), ""))
 				.filter(name -> !name.isBlank())
 				.toList();
 		} catch (Exception exception) {
@@ -147,71 +148,19 @@ public final class ShopTransactionStore {
 
 	private ShopTransactionEntry mapRow(Map<String, Object> row) {
 		return new ShopTransactionEntry(
-			asString(row.get("tx_id")),
-			asString(row.get("player_uuid")),
-			asString(row.get("player_name")),
-			asString(row.get("action")),
-			asString(row.get("item_id")),
-			asString(row.get("category_id")),
-			asInt(row.get("amount")),
-			asDouble(row.get("unit_price")),
-			asDouble(row.get("total_price")),
-			asInt(row.get("success")) > 0,
-			asString(row.get("reason")),
-			asLong(row.get("created_at"))
+			DatabaseValues.string(row.get("tx_id"), ""),
+			DatabaseValues.string(row.get("player_uuid"), ""),
+			DatabaseValues.string(row.get("player_name"), ""),
+			DatabaseValues.string(row.get("action"), ""),
+			DatabaseValues.string(row.get("item_id"), ""),
+			DatabaseValues.string(row.get("category_id"), ""),
+			DatabaseValues.intValue(row.get("amount"), 0),
+			DatabaseValues.doubleValue(row.get("unit_price"), 0D),
+			DatabaseValues.doubleValue(row.get("total_price"), 0D),
+			DatabaseValues.intValue(row.get("success"), 0) > 0,
+			DatabaseValues.string(row.get("reason"), ""),
+			DatabaseValues.longValue(row.get("created_at"), 0L)
 		);
-	}
-
-	private String asString(Object value) {
-		return value == null ? "" : String.valueOf(value);
-	}
-
-	private int asInt(Object value) {
-		if (value instanceof Number number) {
-			return number.intValue();
-		}
-
-		if (value == null) {
-			return 0;
-		}
-
-		try {
-			return Integer.parseInt(String.valueOf(value));
-		} catch (NumberFormatException ignored) {
-			return 0;
-		}
-	}
-
-	private long asLong(Object value) {
-		if (value instanceof Number number) {
-			return number.longValue();
-		}
-
-		if (value == null) {
-			return 0L;
-		}
-
-		try {
-			return Long.parseLong(String.valueOf(value));
-		} catch (NumberFormatException ignored) {
-			return 0L;
-		}
-	}
-
-	private double asDouble(Object value) {
-		if (value instanceof Number number) {
-			return number.doubleValue();
-		}
-
-		if (value == null) {
-			return 0D;
-		}
-
-		try {
-			return Double.parseDouble(String.valueOf(value));
-		} catch (NumberFormatException ignored) {
-			return 0D;
-		}
 	}
 }
 

@@ -13,6 +13,7 @@ import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.core.api.ui.LunaUi;
 import dev.belikhun.luna.core.paper.serverselector.PaperServerSelectorController;
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
@@ -39,12 +40,10 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng. LunaAuthBackend sẽ tắt.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng. LunaAuthBackend sẽ tắt.")) {
 			return;
 		}
-		this.logger = LunaLogger.forPlugin(this, true).scope("AuthBackend");
+		this.logger = PaperPluginBootstrap.initLogger(this, "AuthBackend");
 
 		saveDefaultConfig();
 		migrateConfig();
