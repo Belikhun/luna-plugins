@@ -21,7 +21,6 @@ public record VaultRpcRequest(
 	int pageSize
 ) {
 	public void writeTo(PluginMessageWriter writer) {
-		writer.writeUtf("request");
 		writer.writeUuid(correlationId);
 		writer.writeUtf(action.name());
 		writeNullableUuid(writer, actorId);

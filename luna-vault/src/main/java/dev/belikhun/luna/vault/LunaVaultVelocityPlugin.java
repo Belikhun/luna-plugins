@@ -99,11 +99,6 @@ public final class LunaVaultVelocityPlugin {
 		pluginMessagingBus.registerOutgoing(VaultChannels.RPC);
 		pluginMessagingBus.registerIncoming(VaultChannels.RPC, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			String kind = reader.readUtf();
-			if (!"request".equals(kind)) {
-				return PluginMessageDispatchResult.HANDLED;
-			}
-
 			VaultRpcRequest request = VaultRpcRequest.readFrom(reader);
 			VaultRpcResponse response = handleRequest(request);
 			pluginMessagingBus.send(context.source(), VaultChannels.RPC, writer -> response.writeTo(writer));
@@ -269,7 +264,6 @@ public final class LunaVaultVelocityPlugin {
 					VaultPlayerSnapshot snapshot = vaultService.snapshot(request.playerId(), request.playerName()).join();
 					yield new VaultRpcResponse(
 						request.correlationId(),
-						VaultRpcAction.SNAPSHOT,
 						VaultOperationResult.success(null, snapshot.balanceMinor(), null),
 						snapshot,
 						VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
@@ -277,42 +271,36 @@ public final class LunaVaultVelocityPlugin {
 				}
 				case BALANCE -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.BALANCE,
 					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
 					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case DEPOSIT -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.DEPOSIT,
 					vaultService.deposit(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
 					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case WITHDRAW -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.WITHDRAW,
 					vaultService.withdraw(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
 					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case TRANSFER -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.TRANSFER,
 					vaultService.transfer(request.playerId(), request.playerName(), request.targetId(), request.targetName(), request.amountMinor(), request.source(), request.details()).join(),
 					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case SET_BALANCE -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.SET_BALANCE,
 					vaultService.setBalance(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
 					null,
 					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
 				);
 				case HISTORY -> new VaultRpcResponse(
 					request.correlationId(),
-					VaultRpcAction.HISTORY,
 					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
 					null,
 					vaultService.history(request.playerId(), request.page(), request.pageSize()).join()
@@ -322,7 +310,6 @@ public final class LunaVaultVelocityPlugin {
 			logger.error("Xử lý RPC của LunaVault thất bại.", exception);
 			return new VaultRpcResponse(
 				request.correlationId(),
-				request.action(),
 				VaultOperationResult.failed(VaultFailureReason.INTERNAL_ERROR, "Yêu cầu kinh tế thất bại ở proxy.", 0L),
 				null,
 				VaultTransactionPage.empty(request.page(), Math.max(1, request.pageSize()))

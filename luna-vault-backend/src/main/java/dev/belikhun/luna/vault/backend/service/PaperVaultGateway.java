@@ -16,6 +16,10 @@ import dev.belikhun.luna.vault.api.rpc.VaultRpcRequest;
 import dev.belikhun.luna.vault.api.rpc.VaultRpcResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Map;
@@ -24,13 +28,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 
-public final class PaperVaultGateway implements LunaVaultApi {
+public final class PaperVaultGateway implements LunaVaultApi, Listener {
 	private final JavaPlugin plugin;
 	@SuppressWarnings("unused")
 	private final LunaLogger logger;
 	private final PluginMessageBus<Player, Player> bus;
 	private final long requestTimeoutMillis;
 	private final Map<UUID, CompletableFuture<VaultRpcResponse>> pendingRequests;
+	private final Map<UUID, CompletableFuture<VaultPlayerSnapshot>> inFlightSnapshots;
 	private final PaperVaultPlayerStateCache stateCache;
 
 	public PaperVaultGateway(JavaPlugin plugin, LunaLogger logger, PluginMessageBus<Player, Player> bus, long requestTimeoutMillis) {
@@ -39,7 +44,26 @@ public final class PaperVaultGateway implements LunaVaultApi {
 		this.bus = bus;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.pendingRequests = new ConcurrentHashMap<>();
+		this.inFlightSnapshots = new ConcurrentHashMap<>();
 		this.stateCache = new PaperVaultPlayerStateCache();
+		plugin.getServer().getPluginManager().registerEvents(this, plugin);
+	}
+
+	@EventHandler
+	public void onPlayerJoin(PlayerJoinEvent event) {
+		Player player = event.getPlayer();
+		snapshot(player.getUniqueId(), player.getName());
+	}
+
+	@EventHandler
+	public void onPlayerQuit(PlayerQuitEvent event) {
+		UUID playerId = event.getPlayer().getUniqueId();
+		stateCache.remove(playerId);
+
+		CompletableFuture<VaultPlayerSnapshot> inFlight = inFlightSnapshots.remove(playerId);
+		if (inFlight != null && !inFlight.isDone()) {
+			inFlight.complete(VaultPlayerSnapshot.empty(playerId, event.getPlayer().getName()));
+		}
 	}
 
 	public void registerChannels() {
@@ -56,11 +80,6 @@ public final class PaperVaultGateway implements LunaVaultApi {
 		});
 		bus.registerIncoming(VaultChannels.RPC, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			String kind = reader.readUtf();
-			if (!"response".equals(kind)) {
-				return PluginMessageDispatchResult.HANDLED;
-			}
-
 			VaultRpcResponse response = VaultRpcResponse.readFrom(reader);
 			CompletableFuture<VaultRpcResponse> future = pendingRequests.remove(response.correlationId());
 			if (future != null) {
@@ -76,6 +95,8 @@ public final class PaperVaultGateway implements LunaVaultApi {
 		bus.unregisterIncoming(VaultChannels.RPC);
 		pendingRequests.values().forEach(future -> future.completeExceptionally(new IllegalStateException("LunaVaultBackend đang tắt.")));
 		pendingRequests.clear();
+		inFlightSnapshots.values().forEach(future -> future.completeExceptionally(new IllegalStateException("LunaVaultBackend đang tắt.")));
+		inFlightSnapshots.clear();
 	}
 
 	@Override
@@ -89,28 +110,57 @@ public final class PaperVaultGateway implements LunaVaultApi {
 			return CompletableFuture.completedFuture(cached);
 		}
 
-		return send(selectCarrier(playerId), new VaultRpcRequest(
-			UUID.randomUUID(),
-			VaultRpcAction.SNAPSHOT,
-			null,
-			null,
-			playerId,
-			playerName,
-			null,
-			null,
-			0L,
-			"lunavaultbackend",
-			null,
-			0,
-			1
-		)).thenApply(response -> {
-			VaultPlayerSnapshot snapshot = response.snapshot();
-			if (snapshot != null && snapshot.playerId() != null) {
-				stateCache.put(snapshot);
-				return snapshot;
-			}
-			return VaultPlayerSnapshot.empty(playerId, playerName);
-		});
+		CompletableFuture<VaultPlayerSnapshot> existing = inFlightSnapshots.get(playerId);
+		if (existing != null) {
+			return existing;
+		}
+
+		return inFlightSnapshots.computeIfAbsent(playerId, ignored ->
+			send(selectCarrier(playerId), new VaultRpcRequest(
+				UUID.randomUUID(),
+				VaultRpcAction.SNAPSHOT,
+				null,
+				null,
+				playerId,
+				playerName,
+				null,
+				null,
+				0L,
+				"lunavaultbackend",
+				null,
+				0,
+				1
+			)).thenApply(response -> {
+				VaultPlayerSnapshot snapshot = response.snapshot();
+				if (snapshot != null && snapshot.playerId() != null) {
+					stateCache.put(snapshot);
+					return snapshot;
+				}
+				return VaultPlayerSnapshot.empty(playerId, playerName);
+			}).exceptionally(exception -> VaultPlayerSnapshot.empty(playerId, playerName))
+				.whenComplete((snapshot, throwable) -> inFlightSnapshots.remove(playerId))
+		);
+	}
+
+	public VaultPlayerSnapshot cachedSnapshot(UUID playerId, String playerName) {
+		if (playerId == null) {
+			return VaultPlayerSnapshot.empty(null, playerName);
+		}
+
+		VaultPlayerSnapshot cached = stateCache.get(playerId);
+		if (cached != null) {
+			return cached;
+		}
+
+		return VaultPlayerSnapshot.empty(playerId, playerName);
+	}
+
+	public VaultPlayerSnapshot cachedSnapshot(UUID playerId) {
+		if (playerId == null) {
+			return null;
+		}
+
+		return stateCache.get(playerId);
 	}
 
 	@Override

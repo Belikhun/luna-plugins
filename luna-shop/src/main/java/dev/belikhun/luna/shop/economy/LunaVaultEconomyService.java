@@ -6,6 +6,7 @@ import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -88,7 +89,15 @@ public final class LunaVaultEconomyService implements ShopEconomyService {
 	}
 
 	private <T> T await(CompletableFuture<T> future, T fallback) {
+		if (future == null) {
+			return fallback;
+		}
+
 		try {
+			if (Bukkit.isPrimaryThread()) {
+				return future.isDone() ? future.getNow(fallback) : fallback;
+			}
+
 			return future.get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
 		} catch (Exception exception) {
 			return fallback;

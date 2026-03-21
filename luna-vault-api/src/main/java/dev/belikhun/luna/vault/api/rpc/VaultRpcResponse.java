@@ -14,15 +14,12 @@ import java.util.UUID;
 
 public record VaultRpcResponse(
 	UUID correlationId,
-	VaultRpcAction action,
 	VaultOperationResult result,
 	VaultPlayerSnapshot snapshot,
 	VaultTransactionPage page
 ) {
 	public void writeTo(PluginMessageWriter writer) {
-		writer.writeUtf("response");
 		writer.writeUuid(correlationId);
-		writer.writeUtf(action.name());
 		writer.writeBoolean(result.success());
 		writer.writeUtf(result.failureReason().name());
 		writer.writeUtf(result.message() == null ? "" : result.message());
@@ -47,7 +44,6 @@ public record VaultRpcResponse(
 
 	public static VaultRpcResponse readFrom(PluginMessageReader reader) {
 		UUID correlationId = reader.readUuid();
-		VaultRpcAction action = VaultRpcAction.valueOf(reader.readUtf());
 		boolean success = reader.readBoolean();
 		VaultFailureReason reason = VaultFailureReason.valueOf(reader.readUtf());
 		String message = reader.readUtf();
@@ -65,7 +61,6 @@ public record VaultRpcResponse(
 		}
 		return new VaultRpcResponse(
 			correlationId,
-			action,
 			new VaultOperationResult(success, reason, message == null || message.isBlank() ? null : message, balanceMinor, transaction),
 			snapshot,
 			new VaultTransactionPage(entries, page, pageSize, maxPage, totalCount)

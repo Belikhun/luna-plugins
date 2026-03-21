@@ -14,6 +14,7 @@ import dev.belikhun.luna.shop.model.ShopItem;
 import dev.belikhun.luna.shop.service.ShopTransactionEntry;
 import dev.belikhun.luna.shop.service.ShopResult;
 import dev.belikhun.luna.shop.service.ShopService;
+import dev.belikhun.luna.shop.service.ShopService.ShopHistoryPage;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.Component;
@@ -564,11 +565,42 @@ public final class ShopGuiController implements Listener {
 			return;
 		}
 
-		int total = service.transactionHistoryCount(targetUuid);
-		int maxPage = LunaPagination.maxPage(total, HISTORY_PAGE_SIZE);
-		int currentPage = LunaPagination.clampPage(page, maxPage);
-		List<ShopTransactionEntry> entries = service.transactionHistory(targetUuid, currentPage, HISTORY_PAGE_SIZE);
+		fillFooter(view);
+		view.setItem(22, item(Material.CLOCK, "<yellow>⌛ Đang tải lịch sử", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Vui lòng chờ trong giây lát")
+		)));
+		view.setItem(49, nav(Material.CHEST, adminView ? "<yellow>Quay lại quản lý" : "<yellow>Danh mục chính"), (clicker, event, gui) -> {
+			if (adminView) {
+				openManagementMenu(clicker, 0);
+				return;
+			}
 
+			openMainMenu(clicker, 0);
+		});
+		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
+		viewer.openInventory(view.getInventory());
+
+		service.transactionHistoryPageAsync(targetUuid, page, HISTORY_PAGE_SIZE).whenComplete((historyPage, throwable) ->
+			plugin.getServer().getScheduler().runTask(plugin, () -> {
+				if (!viewer.isOnline()) {
+					return;
+				}
+
+				if (throwable != null || historyPage == null) {
+					viewer.sendMessage(mm("<red>❌ Không thể tải lịch sử giao dịch lúc này.</red>"));
+					return;
+				}
+
+				renderTransactionHistory(viewer, targetUuid, normalizedTargetName, adminView, historyPage);
+			})
+		);
+	}
+
+	private void renderTransactionHistory(Player viewer, UUID targetUuid, String normalizedTargetName, boolean adminView, ShopHistoryPage historyPage) {
+		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna Shop", "Lịch Sử"));
+		guiManager.track(view);
+
+		List<ShopTransactionEntry> entries = historyPage.entries();
 		for (int i = 0; i < entries.size() && i < HISTORY_PAGE_SIZE; i++) {
 			ShopTransactionEntry entry = entries.get(i);
 			Material material = entry.success() ? Material.LIME_DYE : Material.RED_DYE;
@@ -590,11 +622,11 @@ public final class ShopGuiController implements Listener {
 		}
 
 		fillFooter(view);
-		if (currentPage > 0) {
-			view.setItem(45, nav(Material.ARROW, "<yellow>← Trang trước"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, currentPage - 1, adminView));
+		if (historyPage.currentPage() > 0) {
+			view.setItem(45, nav(Material.ARROW, "<yellow>← Trang trước"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, historyPage.currentPage() - 1, adminView));
 		}
-		if (currentPage < maxPage) {
-			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, currentPage + 1, adminView));
+		if (historyPage.currentPage() < historyPage.maxPage()) {
+			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openTransactionHistory(clicker, targetUuid, normalizedTargetName, historyPage.currentPage() + 1, adminView));
 		}
 
 		view.setItem(49, nav(Material.CHEST, adminView ? "<yellow>Quay lại quản lý" : "<yellow>Danh mục chính"), (clicker, event, gui) -> {
@@ -607,8 +639,8 @@ public final class ShopGuiController implements Listener {
 		});
 		view.setItem(50, item(Material.PAPER, "<aqua>ℹ Thông tin", List.of(
 			plainLine(LunaPalette.NEUTRAL_100, "Người chơi: <yellow>" + normalizedTargetName + "</yellow>"),
-			plainLine(LunaPalette.NEUTRAL_100, "Tổng giao dịch: <yellow>" + total + "</yellow>"),
-			plainLine(LunaPalette.NEUTRAL_100, "Trang: <yellow>" + (currentPage + 1) + "/" + (maxPage + 1) + "</yellow>")
+			plainLine(LunaPalette.NEUTRAL_100, "Tổng giao dịch: <yellow>" + historyPage.total() + "</yellow>"),
+			plainLine(LunaPalette.NEUTRAL_100, "Trang: <yellow>" + (historyPage.currentPage() + 1) + "/" + (historyPage.maxPage() + 1) + "</yellow>")
 		)));
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());
 

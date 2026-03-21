@@ -2,6 +2,7 @@ package dev.belikhun.luna.shop.service;
 
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.gui.LunaPagination;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
 import dev.belikhun.luna.shop.model.ShopItem;
@@ -9,6 +10,7 @@ import dev.belikhun.luna.shop.store.ShopItemStore;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -18,17 +20,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public final class ShopService {
 	private static final DateTimeFormatter RESET_TIME_FORMATTER = DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.ENGLISH);
 
+	private final JavaPlugin plugin;
 	private final ShopEconomyService economy;
 	private final ShopItemStore store;
 	private final ShopTradeLimitService tradeLimitService;
 	private final ShopTransactionStore transactionStore;
 	private final LunaLogger logger;
 
-	public ShopService(ShopEconomyService economy, ShopItemStore store, ShopTradeLimitService tradeLimitService, ShopTransactionStore transactionStore, LunaLogger logger) {
+	public ShopService(JavaPlugin plugin, ShopEconomyService economy, ShopItemStore store, ShopTradeLimitService tradeLimitService, ShopTransactionStore transactionStore, LunaLogger logger) {
+		this.plugin = plugin;
 		this.economy = economy;
 		this.store = store;
 		this.tradeLimitService = tradeLimitService;
@@ -252,7 +257,6 @@ public final class ShopService {
 
 		recordTransaction(action, player, item, amount, total, true, "OK");
 
-		double balanceAfter = economy.balance(player);
 		logger.audit("TX " + Formatters.stripFormats(action)
 			+ " | player=" + Formatters.stripFormats(player.getName())
 			+ " (" + player.getUniqueId() + ")"
@@ -260,7 +264,6 @@ public final class ShopService {
 			+ " | category=" + Formatters.stripFormats(item.category())
 			+ " | amount=" + amount
 			+ " | total=" + Formatters.stripFormats(formatMoney(total))
-			+ " | balanceAfter=" + Formatters.stripFormats(formatMoney(balanceAfter))
 			+ " | result=SUCCESS");
 	}
 
@@ -269,7 +272,6 @@ public final class ShopService {
 			return;
 		}
 
-		double balanceNow = economy.balance(player);
 		logger.warn("TX " + Formatters.stripFormats(action)
 			+ " | player=" + Formatters.stripFormats(player.getName())
 			+ " (" + player.getUniqueId() + ")"
@@ -277,9 +279,18 @@ public final class ShopService {
 			+ " | category=" + Formatters.stripFormats(item.category())
 			+ " | amount=" + amount
 			+ " | total=" + Formatters.stripFormats(formatMoney(total))
-			+ " | balanceNow=" + Formatters.stripFormats(formatMoney(balanceNow))
 			+ " | result=FAILED"
 			+ " | reason=" + Formatters.stripFormats(reason));
+	}
+
+	public CompletableFuture<ShopHistoryPage> transactionHistoryPageAsync(UUID playerUuid, int page, int pageSize) {
+		return CompletableFuture.supplyAsync(() -> {
+			int total = transactionStore.countByPlayer(playerUuid);
+			int maxPage = LunaPagination.maxPage(total, pageSize);
+			int currentPage = LunaPagination.clampPage(page, maxPage);
+			List<ShopTransactionEntry> entries = transactionStore.findByPlayer(playerUuid, currentPage, pageSize);
+			return new ShopHistoryPage(total, maxPage, currentPage, entries);
+		});
 	}
 
 	public int transactionHistoryCount(UUID playerUuid) {
@@ -303,12 +314,12 @@ public final class ShopService {
 	}
 
 	private void recordTransaction(String action, Player player, ShopItem item, int amount, double total, boolean success, String reason) {
-		if (transactionStore == null || player == null || item == null) {
+		if (plugin == null || transactionStore == null || player == null || item == null) {
 			return;
 		}
 
 		double unitPrice = "BUY".equalsIgnoreCase(action) ? item.buyPrice() : item.sellPrice();
-		transactionStore.insert(new ShopTransactionEntry(
+		ShopTransactionEntry entry = new ShopTransactionEntry(
 			UUID.randomUUID().toString(),
 			player.getUniqueId().toString(),
 			player.getName(),
@@ -321,7 +332,12 @@ public final class ShopService {
 			success,
 			reason,
 			Instant.now().toEpochMilli()
-		));
+		);
+
+		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> transactionStore.insert(entry));
+	}
+
+	public record ShopHistoryPage(int total, int maxPage, int currentPage, List<ShopTransactionEntry> entries) {
 	}
 }
 

@@ -60,6 +60,10 @@ import java.util.stream.Collectors;
 public final class AuthRestrictionListener implements Listener, AuthLobbyItemRegistry {
 	private static final long RESTRICTION_LOG_THROTTLE_MS = 3000L;
 	private static final long SYNC_REQUEST_THROTTLE_MS = 1500L;
+	private static final long LOCK_STATE_SYNC_THROTTLE_MS = 250L;
+	private static final long SPAWN_ENFORCE_THROTTLE_MS = 2000L;
+	private static final long LOCK_EFFECT_REFRESH_THROTTLE_MS = 3000L;
+	private static final long PROMPT_ACTIONBAR_THROTTLE_MS = 1500L;
 	private static final float DEFAULT_WALK_SPEED = 0.2F;
 	private static final float DEFAULT_FLY_SPEED = 0.1F;
 	private static final int BLINDNESS_DURATION_TICKS = 600;
@@ -92,6 +96,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private final ConcurrentMap<UUID, Long> lastCommandRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastChatRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastSyncRequestLog;
+	private final ConcurrentMap<UUID, Long> lastLockStateSyncLog;
+	private final ConcurrentMap<UUID, Long> lastSpawnEnforceLog;
+	private final ConcurrentMap<UUID, Long> lastLockEffectRefreshLog;
+	private final ConcurrentMap<UUID, Long> lastPromptActionbarLog;
 	private final ConcurrentMap<UUID, MovementProfile> movementProfiles;
 	private final Set<UUID> authLockedPlayers;
 	private final Set<UUID> lobbyItemsAppliedPlayers;
@@ -135,6 +143,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		this.lastCommandRestrictionLog = new ConcurrentHashMap<>();
 		this.lastChatRestrictionLog = new ConcurrentHashMap<>();
 		this.lastSyncRequestLog = new ConcurrentHashMap<>();
+		this.lastLockStateSyncLog = new ConcurrentHashMap<>();
+		this.lastSpawnEnforceLog = new ConcurrentHashMap<>();
+		this.lastLockEffectRefreshLog = new ConcurrentHashMap<>();
+		this.lastPromptActionbarLog = new ConcurrentHashMap<>();
 		this.movementProfiles = new ConcurrentHashMap<>();
 		this.authLockedPlayers = ConcurrentHashMap.newKeySet();
 		this.lobbyItemsAppliedPlayers = ConcurrentHashMap.newKeySet();
@@ -144,16 +156,24 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 	public void startPromptTask() {
 		Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+			long now = System.currentTimeMillis();
 			for (Player player : Bukkit.getOnlinePlayers()) {
-				syncAuthLockState(player);
-				if (stateRegistry.isAuthenticated(player.getUniqueId())) {
+				UUID playerUuid = player.getUniqueId();
+				if (stateRegistry.isAuthenticated(playerUuid)) {
+					if (authLockedPlayers.contains(playerUuid)) {
+						syncAuthLockStateIfDue(player, playerUuid);
+					}
 					hidePrompt(player);
 					continue;
 				}
-				if (spawnService.hasSpawn()) {
+
+				syncAuthLockStateIfDue(player, playerUuid);
+				if (spawnService.hasSpawn() && shouldRunIfDue(lastSpawnEnforceLog, player.getUniqueId(), now, SPAWN_ENFORCE_THROTTLE_MS)) {
 					spawnService.teleportToSpawn(player);
 				}
-				refreshLockEffects(player);
+				if (shouldRunIfDue(lastLockEffectRefreshLog, player.getUniqueId(), now, LOCK_EFFECT_REFRESH_THROTTLE_MS)) {
+					refreshLockEffects(player);
+				}
 				showPrompt(player);
 			}
 		}, 20L, 20L);
@@ -216,6 +236,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		lastCommandRestrictionLog.remove(event.getPlayer().getUniqueId());
 		lastChatRestrictionLog.remove(event.getPlayer().getUniqueId());
 		lastSyncRequestLog.remove(event.getPlayer().getUniqueId());
+		lastLockStateSyncLog.remove(event.getPlayer().getUniqueId());
+		lastSpawnEnforceLog.remove(event.getPlayer().getUniqueId());
+		lastLockEffectRefreshLog.remove(event.getPlayer().getUniqueId());
+		lastPromptActionbarLog.remove(event.getPlayer().getUniqueId());
 		shownModeSelectorPlayers.remove(event.getPlayer().getUniqueId());
 		modeSelectedPlayers.remove(event.getPlayer().getUniqueId());
 		modeSelectorEligible.remove(event.getPlayer().getUniqueId());
@@ -351,10 +375,12 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		Player player = event.getPlayer();
 		UUID playerUuid = player.getUniqueId();
 		if (stateRegistry.isAuthenticated(playerUuid)) {
-			syncAuthLockState(player);
+			if (authLockedPlayers.contains(playerUuid)) {
+				syncAuthLockStateIfDue(player, playerUuid);
+			}
 			return;
 		}
-		syncAuthLockState(player);
+		syncAuthLockStateIfDue(player, playerUuid);
 		Location from = event.getFrom();
 		Location to = event.getTo();
 		if (to == null) {
@@ -543,7 +569,9 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		));
 		bar.name(prompt.bossbar());
 		player.showBossBar(bar);
-		player.sendActionBar(prompt.actionbar());
+		if (shouldRunIfDue(lastPromptActionbarLog, player.getUniqueId(), System.currentTimeMillis(), PROMPT_ACTIONBAR_THROTTLE_MS)) {
+			player.sendActionBar(prompt.actionbar());
+		}
 		flow("ShowPrompt player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + stateRegistry.state(player.getUniqueId()).promptMode());
 	}
 
@@ -774,6 +802,27 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 		throttleMap.put(playerUuid, now);
 		logger.audit(message);
+	}
+
+	private void syncAuthLockStateIfDue(Player player, UUID playerUuid) {
+		long now = System.currentTimeMillis();
+		Long last = lastLockStateSyncLog.get(playerUuid);
+		if (last != null && now - last < LOCK_STATE_SYNC_THROTTLE_MS) {
+			return;
+		}
+
+		lastLockStateSyncLog.put(playerUuid, now);
+		syncAuthLockState(player);
+	}
+
+	private boolean shouldRunIfDue(Map<UUID, Long> throttleMap, UUID playerUuid, long now, long throttleMillis) {
+		Long last = throttleMap.get(playerUuid);
+		if (last != null && now - last < throttleMillis) {
+			return false;
+		}
+
+		throttleMap.put(playerUuid, now);
+		return true;
 	}
 
 	private void requestStateSyncIfDue(Player player, String reason) {

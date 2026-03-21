@@ -23,6 +23,10 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.LinkedHashSet;
@@ -35,8 +39,10 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
-public final class PaperMessengerGateway {
+public final class PaperMessengerGateway implements Listener {
 	private static final MiniMessage MM = MiniMessage.miniMessage();
+	private static final long CONTROL_COMMAND_DEDUP_WINDOW_MS = 250L;
+	private static final long MENTION_REFRESH_DEBOUNCE_TICKS = 2L;
 
 	private final JavaPlugin plugin;
 	private final LunaLogger logger;
@@ -46,6 +52,7 @@ public final class PaperMessengerGateway {
 	private final Map<UUID, PendingRequest> pendingRequests;
 	private final ConcurrentMap<UUID, String> networkPlayerNames;
 	private final ConcurrentMap<UUID, Set<String>> mentionCompletionsByPlayer;
+	private final ConcurrentMap<UUID, RecentControlCommand> recentControlCommands;
 	private final AtomicBoolean mentionRefreshScheduled;
 	private int timeoutTaskId;
 	private final long requestTimeoutMillis;
@@ -71,24 +78,47 @@ public final class PaperMessengerGateway {
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.networkPlayerNames = new ConcurrentHashMap<>();
 		this.mentionCompletionsByPlayer = new ConcurrentHashMap<>();
+		this.recentControlCommands = new ConcurrentHashMap<>();
 		this.mentionRefreshScheduled = new AtomicBoolean(false);
 		this.timeoutTaskId = -1;
 		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
 		this.timeoutCheckIntervalTicks = Math.max(1L, timeoutCheckIntervalTicks);
 		this.timeoutEnabled = timeoutEnabled;
 		this.interactiveChatDetected = plugin.getServer().getPluginManager().isPluginEnabled("InteractiveChat");
+		plugin.getServer().getPluginManager().registerEvents(this, plugin);
 		if (this.interactiveChatDetected) {
 			this.logger.audit("Đã phát hiện InteractiveChat, sẽ dùng API để gửi chat component nếu khả dụng.");
+		}
+	}
+
+	@EventHandler
+	public void onPlayerJoin(PlayerJoinEvent event) {
+		Player player = event.getPlayer();
+		networkPlayerNames.put(player.getUniqueId(), player.getName());
+		scheduleMentionCompletionRefresh();
+	}
+
+	@EventHandler
+	public void onPlayerQuit(PlayerQuitEvent event) {
+		Player player = event.getPlayer();
+		UUID playerId = player.getUniqueId();
+
+		String removedName = networkPlayerNames.remove(playerId);
+		Set<String> previous = mentionCompletionsByPlayer.remove(playerId);
+		if (previous != null && !previous.isEmpty()) {
+			player.removeCustomChatCompletions(previous);
+		}
+
+		pendingRequests.entrySet().removeIf(entry -> entry.getValue().playerId().equals(playerId));
+		recentControlCommands.remove(playerId);
+		if (removedName != null || (previous != null && !previous.isEmpty())) {
+			scheduleMentionCompletionRefresh();
 		}
 	}
 
 	public java.util.Collection<String> suggestDirectTargets(String partial, String senderName) {
 		String token = partial == null ? "" : partial;
 		String currentSender = senderName == null ? "" : senderName;
-
-		for (Player online : plugin.getServer().getOnlinePlayers()) {
-			networkPlayerNames.put(online.getUniqueId(), online.getName());
-		}
 
 		return networkPlayerNames.values().stream()
 			.filter(name -> name != null && !name.isBlank())
@@ -107,13 +137,18 @@ public final class PaperMessengerGateway {
 
 		MessengerPresenceType type = presence.presenceType();
 		if (type == MessengerPresenceType.LEAVE) {
-			networkPlayerNames.remove(presence.playerId());
-			scheduleMentionCompletionRefresh();
+			String removed = networkPlayerNames.remove(presence.playerId());
+			if (removed != null) {
+				scheduleMentionCompletionRefresh();
+			}
 			return;
 		}
 
-		networkPlayerNames.put(presence.playerId(), presence.playerName());
-		scheduleMentionCompletionRefresh();
+		String playerName = presence.playerName();
+		String previous = networkPlayerNames.put(presence.playerId(), playerName);
+		if (!java.util.Objects.equals(previous, playerName)) {
+			scheduleMentionCompletionRefresh();
+		}
 	}
 
 	public void registerChannels() {
@@ -243,6 +278,7 @@ public final class PaperMessengerGateway {
 		pendingRequests.clear();
 		networkPlayerNames.clear();
 		mentionCompletionsByPlayer.clear();
+		recentControlCommands.clear();
 		mentionRefreshScheduled.set(false);
 		if (timeoutTaskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(timeoutTaskId);
@@ -255,38 +291,56 @@ public final class PaperMessengerGateway {
 			return;
 		}
 
-		plugin.getServer().getScheduler().runTask(plugin, () -> {
+		plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
 			try {
 				refreshMentionCompletionsForAll();
 			} finally {
 				mentionRefreshScheduled.set(false);
 			}
-		});
+		}, MENTION_REFRESH_DEBOUNCE_TICKS);
 	}
 
 	private void refreshMentionCompletionsForAll() {
+		Set<String> allMentionTargets = snapshotMentionTargets();
 		for (Player online : plugin.getServer().getOnlinePlayers()) {
-			refreshMentionCompletions(online);
+			refreshMentionCompletions(online, allMentionTargets);
 		}
 	}
 
 	private void refreshMentionCompletions(Player player) {
-		Set<String> completions = new LinkedHashSet<>();
-		for (String name : networkPlayerNames.values()) {
-			if (name == null || name.isBlank() || name.equalsIgnoreCase(player.getName())) {
-				continue;
-			}
-			completions.add("@" + name);
+		refreshMentionCompletions(player, snapshotMentionTargets());
+	}
+
+	private void refreshMentionCompletions(Player player, Set<String> allMentionTargets) {
+		Set<String> completions = new LinkedHashSet<>(allMentionTargets);
+		if (player != null && player.getName() != null && !player.getName().isBlank()) {
+			completions.remove("@" + player.getName());
 		}
 
 		Set<String> applied = Set.copyOf(completions);
-		Set<String> previous = mentionCompletionsByPlayer.put(player.getUniqueId(), applied);
+		Set<String> previous = mentionCompletionsByPlayer.get(player.getUniqueId());
+		if (previous != null && previous.equals(applied)) {
+			return;
+		}
+
+		mentionCompletionsByPlayer.put(player.getUniqueId(), applied);
 		if (previous != null && !previous.isEmpty()) {
 			player.removeCustomChatCompletions(previous);
 		}
 		if (!applied.isEmpty()) {
 			player.addCustomChatCompletions(applied);
 		}
+	}
+
+	private Set<String> snapshotMentionTargets() {
+		Set<String> targets = new LinkedHashSet<>();
+		for (String name : networkPlayerNames.values()) {
+			if (name == null || name.isBlank()) {
+				continue;
+			}
+			targets.add("@" + name);
+		}
+		return targets;
 	}
 
 	private void clearMentionCompletions() {
@@ -304,6 +358,10 @@ public final class PaperMessengerGateway {
 	}
 
 	private void send(Player player, MessengerCommandType commandType, String argument, String targetName) {
+		if (isDuplicateControlCommand(player.getUniqueId(), commandType, argument, targetName)) {
+			return;
+		}
+
 		String server = plugin.getServer().getName();
 		UUID requestId = UUID.randomUUID();
 		Map<String, String> internalValues = new LinkedHashMap<>();
@@ -341,6 +399,29 @@ public final class PaperMessengerGateway {
 		bus.send(player, MessengerChannels.COMMAND, writer.toByteArray());
 		pendingRequests.put(requestId, new PendingRequest(player.getUniqueId(), commandType, System.currentTimeMillis()));
 		logger.audit("Đã gửi command " + commandType.name() + " reqId=" + requestId + " cho " + player.getName());
+	}
+
+	private boolean isDuplicateControlCommand(UUID playerId, MessengerCommandType commandType, String argument, String targetName) {
+		if (commandType != MessengerCommandType.SWITCH_NETWORK
+			&& commandType != MessengerCommandType.SWITCH_SERVER
+			&& commandType != MessengerCommandType.SWITCH_DIRECT) {
+			return false;
+		}
+
+		String normalizedArgument = argument == null ? "" : argument;
+		String normalizedTarget = targetName == null ? "" : targetName;
+		String fingerprint = commandType.name() + "|" + normalizedArgument + "|" + normalizedTarget;
+		long now = System.currentTimeMillis();
+
+		RecentControlCommand previous = recentControlCommands.get(playerId);
+		if (previous != null
+			&& previous.fingerprint().equals(fingerprint)
+			&& now - previous.atMillis() < CONTROL_COMMAND_DEDUP_WINDOW_MS) {
+			return true;
+		}
+
+		recentControlCommands.put(playerId, new RecentControlCommand(fingerprint, now));
+		return false;
 	}
 
 	private void checkPendingTimeouts() {
@@ -417,5 +498,8 @@ public final class PaperMessengerGateway {
 	}
 
 	private record PendingRequest(UUID playerId, MessengerCommandType commandType, long createdAtEpochMillis) {
+	}
+
+	private record RecentControlCommand(String fingerprint, long atMillis) {
 	}
 }

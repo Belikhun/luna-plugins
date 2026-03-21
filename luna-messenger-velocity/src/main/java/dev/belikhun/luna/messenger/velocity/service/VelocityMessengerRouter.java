@@ -42,6 +42,7 @@ public final class VelocityMessengerRouter {
 	private static final int MAX_DISCORD_FINGERPRINTS = 4096;
 	private static final int MAX_SEEN_PLAYERS = 100000;
 	private static final long POKE_STREAK_WINDOW_MS = 15000L;
+	private static final long PRESENCE_DEDUP_WINDOW_MS = 750L;
 	private static final MiniMessage MM = MiniMessage.miniMessage();
 	private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.builder()
 		.character('&')
@@ -72,6 +73,7 @@ public final class VelocityMessengerRouter {
 	private final Set<UUID> seenPlayers;
 	private final ArrayDeque<UUID> seenPlayersOrder;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
+	private final Map<UUID, PresenceFingerprint> recentPresenceFingerprints;
 
 	public VelocityMessengerRouter(
 		ProxyServer proxyServer,
@@ -104,6 +106,7 @@ public final class VelocityMessengerRouter {
 		this.seenPlayers = ConcurrentHashMap.newKeySet();
 		this.seenPlayersOrder = new ArrayDeque<>();
 		this.recentDiscordOutboundFingerprints = new ConcurrentHashMap<>();
+		this.recentPresenceFingerprints = new ConcurrentHashMap<>();
 	}
 
 	public void registerChannels() {
@@ -132,6 +135,7 @@ public final class VelocityMessengerRouter {
 		seenPlayers.clear();
 		seenPlayersOrder.clear();
 		recentDiscordOutboundFingerprints.clear();
+		recentPresenceFingerprints.clear();
 	}
 
 	public void flushPendingSelfPresence(Player player) {
@@ -254,6 +258,8 @@ public final class VelocityMessengerRouter {
 			String serverName = player.getCurrentServer()
 				.map(connection -> connection.getServerInfo().getName())
 				.orElse("");
+			lastKnownServerByPlayer.put(player.getUniqueId(), serverName);
+			playerSessionStartedAt.putIfAbsent(player.getUniqueId(), System.currentTimeMillis());
 			sendPresenceUpdate(new MessengerPresenceMessage(
 				MessengerPresenceMessage.CURRENT_PROTOCOL,
 				MessengerPresenceType.JOIN,
@@ -832,6 +838,7 @@ public final class VelocityMessengerRouter {
 		UUID leavingId = player.getUniqueId();
 		lastReplyByPlayer.remove(leavingId);
 		rateLimitStates.remove(leavingId);
+		recentPresenceFingerprints.remove(leavingId);
 		pendingSelfPresenceByPlayer.remove(leavingId);
 		long now = System.currentTimeMillis();
 		Long sessionStartedAt = playerSessionStartedAt.remove(leavingId);
@@ -924,6 +931,13 @@ public final class VelocityMessengerRouter {
 		if (toServerName.isBlank()) {
 			toServerName = "proxy";
 		}
+
+		String fromServerName = previousServerName == null ? "" : previousServerName.trim();
+		if (!fromServerName.isBlank() && fromServerName.equalsIgnoreCase(toServerName)) {
+			lastKnownServerByPlayer.put(player.getUniqueId(), toServerName);
+			return;
+		}
+
 		lastKnownServerByPlayer.put(player.getUniqueId(), toServerName);
 		sendPresenceUpdate(new MessengerPresenceMessage(
 			MessengerPresenceMessage.CURRENT_PROTOCOL,
@@ -1307,9 +1321,23 @@ public final class VelocityMessengerRouter {
 	}
 
 	private void sendPresenceUpdate(MessengerPresenceMessage presenceMessage) {
+		if (presenceMessage == null || shouldSkipDuplicatePresence(presenceMessage)) {
+			return;
+		}
+
 		PluginMessageWriter writer = PluginMessageWriter.create();
 		presenceMessage.writeTo(writer);
 		byte[] payload = writer.toByteArray();
+
+		Set<String> targetServers = resolvePresenceTargetServerNames();
+		if (!targetServers.isEmpty()) {
+			for (String serverName : targetServers) {
+				proxyServer.getServer(serverName).ifPresent(server ->
+					bus.send(server, MessengerChannels.PRESENCE, payload)
+				);
+			}
+			return;
+		}
 
 		Set<String> sentServers = new HashSet<>();
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -1325,6 +1353,44 @@ public final class VelocityMessengerRouter {
 
 			bus.send(connection, MessengerChannels.PRESENCE, payload);
 		}
+	}
+
+	private boolean shouldSkipDuplicatePresence(MessengerPresenceMessage message) {
+		UUID playerId = message.playerId();
+		if (playerId == null) {
+			return false;
+		}
+
+		long now = System.currentTimeMillis();
+		PresenceFingerprint current = new PresenceFingerprint(
+			message.presenceType(),
+			message.fromServer() == null ? "" : message.fromServer(),
+			message.toServer() == null ? "" : message.toServer()
+		);
+
+		PresenceFingerprint previous = recentPresenceFingerprints.get(playerId);
+		if (previous != null
+			&& previous.type() == current.type()
+			&& previous.fromServer().equals(current.fromServer())
+			&& previous.toServer().equals(current.toServer())
+			&& now - previous.atMillis() < PRESENCE_DEDUP_WINDOW_MS) {
+			return true;
+		}
+
+		recentPresenceFingerprints.put(playerId, current.withTimestamp(now));
+		return false;
+	}
+
+	private Set<String> resolvePresenceTargetServerNames() {
+		Set<String> targets = new HashSet<>();
+		for (String serverName : lastKnownServerByPlayer.values()) {
+			if (serverName == null || serverName.isBlank()) {
+				continue;
+			}
+
+			targets.add(serverName);
+		}
+		return targets;
 	}
 
 	private String escape(String value) {
@@ -1819,6 +1885,16 @@ public final class VelocityMessengerRouter {
 				return false;
 			}
 			return targetPlayerId.equals(senderId) || targetPlayerId.equals(receiverId);
+		}
+	}
+
+	private record PresenceFingerprint(MessengerPresenceType type, String fromServer, String toServer, long atMillis) {
+		private PresenceFingerprint(MessengerPresenceType type, String fromServer, String toServer) {
+			this(type, fromServer, toServer, 0L);
+		}
+
+		private PresenceFingerprint withTimestamp(long atMillis) {
+			return new PresenceFingerprint(type, fromServer, toServer, atMillis);
 		}
 	}
 

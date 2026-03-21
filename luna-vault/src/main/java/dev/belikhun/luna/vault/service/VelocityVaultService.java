@@ -400,13 +400,40 @@ public final class VelocityVaultService implements LunaVaultApi {
 		}
 
 		List<VaultPlayerSnapshot> payloadSnapshots = uniqueSnapshots(snapshots);
+		if (!clearAll && payloadSnapshots.isEmpty()) {
+			return;
+		}
+
 		VaultCacheRefresh refresh = new VaultCacheRefresh(clearAll, payloadSnapshots);
-		for (RegisteredServer server : proxyServer.getAllServers()) {
+		for (RegisteredServer server : targetServersForRefresh(clearAll, payloadSnapshots)) {
 			pluginMessagingBus.send(server, VaultChannels.CACHE_SYNC, writer -> {
 				writer.writeUtf("refresh");
 				refresh.writeTo(writer);
 			});
 		}
+	}
+
+	private Collection<RegisteredServer> targetServersForRefresh(boolean clearAll, List<VaultPlayerSnapshot> payloadSnapshots) {
+		if (clearAll) {
+			return proxyServer.getAllServers();
+		}
+
+		LinkedHashSet<RegisteredServer> targets = new LinkedHashSet<>();
+		for (VaultPlayerSnapshot snapshot : payloadSnapshots) {
+			if (snapshot == null || snapshot.playerId() == null) {
+				continue;
+			}
+
+			proxyServer.getPlayer(snapshot.playerId())
+				.flatMap(Player::getCurrentServer)
+				.ifPresent(connection -> targets.add(connection.getServer()));
+		}
+
+		if (!targets.isEmpty()) {
+			return targets;
+		}
+
+		return proxyServer.getAllServers();
 	}
 
 	private List<VaultPlayerSnapshot> uniqueSnapshots(Collection<VaultPlayerSnapshot> snapshots) {

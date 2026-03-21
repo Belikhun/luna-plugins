@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +42,10 @@ public final class MojangPremiumCheckService {
 
 	public Optional<UUID> findOnlineUuid(String username) {
 		String normalized = normalize(username);
+		if (normalized.isBlank()) {
+			return Optional.empty();
+		}
+
 		long now = System.currentTimeMillis();
 		CachedProfile cached = cache.get(normalized);
 		if (cached != null && cached.expiresAtEpochMillis() >= now) {
@@ -104,7 +109,7 @@ public final class MojangPremiumCheckService {
 	}
 
 	private String normalize(String username) {
-		return username == null ? "" : username.trim().toLowerCase();
+		return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
 	}
 
 	private void flow(String message) {
