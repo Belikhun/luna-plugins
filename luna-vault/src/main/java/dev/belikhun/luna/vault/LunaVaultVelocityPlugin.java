@@ -374,6 +374,10 @@ public final class LunaVaultVelocityPlugin {
 	}
 
 	private VaultOperationResult validateAndTrackSession(VaultRpcRequest request) {
+		if (request.source() != null && "backend-sync".equalsIgnoreCase(request.source().trim())) {
+			return null;
+		}
+
 		if (request.playerId() == null || request.sessionVersion() <= 0L || request.backendId() == null || request.backendId().isBlank()) {
 			return null;
 		}
