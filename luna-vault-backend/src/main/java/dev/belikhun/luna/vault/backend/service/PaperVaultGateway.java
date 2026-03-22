@@ -35,7 +35,6 @@ import org.bukkit.scheduler.BukkitTask;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -102,7 +101,7 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 	@EventHandler
 	public void onPlayerJoin(PlayerJoinEvent event) {
 		Player player = event.getPlayer();
-		playerSessionVersions.merge(player.getUniqueId(), 1L, Long::sum);
+		playerSessionVersions.compute(player.getUniqueId(), (key, current) -> current == null ? 1L : current + 1L);
 		snapshot(player.getUniqueId(), player.getName());
 	}
 

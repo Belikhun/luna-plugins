@@ -307,11 +307,11 @@ public final class PaperMessengerGateway implements Listener {
 		}
 	}
 
-	private void refreshMentionCompletions(Player player) {
-		refreshMentionCompletions(player, snapshotMentionTargets());
-	}
-
 	private void refreshMentionCompletions(Player player, Set<String> allMentionTargets) {
+		if (player == null) {
+			return;
+		}
+
 		Set<String> completions = new LinkedHashSet<>(allMentionTargets);
 		if (player != null && player.getName() != null && !player.getName().isBlank()) {
 			completions.remove("@" + player.getName());
