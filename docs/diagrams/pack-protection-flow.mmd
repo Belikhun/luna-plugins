@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant Proxy as LunaPack
+    participant Player
+    participant Bus as Plugin Message Bus
+    participant Backend as LunaSmp
+
+    Proxy->>Bus: pack load STARTED
+    Bus->>Backend: pack load state broadcast
+    Backend->>Backend: enable temporary protection
+    Proxy->>Player: send pack request
+    Player-->>Proxy: pack status events
+    Proxy->>Bus: pack load COMPLETED
+    Bus->>Backend: completion broadcast
+    Backend->>Backend: clear temporary protection

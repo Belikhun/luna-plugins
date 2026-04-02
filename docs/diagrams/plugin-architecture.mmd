@@ -1,0 +1,52 @@
+flowchart TB
+    subgraph Shared[Shared Layer]
+        CoreApi[luna-core-api]
+        VaultApi[luna-vault-api]
+    end
+
+    subgraph Runtime[Platform Runtime Layer]
+        CorePaper[luna-core-paper]
+        CoreVelocity[luna-core-velocity]
+    end
+
+    subgraph ProxyAuthority[Proxy Authority and Infra]
+        Auth[luna-auth]
+        Vault[luna-vault]
+        Pack[luna-pack]
+        MessengerV[luna-messenger-velocity]
+        Glyph[luna-glyph]
+    end
+
+    subgraph BackendAdapters[Backend Adapters]
+        AuthBackend[luna-auth-backend]
+        VaultBackend[luna-vault-backend]
+        MessengerP[luna-messenger]
+        Migrator[luna-migrator]
+    end
+
+    subgraph Features[Gameplay Features]
+        Shop[luna-shop]
+        Countdown[luna-countdown]
+        Hat[luna-hat]
+        Smp[luna-smp]
+    end
+
+    CoreApi --> CorePaper
+    CoreApi --> CoreVelocity
+    VaultApi --> Vault
+    VaultApi --> VaultBackend
+    CoreVelocity --> Auth
+    CoreVelocity --> Vault
+    CoreVelocity --> Pack
+    CoreVelocity --> MessengerV
+    CoreVelocity --> Glyph
+    CorePaper --> AuthBackend
+    CorePaper --> VaultBackend
+    CorePaper --> MessengerP
+    CorePaper --> Migrator
+    CorePaper --> Shop
+    CorePaper --> Countdown
+    CorePaper --> Hat
+    CorePaper --> Smp
+    VaultApi --> Shop
+    VaultApi --> Smp

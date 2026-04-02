@@ -1,0 +1,11 @@
+sequenceDiagram
+    participant Paper as LunaCore Paper
+    participant Http as Velocity HTTP Endpoint
+    participant Registry as Backend Status Registry
+    participant Velocity as LunaCore Velocity
+
+    Paper->>Http: POST /api/heartbeat/{server}
+    Http->>Registry: upsert backend status
+    Registry-->>Velocity: emit status update / revision change
+    Http-->>Paper: selector payload + messaging config delta
+    Paper->>Paper: refresh synced selector and AMQP config
