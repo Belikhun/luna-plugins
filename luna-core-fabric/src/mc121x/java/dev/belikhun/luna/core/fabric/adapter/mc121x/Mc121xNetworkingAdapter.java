@@ -5,7 +5,7 @@ import dev.belikhun.luna.core.fabric.FabricVersionFamily;
 import dev.belikhun.luna.core.fabric.adapter.AbstractFabricFamilyNetworkingAdapter;
 import dev.belikhun.luna.core.fabric.bootstrap.mc121x.Mc121xBootstrap;
 import dev.belikhun.luna.core.fabric.messaging.FabricMessageTarget;
- 
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
