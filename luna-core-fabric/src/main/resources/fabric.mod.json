@@ -1,0 +1,18 @@
+{
+	"schemaVersion": 1,
+	"id": "luna-core-fabric",
+	"version": "${version}",
+	"name": "Luna Core Fabric",
+	"description": "Core Luna runtime for Fabric dedicated servers.",
+	"environment": "server",
+	"entrypoints": {
+		"server": [
+			"dev.belikhun.luna.core.fabric.LunaCoreFabricMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "~1.21.1",
+		"fabric-api": "*"
+	}
+}

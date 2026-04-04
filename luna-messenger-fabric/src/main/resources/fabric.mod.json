@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"id": "luna-messenger-fabric",
+	"version": "${version}",
+	"name": "Luna Messenger Fabric",
+	"description": "Messenger feature runtime for Fabric dedicated servers.",
+	"environment": "server",
+	"entrypoints": {
+		"server": [
+			"dev.belikhun.luna.messenger.fabric.LunaMessengerFabricMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "~1.21.1",
+		"fabric-api": "*",
+		"placeholder-api": "*",
+		"luna-core-fabric": "*"
+	}
+}

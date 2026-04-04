@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"id": "luna-countdown-fabric",
+	"version": "${version}",
+	"name": "Luna Countdown Fabric",
+	"description": "Countdown feature runtime for Fabric dedicated servers.",
+	"environment": "server",
+	"entrypoints": {
+		"server": [
+			"dev.belikhun.luna.countdown.fabric.LunaCountdownFabricMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "~1.21.1",
+		"fabric-api": "*",
+		"luna-core-fabric": "*"
+	}
+}

@@ -12,6 +12,7 @@ import dev.belikhun.luna.messenger.fabric.service.FabricMessengerCommandService;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerGateway;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -22,6 +23,10 @@ public final class LunaMessengerFabricRuntime {
 	private static final long TIMEOUT_MONITOR_INTERVAL_MILLIS = 1000L;
 
 	private final LunaCoreFabricRuntime coreRuntime;
+	private final boolean manageCoreLifecycle;
+	private final boolean messagingDebugLogging;
+	private final long requestTimeoutMillis;
+	private final List<String> placeholderExportKeys;
 	private final LunaLogger logger;
 	private FabricPluginMessagingBus pluginMessagingBus;
 	private FabricMessengerGateway gateway;
@@ -30,19 +35,40 @@ public final class LunaMessengerFabricRuntime {
 	private ScheduledFuture<?> timeoutMonitorTask;
 
 	public LunaMessengerFabricRuntime(LunaCoreFabricRuntime coreRuntime) {
+		this(coreRuntime, true);
+	}
+
+	public LunaMessengerFabricRuntime(LunaCoreFabricRuntime coreRuntime, boolean manageCoreLifecycle) {
+		this(coreRuntime, LunaLogger.forLogger(Logger.getLogger("LunaMessengerFabric"), true), manageCoreLifecycle, 6000L, false, List.of());
+	}
+
+	public LunaMessengerFabricRuntime(
+		LunaCoreFabricRuntime coreRuntime,
+		LunaLogger logger,
+		boolean manageCoreLifecycle,
+		long requestTimeoutMillis,
+		boolean messagingDebugLogging,
+		List<String> placeholderExportKeys
+	) {
 		this.coreRuntime = coreRuntime;
-		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaMessengerFabric"), true);
+		this.manageCoreLifecycle = manageCoreLifecycle;
+		this.requestTimeoutMillis = Math.max(1000L, requestTimeoutMillis);
+		this.messagingDebugLogging = messagingDebugLogging;
+		this.placeholderExportKeys = placeholderExportKeys == null ? List.of() : List.copyOf(placeholderExportKeys);
+		this.logger = logger == null ? LunaLogger.forLogger(Logger.getLogger("LunaMessengerFabric"), true) : logger;
 	}
 
 	public void enable(FabricVersionFamily family) {
-		coreRuntime.start(family);
+		if (manageCoreLifecycle) {
+			coreRuntime.start(family);
+		}
 		FabricCompatibilityDiagnostics.logSnapshot(logger.scope("Compat"), FabricCompatibilityDiagnostics.scan());
-		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), false);
+		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), messagingDebugLogging);
 		gateway = new FabricMessengerGateway(
 			logger,
 			pluginMessagingBus,
-			new FabricBackendPlaceholderResolver(coreRuntime::currentServer),
-			6000L,
+			new FabricBackendPlaceholderResolver(coreRuntime::currentServer, placeholderExportKeys),
+			requestTimeoutMillis,
 			true
 		);
 		gateway.registerChannels();
@@ -64,7 +90,9 @@ public final class LunaMessengerFabricRuntime {
 			pluginMessagingBus.close();
 			pluginMessagingBus = null;
 		}
-		coreRuntime.stop(family);
+		if (manageCoreLifecycle) {
+			coreRuntime.stop(family);
+		}
 		logger.audit("LunaMessenger Fabric runtime đã tắt cho family " + family.id());
 	}
 

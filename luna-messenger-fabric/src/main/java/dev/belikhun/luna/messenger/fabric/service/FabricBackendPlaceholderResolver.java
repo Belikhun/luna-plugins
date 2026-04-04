@@ -47,6 +47,10 @@ public final class FabricBackendPlaceholderResolver implements BackendPlaceholde
 		this(PlaceholderBridge.placeholderApi(serverSupplier), List.of());
 	}
 
+	public FabricBackendPlaceholderResolver(Supplier<MinecraftServer> serverSupplier, List<String> configuredExportKeys) {
+		this(PlaceholderBridge.placeholderApi(serverSupplier), configuredExportKeys);
+	}
+
 	FabricBackendPlaceholderResolver(PlaceholderBridge placeholderBridge, List<String> configuredExportKeys) {
 		this.placeholderBridge = placeholderBridge == null ? PlaceholderBridge.noop() : placeholderBridge;
 		this.exportKeys = sanitizeExportKeys(configuredExportKeys);

@@ -2,9 +2,11 @@ plugins {
 	id("fabric-loom") version "1.10-SNAPSHOT"
 }
 
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.jvm.tasks.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.artifacts.VersionCatalogsExtension
+import net.fabricmc.loom.task.RemapJarTask
 
 dependencies {
 	minecraft("com.mojang:minecraft:1.21.1")
@@ -26,7 +28,11 @@ val familyJavaRelease = mapOf(
 	"mc121x" to 21
 )
 val mainSourceSet = sourceSets.named("main").get()
-val pluginBaseName = project.name.removePrefix("luna-").removeSuffix("-fabric")
+val moduleArchiveBaseName = project.name.removeSuffix("-fabric")
+val bundledConfiguration = configurations.create("bundled") {
+	isCanBeConsumed = false
+	isCanBeResolved = true
+}
 
 sourceSets {
 	familyIds.forEach { familyId ->
@@ -39,7 +45,12 @@ sourceSets {
 	}
 }
 
+val familySourceSets = familyIds.map { familyId -> sourceSets.named("${familyId}Implementation").get() }
+
 dependencies {
+	add("bundled", project(":luna-core-api"))
+	add("bundled", libs.rabbitmq.client)
+
 	familyIds.forEach { familyId ->
 		val sourceSetName = "${familyId}Implementation"
 		add("${sourceSetName}CompileOnly", versionCatalog.findLibrary("fabric-loader-$familyId").get())
@@ -56,28 +67,26 @@ tasks.withType<JavaCompile>().configureEach {
 	}
 }
 
-val familyVariantTasks = familyIds.map { familyId ->
+tasks.named<Jar>("jar") {
+	dependsOn(familySourceSets.map { tasks.named(it.classesTaskName) })
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	from(familySourceSets.map { it.output })
+	from({
+		bundledConfiguration
+			.resolve()
+			.filter { it.extension == "jar" }
+			.map { zipTree(it) }
+	}) {
+		exclude("META-INF/MANIFEST.MF")
+		exclude("META-INF/*.SF")
+		exclude("META-INF/*.DSA")
+		exclude("META-INF/*.RSA")
+	}
+}
+
+val familyVerificationTasks = familyIds.map { familyId ->
 	val familyPascal = familyId.replaceFirstChar { it.uppercaseChar() }
 	val sourceSetName = "${familyId}Implementation"
-	val sourceSet = sourceSets.getByName(sourceSetName)
-
-	tasks.register<Jar>("jar$familyPascal") {
-		group = "build"
-		description = "Build Fabric family jar for $familyId"
-		dependsOn(tasks.named("classes"), tasks.named("${sourceSetName}Classes"))
-		from(mainSourceSet.output)
-		from(sourceSet.output)
-		destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/fabric/$familyId"))
-		archiveBaseName.set("$pluginBaseName-fabric-$familyId")
-		archiveVersion.set("")
-		archiveClassifier.set("all")
-	}
-
-	tasks.register("shadowJar$familyPascal") {
-		group = "build"
-		description = "Alias family shadow task for $familyId"
-		dependsOn(tasks.named("jar$familyPascal"))
-	}
 
 	tasks.register("verify$familyPascal") {
 		group = "verification"
@@ -88,15 +97,19 @@ val familyVariantTasks = familyIds.map { familyId ->
 		)
 	}
 
-	tasks.named("shadowJar") {
-		dependsOn(tasks.named("jar$familyPascal"))
-	}
-
 	"verify$familyPascal"
+}
+
+tasks.named<RemapJarTask>("remapJar") {
+	dependsOn(tasks.named("jar"))
+	destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/fabric"))
+	archiveBaseName.set("$moduleArchiveBaseName-fabric")
+	archiveVersion.set("")
+	archiveClassifier.set("")
 }
 
 tasks.register("verifyFabricFamilies") {
 	group = "verification"
 	description = "Run verification for all Fabric version families"
-	dependsOn(familyVariantTasks.map { tasks.named(it) })
+	dependsOn(familyVerificationTasks.map { tasks.named(it) })
 }

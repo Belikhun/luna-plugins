@@ -15,20 +15,34 @@ import java.util.logging.Logger;
 public final class LunaCountdownFabricRuntime {
 
 	private final LunaCoreFabricRuntime coreRuntime;
+	private final boolean manageCoreLifecycle;
+	private final boolean messagingDebugLogging;
 	private final LunaLogger logger;
 	private FabricPluginMessagingBus pluginMessagingBus;
 	private FabricCountdownService countdownService;
 	private FabricCountdownCommandService commandService;
 
 	public LunaCountdownFabricRuntime(LunaCoreFabricRuntime coreRuntime) {
+		this(coreRuntime, true);
+	}
+
+	public LunaCountdownFabricRuntime(LunaCoreFabricRuntime coreRuntime, boolean manageCoreLifecycle) {
+		this(coreRuntime, LunaLogger.forLogger(Logger.getLogger("LunaCountdownFabric"), true), manageCoreLifecycle, false);
+	}
+
+	public LunaCountdownFabricRuntime(LunaCoreFabricRuntime coreRuntime, LunaLogger logger, boolean manageCoreLifecycle, boolean messagingDebugLogging) {
 		this.coreRuntime = coreRuntime;
-		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCountdownFabric"), true);
+		this.manageCoreLifecycle = manageCoreLifecycle;
+		this.messagingDebugLogging = messagingDebugLogging;
+		this.logger = logger == null ? LunaLogger.forLogger(Logger.getLogger("LunaCountdownFabric"), true) : logger;
 	}
 
 	public void enable(FabricVersionFamily family) {
-		coreRuntime.start(family);
+		if (manageCoreLifecycle) {
+			coreRuntime.start(family);
+		}
 		FabricCompatibilityDiagnostics.logSnapshot(logger.scope("Compat"), FabricCompatibilityDiagnostics.scan());
-		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), false);
+		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), messagingDebugLogging);
 		countdownService = new FabricCountdownService(logger);
 		commandService = new FabricCountdownCommandService(countdownService);
 		FabricCountdownCommandBindingSupport.register(commandService);
@@ -46,7 +60,9 @@ public final class LunaCountdownFabricRuntime {
 			pluginMessagingBus.close();
 			pluginMessagingBus = null;
 		}
-		coreRuntime.stop(family);
+		if (manageCoreLifecycle) {
+			coreRuntime.stop(family);
+		}
 		logger.audit("LunaCountdown Fabric runtime đã tắt cho family " + family.id());
 	}
 

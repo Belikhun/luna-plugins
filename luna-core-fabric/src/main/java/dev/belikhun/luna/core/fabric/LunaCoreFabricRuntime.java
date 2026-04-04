@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.fabric;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.fabric.adapter.FabricFamilyAdapterRegistry;
 import dev.belikhun.luna.core.fabric.adapter.FabricFamilyNetworkingAdapter;
 import dev.belikhun.luna.core.fabric.messaging.FabricPluginMessagingBus;
@@ -9,13 +10,17 @@ import net.minecraft.server.MinecraftServer;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class LunaCoreFabricRuntime {
 
 	private final FabricFamilyAdapterRegistry adapterRegistry = new FabricFamilyAdapterRegistry();
 	private final Map<FabricVersionFamily, FabricFamilyBootstrap> bootstraps = loadBootstraps();
+	private final Set<FabricPluginMessagingBus> pluginMessagingBuses = ConcurrentHashMap.newKeySet();
 	private final AtomicReference<FabricVersionFamily> activeFamily = new AtomicReference<>();
+	private volatile AmqpMessagingConfig amqpConfig = AmqpMessagingConfig.disabled();
 
 	public void registerNetworkingAdapter(FabricFamilyNetworkingAdapter adapter) {
 		adapterRegistry.register(adapter);
@@ -35,7 +40,7 @@ public final class LunaCoreFabricRuntime {
 	}
 
 	public FabricPluginMessagingBus createPluginMessagingBus(LunaLogger logger, boolean loggingEnabled) {
-		return new FabricPluginMessagingBus(
+		FabricPluginMessagingBus bus = new FabricPluginMessagingBus(
 			adapterRegistry,
 			() -> {
 				FabricVersionFamily family = activeFamily.get();
@@ -47,6 +52,16 @@ public final class LunaCoreFabricRuntime {
 			logger,
 			loggingEnabled
 		);
+		bus.updateAmqpConfig(amqpConfig);
+		pluginMessagingBuses.add(bus);
+		return bus;
+	}
+
+	public void updateAmqpConfig(AmqpMessagingConfig config) {
+		amqpConfig = config == null ? AmqpMessagingConfig.disabled() : config.sanitize();
+		for (FabricPluginMessagingBus bus : pluginMessagingBuses) {
+			bus.updateAmqpConfig(amqpConfig);
+		}
 	}
 
 	public FabricFamilyAdapterRegistry adapterRegistry() {

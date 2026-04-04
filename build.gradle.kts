@@ -9,7 +9,7 @@ tasks.named<Delete>("clean") {
 
 subprojects {
     apply(plugin = "java")
-    if (!project.name.endsWith("-api")) {
+    if (!project.name.endsWith("-api") && !project.name.endsWith("-fabric")) {
         apply(plugin = "com.gradleup.shadow")
     }
 
@@ -72,6 +72,9 @@ subprojects {
         filesMatching("paper-plugin.yml") {
             expand("version" to pluginVersion)
         }
+        filesMatching("fabric.mod.json") {
+            expand("version" to pluginVersion)
+        }
         filesMatching("velocity-plugin.json") {
             expand("version" to pluginVersion)
         }
@@ -80,7 +83,7 @@ subprojects {
         }
     }
 
-    if (!isApiModule) {
+    if (!isApiModule && !isFabricModule) {
         tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
             destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/$platformTarget"))
             archiveBaseName.set("${moduleBaseName}-$platformTarget")
