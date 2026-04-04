@@ -3,6 +3,7 @@ package dev.belikhun.luna.messenger.paper;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.messenger.paper.command.MessengerContextCommand;
 import dev.belikhun.luna.messenger.paper.command.MessengerPokeCommand;
 import dev.belikhun.luna.messenger.paper.listener.PaperChatCaptureListener;
@@ -20,16 +21,14 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng hoặc bật lỗi. LunaMessenger sẽ tắt để tránh lỗi classpath.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng hoặc bật lỗi. LunaMessenger sẽ tắt để tránh lỗi classpath.")) {
 			return;
 		}
 
 		saveDefaultConfig();
 
 		boolean debugLogging = getConfig().getBoolean("logging.debug", false);
-		logger = LunaLogger.forPlugin(this, true).withDebug(debugLogging).scope("MessengerPaper");
+		logger = PaperPluginBootstrap.initLogger(this, "MessengerPaper").withDebug(debugLogging);
 		pluginMessaging = LunaCore.services().pluginMessaging();
 		boolean timeoutEnabled = getConfig().getBoolean("request.timeout.enabled", true);
 		long timeoutMillis = getConfig().getLong("request.timeout.millis", 6000L);

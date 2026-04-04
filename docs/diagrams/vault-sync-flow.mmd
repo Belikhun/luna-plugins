@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant Feature as Paper Feature or Vault API Consumer
+    participant Backend as LunaVaultBackend
+    participant Outbox as vault_sync_outbox
+    participant Proxy as LunaVault Velocity
+
+    Feature->>Backend: balance mutation request
+    Backend->>Backend: apply local gateway update
+    Backend->>Outbox: enqueue durable sync event
+    Outbox->>Proxy: replay RPC sync request
+    Proxy->>Proxy: update proxy authority state
+    Proxy-->>Backend: later reads observe reconciled authority state

@@ -47,6 +47,26 @@ public final class Formatters {
 		return format.format(value);
 	}
 
+	public static String bytes(long bytes) {
+		if (bytes < 1024L) {
+			return bytes + " B";
+		}
+
+		double value = bytes;
+		String[] units = {"KB", "MB", "GB", "TB", "PB"};
+		int index = -1;
+		while (value >= 1024.0D && index < units.length - 1) {
+			value /= 1024.0D;
+			index++;
+		}
+
+		if (index < 0) {
+			return bytes + " B";
+		}
+
+		return number(value) + " " + units[index];
+	}
+
 	public static String money(double value, String currencySymbol) {
 		return money(value, currencySymbol, true, "{amount} {symbol}");
 	}

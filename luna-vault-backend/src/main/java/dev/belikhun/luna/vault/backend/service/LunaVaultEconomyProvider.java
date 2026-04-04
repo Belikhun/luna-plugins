@@ -1,7 +1,7 @@
 package dev.belikhun.luna.vault.backend.service;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
-import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.core.api.concurrent.FutureUtils;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
@@ -15,19 +15,26 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public final class LunaVaultEconomyProvider implements Economy {
 	private final JavaPlugin plugin;
 	private final PaperVaultGateway gateway;
-	private final ConfigStore coreConfig;
 	private final long timeoutMillis;
+	private final String currencySymbol;
+	private final boolean moneyGrouping;
+	private final String moneyTemplate;
 
 	public LunaVaultEconomyProvider(JavaPlugin plugin, PaperVaultGateway gateway, ConfigStore coreConfig, long timeoutMillis) {
 		this.plugin = plugin;
 		this.gateway = gateway;
-		this.coreConfig = coreConfig;
 		this.timeoutMillis = Math.max(1000L, timeoutMillis);
+		this.currencySymbol = coreConfig == null
+			? VaultMoney.DEFAULT_CURRENCY_SYMBOL
+			: coreConfig.get("strings.money.currencySymbol").asString(VaultMoney.DEFAULT_CURRENCY_SYMBOL);
+		this.moneyGrouping = coreConfig == null || coreConfig.get("strings.money.grouping").asBoolean(true);
+		this.moneyTemplate = coreConfig == null
+			? VaultMoney.DEFAULT_TEMPLATE
+			: coreConfig.get("strings.money.format").asString(VaultMoney.DEFAULT_TEMPLATE);
 	}
 
 	@Override
@@ -47,12 +54,13 @@ public final class LunaVaultEconomyProvider implements Economy {
 
 	@Override
 	public String format(double amount) {
-		return Formatters.money(coreConfig, amount);
+		long minor = VaultMoney.fromDouble(amount);
+		return VaultMoney.format(minor, currencySymbol, moneyGrouping, moneyTemplate);
 	}
 
 	@Override
 	public String currencyNamePlural() {
-		return Formatters.moneySymbol(coreConfig);
+		return currencySymbol;
 	}
 
 	@Override
@@ -62,12 +70,22 @@ public final class LunaVaultEconomyProvider implements Economy {
 
 	@Override
 	public boolean hasAccount(OfflinePlayer player) {
-		return player != null && snapshot(player) != null;
+		return player != null;
 	}
 
 	@Override
 	public double getBalance(OfflinePlayer player) {
 		if (player == null) {
+			return 0D;
+		}
+
+		VaultPlayerSnapshot cached = gateway.cachedSnapshot(player.getUniqueId());
+		if (cached != null) {
+			return VaultMoney.toMajorDouble(cached.balanceMinor());
+		}
+
+		if (Bukkit.isPrimaryThread()) {
+			gateway.snapshot(player.getUniqueId(), player.getName());
 			return 0D;
 		}
 
@@ -86,9 +104,9 @@ public final class LunaVaultEconomyProvider implements Economy {
 			return failure(amount, 0D, "Người chơi không hợp lệ.");
 		}
 
-		VaultOperationResult result = await(gateway.withdraw(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault withdraw"), null);
+		VaultOperationResult result = awaitOperation(gateway.withdraw(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault withdraw"), null);
 		if (result == null || !result.success()) {
-			return failure(amount, getBalance(player), result == null ? "Không thể trừ tiền." : result.message());
+			return failure(amount, cachedBalance(player), result == null ? "Không thể trừ tiền." : result.message());
 		}
 
 		return success(amount, VaultMoney.toMajorDouble(result.balanceMinor()), result.message());
@@ -100,9 +118,9 @@ public final class LunaVaultEconomyProvider implements Economy {
 			return failure(amount, 0D, "Người chơi không hợp lệ.");
 		}
 
-		VaultOperationResult result = await(gateway.deposit(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault deposit"), null);
+		VaultOperationResult result = awaitOperation(gateway.deposit(null, null, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), "vault", "Vault deposit"), null);
 		if (result == null || !result.success()) {
-			return failure(amount, getBalance(player), result == null ? "Không thể cộng tiền." : result.message());
+			return failure(amount, cachedBalance(player), result == null ? "Không thể cộng tiền." : result.message());
 		}
 
 		return success(amount, VaultMoney.toMajorDouble(result.balanceMinor()), result.message());
@@ -286,11 +304,11 @@ public final class LunaVaultEconomyProvider implements Economy {
 	}
 
 	private <T> T await(CompletableFuture<T> future, T fallback) {
-		try {
-			return future.get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
-		} catch (Exception exception) {
-			return fallback;
-		}
+		return FutureUtils.await(future, timeoutMillis + 250L, fallback, Bukkit.isPrimaryThread());
+	}
+
+	private <T> T awaitOperation(CompletableFuture<T> future, T fallback) {
+		return FutureUtils.await(future, timeoutMillis + 250L, fallback, false);
 	}
 
 	private VaultPlayerSnapshot snapshot(OfflinePlayer player) {
@@ -299,5 +317,18 @@ public final class LunaVaultEconomyProvider implements Economy {
 		}
 
 		return await(gateway.snapshot(player.getUniqueId(), player.getName()), null);
+	}
+
+	private double cachedBalance(OfflinePlayer player) {
+		if (player == null) {
+			return 0D;
+		}
+
+		VaultPlayerSnapshot cached = gateway.cachedSnapshot(player.getUniqueId());
+		if (cached == null) {
+			return 0D;
+		}
+
+		return VaultMoney.toMajorDouble(cached.balanceMinor());
 	}
 }

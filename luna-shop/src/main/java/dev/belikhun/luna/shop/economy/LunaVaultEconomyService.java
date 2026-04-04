@@ -1,11 +1,13 @@
 package dev.belikhun.luna.shop.economy;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.concurrent.FutureUtils;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -17,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 public final class LunaVaultEconomyService implements ShopEconomyService {
 	private static final String ACTOR_NAME = "LunaShop";
 	private static final String SOURCE = "lunashop";
+	private static final long MAIN_THREAD_MUTATING_TIMEOUT_MILLIS = 450L;
 
 	private final LunaVaultApi vaultApi;
 	private final long timeoutMillis;
@@ -68,7 +71,7 @@ public final class LunaVaultEconomyService implements ShopEconomyService {
 			return false;
 		}
 
-		VaultOperationResult result = await(vaultApi.withdraw(null, ACTOR_NAME, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), SOURCE, "Mua vật phẩm từ LunaShop"), null);
+		VaultOperationResult result = awaitMutating(vaultApi.withdraw(null, ACTOR_NAME, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), SOURCE, "Mua vật phẩm từ LunaShop"), null);
 		return result != null && result.success();
 	}
 
@@ -78,7 +81,7 @@ public final class LunaVaultEconomyService implements ShopEconomyService {
 			return false;
 		}
 
-		VaultOperationResult result = await(vaultApi.deposit(null, ACTOR_NAME, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), SOURCE, "Bán vật phẩm cho LunaShop"), null);
+		VaultOperationResult result = awaitMutating(vaultApi.deposit(null, ACTOR_NAME, player.getUniqueId(), player.getName(), VaultMoney.fromDouble(amount), SOURCE, "Bán vật phẩm cho LunaShop"), null);
 		return result != null && result.success();
 	}
 
@@ -88,9 +91,22 @@ public final class LunaVaultEconomyService implements ShopEconomyService {
 	}
 
 	private <T> T await(CompletableFuture<T> future, T fallback) {
+		return FutureUtils.await(future, timeoutMillis + 250L, fallback, Bukkit.isPrimaryThread());
+	}
+
+	private <T> T awaitMutating(CompletableFuture<T> future, T fallback) {
+		if (future == null) {
+			return fallback;
+		}
+
+		if (!Bukkit.isPrimaryThread()) {
+			return FutureUtils.await(future, timeoutMillis + 250L, fallback, false);
+		}
+
 		try {
-			return future.get(timeoutMillis + 250L, TimeUnit.MILLISECONDS);
-		} catch (Exception exception) {
+			long timeout = Math.min(timeoutMillis + 250L, MAIN_THREAD_MUTATING_TIMEOUT_MILLIS);
+			return future.get(Math.max(1L, timeout), TimeUnit.MILLISECONDS);
+		} catch (Exception ignored) {
 			return fallback;
 		}
 	}

@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant Player
+    participant Backend as LunaAuthBackend
+    participant Bus as Plugin Message Bus
+    participant Auth as LunaAuth Velocity
+
+    Player->>Backend: /login or /register
+    Backend->>Bus: auth command request
+    Bus->>Auth: forward request to proxy authority
+    Auth->>Auth: validate account / password / policy
+    Auth->>Bus: auth result + auth state
+    Bus->>Backend: command response + state sync
+    Backend->>Player: prompts cleared or failure shown

@@ -1,9 +1,13 @@
 package dev.belikhun.luna.vault.backend;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
+import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
 import dev.belikhun.luna.vault.backend.command.TransactionsCommand;
 import dev.belikhun.luna.vault.backend.gui.TransactionHistoryGuiController;
 import dev.belikhun.luna.vault.backend.placeholder.PaperVaultPlaceholderExpansion;
@@ -24,18 +28,24 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 
 	@Override
 	public void onEnable() {
-		if (!getServer().getPluginManager().isPluginEnabled("LunaCore")) {
-			getLogger().severe("LunaCore chưa sẵn sàng. LunaVaultBackend sẽ tắt.");
-			getServer().getPluginManager().disablePlugin(this);
+		if (!PaperPluginBootstrap.ensurePluginEnabled(this, "LunaCore", "LunaCore chưa sẵn sàng. LunaVaultBackend sẽ tắt.")) {
 			return;
 		}
 
 		saveDefaultConfig();
-		logger = LunaLogger.forPlugin(this, true).scope("VaultBackend");
+		logger = PaperPluginBootstrap.initLogger(this, "VaultBackend");
 		ConfigStore coreConfig = LunaCore.services().configStore();
+		Database database = LunaCore.services().databaseManager().getDatabase();
+		try {
+			DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("Migration"));
+			VaultDatabaseMigrations.register(migrator);
+			migrator.migrateNamespace("lunavault");
+		} catch (Exception exception) {
+			logger.error("Không thể chuẩn bị schema cho LunaVaultBackend.", exception);
+		}
 		long timeoutMillis = getConfig().getLong("transport.timeout-millis", 3000L);
 		int pageSize = getConfig().getInt("history.page-size", 45);
-		gateway = new PaperVaultGateway(this, logger, LunaCore.services().pluginMessaging(), timeoutMillis);
+		gateway = new PaperVaultGateway(this, logger, LunaCore.services().pluginMessaging(), database, timeoutMillis);
 		gateway.registerChannels();
 		historyGui = new TransactionHistoryGuiController(this, gateway, coreConfig, pageSize);
 		economyProvider = new LunaVaultEconomyProvider(this, gateway, coreConfig, timeoutMillis);

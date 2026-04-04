@@ -1,0 +1,65 @@
+flowchart LR
+    subgraph Shared[Shared Contracts]
+        CoreApi[luna-core-api]
+        VaultApi[luna-vault-api]
+    end
+
+    subgraph Proxy[Velocity Proxy]
+        CoreVelocity[LunaCore Velocity]
+        Auth[LunaAuth]
+        Vault[LunaVault]
+        Pack[LunaPack]
+        MessengerV[LunaMessenger Velocity]
+        Glyph[LunaGlyph]
+        Registry[Backend Status Registry]
+    end
+
+    subgraph Backend[Paper Backends]
+        CorePaper[LunaCore Paper]
+        AuthBackend[LunaAuthBackend]
+        VaultBackend[LunaVaultBackend]
+        MessengerP[LunaMessenger Paper]
+        Shop[LunaShop]
+        Countdown[LunaCountdown]
+        Hat[LunaHat]
+        Smp[LunaSmp]
+        Migrator[LunaMigrator]
+    end
+
+    subgraph Infra[Shared Infrastructure]
+        Db[(Shared Database)]
+        Http[Heartbeat HTTP Endpoint]
+        Amqp[RabbitMQ Optional]
+    end
+
+    CoreApi --> CoreVelocity
+    CoreApi --> CorePaper
+    VaultApi --> Vault
+    VaultApi --> VaultBackend
+
+    CoreVelocity --> Auth
+    CoreVelocity --> Vault
+    CoreVelocity --> Pack
+    CoreVelocity --> MessengerV
+    CoreVelocity --> Glyph
+    CoreVelocity --> Registry
+
+    CorePaper --> AuthBackend
+    CorePaper --> VaultBackend
+    CorePaper --> MessengerP
+    CorePaper --> Shop
+    CorePaper --> Countdown
+    CorePaper --> Hat
+    CorePaper --> Smp
+    CorePaper --> Migrator
+
+    CoreVelocity --- Db
+    Auth --- Db
+    Vault --- Db
+    CorePaper --- Db
+    VaultBackend --- Db
+
+    CoreVelocity --- Http
+    CorePaper --- Http
+    CoreVelocity -. optional .- Amqp
+    CorePaper -. optional .- Amqp

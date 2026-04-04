@@ -2,6 +2,7 @@ package dev.belikhun.luna.auth.service;
 
 import dev.belikhun.luna.auth.model.AuthAccount;
 import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.database.DatabaseValues;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -235,12 +236,12 @@ public final class AuthRepository {
 		int max = Math.max(1, limit);
 		for (Map<String, Object> row : rows) {
 			results.add(new LoginHistoryEntry(
-				rawString(row.get("ip_address"), ""),
-				rawString(row.get("event_type"), "UNKNOWN"),
-				rawString(row.get("result"), "UNKNOWN"),
-				rawString(row.get("reason"), "UNKNOWN"),
-				rawString(row.get("actor"), "SYSTEM"),
-				rawLong(row.get("created_at"), 0L)
+				DatabaseValues.string(row.get("ip_address"), ""),
+				DatabaseValues.string(row.get("event_type"), "UNKNOWN"),
+				DatabaseValues.string(row.get("result"), "UNKNOWN"),
+				DatabaseValues.string(row.get("reason"), "UNKNOWN"),
+				DatabaseValues.string(row.get("actor"), "SYSTEM"),
+				DatabaseValues.longValue(row.get("created_at"), 0L)
 			));
 			if (results.size() >= max) {
 				break;
@@ -258,11 +259,11 @@ public final class AuthRepository {
 		int max = Math.max(1, limit);
 		for (Map<String, Object> row : rows) {
 			results.add(new SessionEventEntry(
-				rawString(row.get("username"), ""),
-				rawString(row.get("ip_address"), ""),
-				rawString(row.get("event_type"), "UNKNOWN"),
-				rawString(row.get("detail"), ""),
-				rawLong(row.get("happened_at"), 0L)
+				DatabaseValues.string(row.get("username"), ""),
+				DatabaseValues.string(row.get("ip_address"), ""),
+				DatabaseValues.string(row.get("event_type"), "UNKNOWN"),
+				DatabaseValues.string(row.get("detail"), ""),
+				DatabaseValues.longValue(row.get("happened_at"), 0L)
 			));
 			if (results.size() >= max) {
 				break;
@@ -273,48 +274,16 @@ public final class AuthRepository {
 
 	private AuthAccount mapAccount(Map<String, Object> row) {
 		return new AuthAccount(
-			UUID.fromString(rawString(row.get("player_uuid"), "00000000-0000-0000-0000-000000000000")),
-			rawString(row.get("username"), ""),
-			rawString(row.get("password_hash"), ""),
-			rawString(row.get("last_ip"), ""),
-			rawInt(row.get("failed_attempts"), 0),
-			rawLong(row.get("lockout_until"), 0L),
-			rawLong(row.get("last_login_at"), 0L),
-			rawLong(row.get("created_at"), 0L),
-			rawLong(row.get("updated_at"), 0L)
+			UUID.fromString(DatabaseValues.string(row.get("player_uuid"), "00000000-0000-0000-0000-000000000000")),
+			DatabaseValues.string(row.get("username"), ""),
+			DatabaseValues.string(row.get("password_hash"), ""),
+			DatabaseValues.string(row.get("last_ip"), ""),
+			DatabaseValues.intValue(row.get("failed_attempts"), 0),
+			DatabaseValues.longValue(row.get("lockout_until"), 0L),
+			DatabaseValues.longValue(row.get("last_login_at"), 0L),
+			DatabaseValues.longValue(row.get("created_at"), 0L),
+			DatabaseValues.longValue(row.get("updated_at"), 0L)
 		);
-	}
-
-	private int rawInt(Object value, int fallback) {
-		if (value instanceof Number number) {
-			return number.intValue();
-		}
-		if (value == null) {
-			return fallback;
-		}
-		try {
-			return Integer.parseInt(value.toString());
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private long rawLong(Object value, long fallback) {
-		if (value instanceof Number number) {
-			return number.longValue();
-		}
-		if (value == null) {
-			return fallback;
-		}
-		try {
-			return Long.parseLong(value.toString());
-		} catch (NumberFormatException ignored) {
-			return fallback;
-		}
-	}
-
-	private String rawString(Object value, String fallback) {
-		return value == null ? fallback : value.toString();
 	}
 
 	private String normalizeUsername(String username) {

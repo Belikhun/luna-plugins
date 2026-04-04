@@ -12,6 +12,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -197,6 +198,15 @@ public final class NumberSelectorGui implements Listener {
 		}
 
 		session.request().onCloseWithoutSubmit().accept(player);
+	}
+
+	@EventHandler
+	public void onQuit(PlayerQuitEvent event) {
+		UUID playerId = event.getPlayer().getUniqueId();
+		activeSessions.remove(playerId);
+		waitingManualInput.remove(playerId);
+		suppressClose.remove(playerId);
+		submitting.remove(playerId);
 	}
 
 	private void handleManualInput(Player player, Session session, String raw) {
