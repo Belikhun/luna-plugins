@@ -27,6 +27,7 @@ fabric-api-mc1182 = "0.76.0+1.18.2"
 fabric-api-mc119x = "0.87.2+1.19.4"
 fabric-api-mc1201 = "0.92.5+1.20.1"
 fabric-api-mc121x = "0.116.6+1.21.1"
+fabric-placeholder-api = "2.4.2+1.21"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -54,3 +55,4 @@ fabric-api-mc1182 = { module = "net.fabricmc.fabric-api:fabric-api", version.ref
 fabric-api-mc119x = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc119x" }
 fabric-api-mc1201 = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc1201" }
 fabric-api-mc121x = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fabric-api-mc121x" }
+fabric-placeholder-api = { module = "eu.pb4:placeholder-api", version.ref = "fabric-placeholder-api" }

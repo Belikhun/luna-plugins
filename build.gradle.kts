@@ -40,6 +40,7 @@ subprojects {
         maven("https://repo.papermc.io/repository/maven-public/")
         maven("https://repo.lucko.me/")
         maven("https://maven.fabricmc.net/")
+        maven("https://maven.nucleoid.xyz/")
         maven("https://repo.helpch.at/releases/")
         maven("https://repo.loohpjames.com/repository")
         maven("https://repo.william278.net/releases")

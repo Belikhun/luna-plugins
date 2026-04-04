@@ -5,7 +5,7 @@ import dev.belikhun.luna.core.fabric.FabricVersionFamily;
 import dev.belikhun.luna.core.fabric.adapter.AbstractFabricFamilyNetworkingAdapter;
 import dev.belikhun.luna.core.fabric.bootstrap.mc1201.Mc1201Bootstrap;
 import dev.belikhun.luna.core.fabric.messaging.FabricMessageTarget;
-
+ 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -43,7 +43,7 @@ public final class Mc1201NetworkingAdapter extends AbstractFabricFamilyNetworkin
 	}
 
 	private boolean sendOutbound(FabricMessageTarget target, PluginMessageChannel channel, byte[] payload) {
-		Object server = Mc1201Bootstrap.server();
+		Object server = Mc1201Bootstrap.currentServer();
 		if (server == null) {
 			return false;
 		}

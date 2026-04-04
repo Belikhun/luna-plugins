@@ -44,6 +44,8 @@
 	- title metadata is now removed automatically when countdown completes/stops
 - Optional ecosystem diagnostics:
 	- FabricProxy-Lite
+		- startup detection now checks real forwarding secret sources via config/FabricProxy-Lite.toml, FABRIC_PROXY_SECRET, and FABRIC_PROXY_SECRET_FILE
+		- compatibility log now reports forwarding-secret readiness and relevant hack flags for switch/chat troubleshooting
 	- Text Placeholder API
 	- LuckPerms
 	- spark

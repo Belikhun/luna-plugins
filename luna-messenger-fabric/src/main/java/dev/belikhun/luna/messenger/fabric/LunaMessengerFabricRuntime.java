@@ -5,8 +5,9 @@ import dev.belikhun.luna.core.fabric.LunaCoreFabricRuntime;
 import dev.belikhun.luna.core.fabric.compat.FabricCompatibilityDiagnostics;
 import dev.belikhun.luna.core.fabric.messaging.FabricPluginMessagingBus;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.messenger.fabric.binding.FabricMessengerFamilyBinding;
-import dev.belikhun.luna.messenger.fabric.binding.NoopFabricMessengerFamilyBinding;
+import dev.belikhun.luna.messenger.fabric.binding.command.FabricMessengerCommandBindingSupport;
+import dev.belikhun.luna.messenger.fabric.binding.event.FabricMessengerChatBindingSupport;
+import dev.belikhun.luna.messenger.fabric.service.FabricBackendPlaceholderResolver;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerCommandService;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerGateway;
 
@@ -25,7 +26,6 @@ public final class LunaMessengerFabricRuntime {
 	private FabricPluginMessagingBus pluginMessagingBus;
 	private FabricMessengerGateway gateway;
 	private FabricMessengerCommandService commandService;
-	private FabricMessengerFamilyBinding familyBinding;
 	private ScheduledExecutorService timeoutScheduler;
 	private ScheduledFuture<?> timeoutMonitorTask;
 
@@ -38,12 +38,18 @@ public final class LunaMessengerFabricRuntime {
 		coreRuntime.start(family);
 		FabricCompatibilityDiagnostics.logSnapshot(logger.scope("Compat"), FabricCompatibilityDiagnostics.scan());
 		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), false);
-		gateway = new FabricMessengerGateway(logger, pluginMessagingBus);
+		gateway = new FabricMessengerGateway(
+			logger,
+			pluginMessagingBus,
+			new FabricBackendPlaceholderResolver(coreRuntime::currentServer),
+			6000L,
+			true
+		);
 		gateway.registerChannels();
 		startTimeoutMonitor();
 		commandService = new FabricMessengerCommandService(gateway);
-		familyBinding = loadFamilyBinding(family);
-		familyBinding.bind(this, family);
+		FabricMessengerCommandBindingSupport.register(commandService);
+		FabricMessengerChatBindingSupport.register(commandService);
 		logger.success("LunaMessenger Fabric runtime đã khởi động cho family " + family.id());
 	}
 
@@ -54,10 +60,6 @@ public final class LunaMessengerFabricRuntime {
 			gateway = null;
 		}
 		commandService = null;
-		if (familyBinding != null) {
-			familyBinding.unbind(this, family);
-			familyBinding = null;
-		}
 		if (pluginMessagingBus != null) {
 			pluginMessagingBus.close();
 			pluginMessagingBus = null;
@@ -116,27 +118,5 @@ public final class LunaMessengerFabricRuntime {
 				+ " playerId=" + pending.playerId()
 				+ " command=" + pending.commandType().name());
 		}
-	}
-
-	private FabricMessengerFamilyBinding loadFamilyBinding(FabricVersionFamily family) {
-		String className = switch (family) {
-			case MC1165 -> "dev.belikhun.luna.messenger.fabric.binding.mc1165.Mc1165MessengerBinding";
-			case MC1182 -> "dev.belikhun.luna.messenger.fabric.binding.mc1182.Mc1182MessengerBinding";
-			case MC119X -> "dev.belikhun.luna.messenger.fabric.binding.mc119x.Mc119xMessengerBinding";
-			case MC1201 -> "dev.belikhun.luna.messenger.fabric.binding.mc1201.Mc1201MessengerBinding";
-			case MC121X -> "dev.belikhun.luna.messenger.fabric.binding.mc121x.Mc121xMessengerBinding";
-		};
-
-		try {
-			Class<?> bindingClass = Class.forName(className);
-			Object instance = bindingClass.getDeclaredConstructor().newInstance();
-			if (instance instanceof FabricMessengerFamilyBinding binding) {
-				return binding;
-			}
-		} catch (ReflectiveOperationException ignored) {
-			logger.warn("Chưa có binding messenger cho family " + family.id() + ", dùng noop binding.");
-		}
-
-		return new NoopFabricMessengerFamilyBinding();
 	}
 }

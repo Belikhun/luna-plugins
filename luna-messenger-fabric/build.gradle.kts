@@ -11,6 +11,7 @@ dependencies {
 	mappings(loom.officialMojangMappings())
 	modImplementation("net.fabricmc:fabric-loader:0.16.10")
 	modImplementation("net.fabricmc.fabric-api:fabric-api:0.116.6+1.21.1")
+	modImplementation(libs.fabric.placeholder.api)
 
 	compileOnly(project(":luna-core-api"))
 	compileOnly(project(":luna-core-fabric"))

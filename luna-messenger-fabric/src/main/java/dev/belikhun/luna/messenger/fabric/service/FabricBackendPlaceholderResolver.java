@@ -3,9 +3,12 @@ package dev.belikhun.luna.messenger.fabric.service;
 import dev.belikhun.luna.core.api.messenger.BackendPlaceholderResolver;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionRequest;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionResult;
+import eu.pb4.placeholders.api.PlaceholderContext;
+import eu.pb4.placeholders.api.Placeholders;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,6 +17,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,7 +40,11 @@ public final class FabricBackendPlaceholderResolver implements BackendPlaceholde
 	private final Set<String> runtimeDiscoveredKeys;
 
 	public FabricBackendPlaceholderResolver() {
-		this(PlaceholderBridge.autoDetect(), List.of());
+		this(() -> null);
+	}
+
+	public FabricBackendPlaceholderResolver(Supplier<MinecraftServer> serverSupplier) {
+		this(PlaceholderBridge.placeholderApi(serverSupplier), List.of());
 	}
 
 	FabricBackendPlaceholderResolver(PlaceholderBridge placeholderBridge, List<String> configuredExportKeys) {
@@ -165,53 +173,19 @@ public final class FabricBackendPlaceholderResolver implements BackendPlaceholde
 		}
 
 		static PlaceholderBridge autoDetect() {
-			return ReflectionPlaceholderBridge.detect();
+			return noop();
+		}
+
+		static PlaceholderBridge placeholderApi(Supplier<MinecraftServer> serverSupplier) {
+			return new PlaceholderApiBridge(serverSupplier);
 		}
 	}
 
-	private static final class ReflectionPlaceholderBridge implements PlaceholderBridge {
-		private static final String[] PLACEHOLDER_API_CANDIDATES = new String[] {
-			"eu.pb4.placeholders.api.PlaceholderAPI",
-			"eu.pb4.placeholders.api.Placeholders"
-		};
+	private static final class PlaceholderApiBridge implements PlaceholderBridge {
+		private final Supplier<MinecraftServer> serverSupplier;
 
-		private final Method resolveMethod;
-		private final InvokeMode invokeMode;
-
-		private ReflectionPlaceholderBridge(Method resolveMethod, InvokeMode invokeMode) {
-			this.resolveMethod = resolveMethod;
-			this.invokeMode = invokeMode;
-		}
-
-		static PlaceholderBridge detect() {
-			for (String className : PLACEHOLDER_API_CANDIDATES) {
-				try {
-					Class<?> type = Class.forName(className, false, FabricBackendPlaceholderResolver.class.getClassLoader());
-					for (Method method : type.getMethods()) {
-						if (!Modifier.isStatic(method.getModifiers())) {
-							continue;
-						}
-						if (method.getReturnType() != String.class) {
-							continue;
-						}
-
-						Class<?>[] parameterTypes = method.getParameterTypes();
-						if (parameterTypes.length == 1 && parameterTypes[0] == String.class) {
-							return new ReflectionPlaceholderBridge(method, InvokeMode.SINGLE_STRING);
-						}
-						if (parameterTypes.length == 2 && parameterTypes[0] == String.class) {
-							return new ReflectionPlaceholderBridge(method, InvokeMode.STRING_CONTEXT);
-						}
-						if (parameterTypes.length == 2 && parameterTypes[1] == String.class) {
-							return new ReflectionPlaceholderBridge(method, InvokeMode.CONTEXT_STRING);
-						}
-					}
-				} catch (ClassNotFoundException ignored) {
-					// Ignore and try next candidate.
-				}
-			}
-
-			return PlaceholderBridge.noop();
+		private PlaceholderApiBridge(Supplier<MinecraftServer> serverSupplier) {
+			this.serverSupplier = serverSupplier == null ? () -> null : serverSupplier;
 		}
 
 		@Override
@@ -222,27 +196,19 @@ public final class FabricBackendPlaceholderResolver implements BackendPlaceholde
 		@Override
 		public String resolveText(UUID playerId, String text) {
 			String safeText = text == null ? "" : text;
-			try {
-				Object value = switch (invokeMode) {
-					case SINGLE_STRING -> resolveMethod.invoke(null, safeText);
-					case STRING_CONTEXT -> resolveMethod.invoke(null, safeText, null);
-					case CONTEXT_STRING -> resolveMethod.invoke(null, null, safeText);
-				};
-
-				if (value instanceof String resolved) {
-					return resolved;
-				}
-			} catch (ReflectiveOperationException ignored) {
+			MinecraftServer server = serverSupplier.get();
+			if (server == null) {
 				return safeText;
 			}
 
-			return safeText;
-		}
-
-		enum InvokeMode {
-			SINGLE_STRING,
-			STRING_CONTEXT,
-			CONTEXT_STRING
+			ServerPlayer player = playerId == null ? null : server.getPlayerList().getPlayer(playerId);
+			PlaceholderContext context = player != null ? PlaceholderContext.of(player) : PlaceholderContext.of(server);
+			Component resolved = Placeholders.parseText(
+				Component.literal(safeText),
+				context,
+				Placeholders.PLACEHOLDER_PATTERN_CUSTOM
+			);
+			return resolved.getString();
 		}
 	}
 }
