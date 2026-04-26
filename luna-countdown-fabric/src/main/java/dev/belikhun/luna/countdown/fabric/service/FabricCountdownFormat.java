@@ -43,4 +43,28 @@ public final class FabricCountdownFormat {
 		}
 		return String.format("<color:%s>%.1fs</color>", LunaPalette.SKY_300, seconds);
 	}
+
+	public static String readablePlainTime(double seconds) {
+		double safeSeconds = Math.max(0d, seconds);
+		if (safeSeconds / 3600d > 1d) {
+			return String.format(Locale.ROOT, "%.0fh %.2fm", Math.floor(safeSeconds / 3600d), (safeSeconds % 3600d) / 60d);
+		}
+		if (safeSeconds > 300d) {
+			return String.format(Locale.ROOT, "%.0fm %.0fs", Math.floor(safeSeconds / 60d), (safeSeconds % 60d));
+		}
+		return String.format(Locale.ROOT, "%.1fs", safeSeconds);
+	}
+
+	public static String stripMiniMessage(String text) {
+		if (text == null || text.isBlank()) {
+			return "";
+		}
+
+		return text
+			.replace("<br>", "\n")
+			.replace("<newline>", "\n")
+			.replaceAll("<[^>]+>", "")
+			.replaceAll("\\s+", " ")
+			.trim();
+	}
 }

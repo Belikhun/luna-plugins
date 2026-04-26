@@ -25,6 +25,7 @@ public final class FabricCountdownCommandBindingSupport {
 
 	private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
 	private static final List<String> DURATION_PRESETS = List.of("10s", "30s", "1m", "5m", "10m", "30m", "1h");
+	private static final List<String> SHUTDOWN_REASON_PRESETS = List.of("Bảo_trì", "Khởi_động_lại", "Cập_nhật_hệ_thống");
 
 	private FabricCountdownCommandBindingSupport() {
 	}
@@ -44,6 +45,7 @@ public final class FabricCountdownCommandBindingSupport {
 	private static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher, FabricCountdownCommandService commandService) {
 		dispatcher.register(createRootCommand("countdown", commandService));
 		dispatcher.register(createRootCommand("cd", commandService));
+		dispatcher.register(createShutdownCommand(commandService));
 	}
 
 	private static LiteralArgumentBuilder<CommandSourceStack> createRootCommand(String root, FabricCountdownCommandService commandService) {
@@ -73,6 +75,7 @@ public final class FabricCountdownCommandBindingSupport {
 			});
 
 		return literal(root)
+			.requires(source -> source.hasPermission(2))
 			.then(literal("start").then(startLength))
 			.then(literal("stop").then(stopId))
 			.then(literal("stopall").executes(context -> {
@@ -80,6 +83,35 @@ public final class FabricCountdownCommandBindingSupport {
 				sendFeedback(context.getSource(), result.success(), result.message());
 				return result.success() ? 1 : 0;
 			}));
+	}
+
+	private static LiteralArgumentBuilder<CommandSourceStack> createShutdownCommand(FabricCountdownCommandService commandService) {
+		RequiredArgumentBuilder<CommandSourceStack, String> shutdownLength = argument("length", StringArgumentType.word())
+			.suggests(FabricCountdownCommandBindingSupport::suggestDurationPresets)
+			.executes(context -> {
+				var result = commandService.scheduleShutdown(StringArgumentType.getString(context, "length"), null);
+				sendFeedback(context.getSource(), result.success(), result.message());
+				return result.success() ? 1 : 0;
+			})
+			.then(argument("message", StringArgumentType.greedyString())
+				.suggests(FabricCountdownCommandBindingSupport::suggestShutdownReasons)
+				.executes(context -> {
+					var result = commandService.scheduleShutdown(
+						StringArgumentType.getString(context, "length"),
+						StringArgumentType.getString(context, "message")
+					);
+					sendFeedback(context.getSource(), result.success(), result.message());
+					return result.success() ? 1 : 0;
+				}));
+
+		return literal("shutdown")
+			.requires(source -> source.hasPermission(4))
+			.then(literal("cancel").executes(context -> {
+				var result = commandService.cancelShutdown();
+				sendFeedback(context.getSource(), result.success(), result.message());
+				return result.success() ? 1 : 0;
+			}))
+			.then(shutdownLength);
 	}
 
 	private static CompletableFuture<Suggestions> suggestDurationPresets(
@@ -104,6 +136,19 @@ public final class FabricCountdownCommandBindingSupport {
 			String id = Integer.toString(snapshot.id());
 			if (id.startsWith(remaining)) {
 				builder.suggest(id);
+			}
+		}
+		return builder.buildFuture();
+	}
+
+	private static CompletableFuture<Suggestions> suggestShutdownReasons(
+		CommandContext<CommandSourceStack> context,
+		SuggestionsBuilder builder
+	) {
+		String remaining = builder.getRemaining().toLowerCase(Locale.ROOT);
+		for (String preset : SHUTDOWN_REASON_PRESETS) {
+			if (preset.toLowerCase(Locale.ROOT).startsWith(remaining)) {
+				builder.suggest(preset);
 			}
 		}
 		return builder.buildFuture();

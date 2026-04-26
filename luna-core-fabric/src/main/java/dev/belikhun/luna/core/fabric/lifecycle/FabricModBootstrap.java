@@ -13,7 +13,7 @@ public final class FabricModBootstrap {
 	}
 
 	public static LunaLogger initLogger(String loggerName, String scope, boolean debugEnabled) {
-		return LunaLogger.forLogger(FabricJulLogger.create(loggerName), false)
+		return LunaLogger.forLogger(FabricJulLogger.create(loggerName), true)
 			.withDebug(debugEnabled)
 			.scope(scope);
 	}

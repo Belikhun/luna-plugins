@@ -4,9 +4,11 @@ import dev.belikhun.luna.core.fabric.FabricVersionFamily;
 import dev.belikhun.luna.core.fabric.LunaCoreFabricRuntime;
 import dev.belikhun.luna.core.fabric.compat.FabricCompatibilityDiagnostics;
 import dev.belikhun.luna.core.fabric.messaging.FabricPluginMessagingBus;
+import dev.belikhun.luna.core.fabric.toast.FabricAdvancementToastService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.messenger.fabric.binding.command.FabricMessengerCommandBindingSupport;
 import dev.belikhun.luna.messenger.fabric.binding.event.FabricMessengerChatBindingSupport;
+import dev.belikhun.luna.messenger.fabric.binding.event.FabricMessengerLifecycleBindingSupport;
 import dev.belikhun.luna.messenger.fabric.service.FabricBackendPlaceholderResolver;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerCommandService;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerGateway;
@@ -29,6 +31,7 @@ public final class LunaMessengerFabricRuntime {
 	private final List<String> placeholderExportKeys;
 	private final LunaLogger logger;
 	private FabricPluginMessagingBus pluginMessagingBus;
+	private FabricAdvancementToastService toastService;
 	private FabricMessengerGateway gateway;
 	private FabricMessengerCommandService commandService;
 	private ScheduledExecutorService timeoutScheduler;
@@ -64,9 +67,12 @@ public final class LunaMessengerFabricRuntime {
 		}
 		FabricCompatibilityDiagnostics.logSnapshot(logger.scope("Compat"), FabricCompatibilityDiagnostics.scan());
 		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), messagingDebugLogging);
+		toastService = new FabricAdvancementToastService(logger, coreRuntime::currentServer);
 		gateway = new FabricMessengerGateway(
 			logger,
 			pluginMessagingBus,
+			coreRuntime::currentServer,
+			toastService,
 			new FabricBackendPlaceholderResolver(coreRuntime::currentServer, placeholderExportKeys),
 			requestTimeoutMillis,
 			true
@@ -76,6 +82,7 @@ public final class LunaMessengerFabricRuntime {
 		commandService = new FabricMessengerCommandService(gateway);
 		FabricMessengerCommandBindingSupport.register(commandService);
 		FabricMessengerChatBindingSupport.register(commandService);
+		FabricMessengerLifecycleBindingSupport.register(gateway);
 		logger.success("LunaMessenger Fabric runtime đã khởi động cho family " + family.id());
 	}
 
@@ -84,6 +91,10 @@ public final class LunaMessengerFabricRuntime {
 		if (gateway != null) {
 			gateway.close();
 			gateway = null;
+		}
+		if (toastService != null) {
+			toastService.close();
+			toastService = null;
 		}
 		commandService = null;
 		if (pluginMessagingBus != null) {
@@ -146,5 +157,6 @@ public final class LunaMessengerFabricRuntime {
 				+ " playerId=" + pending.playerId()
 				+ " command=" + pending.commandType().name());
 		}
+		currentGateway.handleTimedOutRequests(timedOut);
 	}
 }

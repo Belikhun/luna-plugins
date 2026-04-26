@@ -43,8 +43,15 @@ public final class LunaCountdownFabricRuntime {
 		}
 		FabricCompatibilityDiagnostics.logSnapshot(logger.scope("Compat"), FabricCompatibilityDiagnostics.scan());
 		pluginMessagingBus = coreRuntime.createPluginMessagingBus(logger.scope("Messaging"), messagingDebugLogging);
-		countdownService = new FabricCountdownService(logger);
-		commandService = new FabricCountdownCommandService(countdownService);
+		countdownService = new FabricCountdownService(logger, coreRuntime::currentServer);
+		commandService = new FabricCountdownCommandService(countdownService, () -> {
+			var server = coreRuntime.currentServer();
+			if (server == null) {
+				logger.warn("Không thể tắt máy chủ vì MinecraftServer chưa sẵn sàng.");
+				return;
+			}
+			server.execute(() -> server.halt(false));
+		});
 		FabricCountdownCommandBindingSupport.register(commandService);
 		FabricCountdownPlayerEventBindingSupport.register(countdownService);
 		logger.success("LunaCountdown Fabric runtime đã khởi động cho family " + family.id());

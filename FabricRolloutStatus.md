@@ -42,6 +42,10 @@
 	- active runtime audience state is synchronized from connection events for countdown flow parity with Paper player-event handling
 - Countdown command metadata hardening:
 	- title metadata is now removed automatically when countdown completes/stops
+- Countdown shutdown parity:
+	- Fabric now exposes `/shutdown <time> [reason]` and `/shutdown cancel`
+	- shutdown flow reuses the countdown boss bar, broadcast, cancellation, and player-sync behavior
+	- completion invokes the vanilla Fabric server halt path after the Paper-style completion delay
 - Optional ecosystem diagnostics:
 	- FabricProxy-Lite
 		- startup detection now checks real forwarding secret sources via config/FabricProxy-Lite.toml, FABRIC_PROXY_SECRET, and FABRIC_PROXY_SECRET_FILE

@@ -4,6 +4,8 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import org.junit.jupiter.api.Test;
 
 import java.util.logging.Logger;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -53,6 +55,69 @@ class FabricCountdownCommandServiceTest {
 			FabricCountdownCommandService.CommandResult stopAll = commandService.stopAll();
 			assertTrue(stopAll.success());
 			assertEquals(0, commandService.snapshots().size());
+		} finally {
+			service.close();
+		}
+	}
+
+	@Test
+	void scheduleShutdownValidatesDuration() {
+		FabricCountdownService service = new FabricCountdownService(testLogger());
+		try {
+			FabricCountdownCommandService commandService = new FabricCountdownCommandService(service);
+			FabricCountdownCommandService.CommandResult result = commandService.scheduleShutdown("abc", "Bảo trì");
+			assertFalse(result.success());
+			assertFalse(commandService.hasScheduledShutdown());
+		} finally {
+			service.close();
+		}
+	}
+
+	@Test
+	void shutdownCanBeCancelled() {
+		FabricCountdownService service = new FabricCountdownService(testLogger());
+		try {
+			FabricCountdownCommandService commandService = new FabricCountdownCommandService(service);
+			FabricCountdownCommandService.CommandResult start = commandService.scheduleShutdown("10s", "Bảo trì");
+			assertTrue(start.success());
+			assertTrue(commandService.hasScheduledShutdown());
+
+			FabricCountdownCommandService.CommandResult cancel = commandService.cancelShutdown();
+			assertTrue(cancel.success());
+			assertFalse(commandService.hasScheduledShutdown());
+		} finally {
+			service.close();
+		}
+	}
+
+	@Test
+	void shutdownCompletionRunsInjectedShutdownAction() throws Exception {
+		FabricCountdownService service = new FabricCountdownService(testLogger());
+		CountDownLatch shutdownInvoked = new CountDownLatch(1);
+		try {
+			FabricCountdownCommandService commandService = new FabricCountdownCommandService(service, shutdownInvoked::countDown);
+			FabricCountdownCommandService.CommandResult start = commandService.scheduleShutdown("1s", "Cập nhật");
+			assertTrue(start.success());
+
+			assertTrue(shutdownInvoked.await(5, TimeUnit.SECONDS));
+			assertFalse(commandService.hasScheduledShutdown());
+		} finally {
+			service.close();
+		}
+	}
+
+	@Test
+	void stopAllDoesNotCancelScheduledShutdown() {
+		FabricCountdownService service = new FabricCountdownService(testLogger());
+		try {
+			FabricCountdownCommandService commandService = new FabricCountdownCommandService(service);
+			assertTrue(commandService.start("10s", "Boss").success());
+			assertTrue(commandService.scheduleShutdown("10s", "Bảo trì").success());
+
+			FabricCountdownCommandService.CommandResult stopAll = commandService.stopAll();
+			assertTrue(stopAll.success());
+			assertTrue(commandService.hasScheduledShutdown());
+			assertEquals(1, commandService.snapshots().size());
 		} finally {
 			service.close();
 		}
