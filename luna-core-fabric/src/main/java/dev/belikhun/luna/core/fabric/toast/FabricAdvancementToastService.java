@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.fabric.toast;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.fabric.util.FabricPlayerNames;
 import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.advancements.AdvancementProgress;
@@ -9,10 +10,11 @@ import net.minecraft.advancements.AdvancementRewards;
 import net.minecraft.advancements.AdvancementType;
 import net.minecraft.advancements.Criterion;
 import net.minecraft.advancements.DisplayInfo;
-import net.minecraft.advancements.critereon.ImpossibleTrigger;
+import net.minecraft.advancements.criterion.ImpossibleTrigger;
+import net.minecraft.core.ClientAsset;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundUpdateAdvancementsPacket;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -34,7 +36,7 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 	private static final String DEFAULT_KEY_PREFIX = "mention_toast";
 	private static final String CRITERION_NAME = "trigger";
 	private static final ImpossibleTrigger IMPOSSIBLE_TRIGGER = new ImpossibleTrigger();
-	private static final ResourceLocation TOAST_BACKGROUND = ResourceLocation.tryParse("minecraft:textures/gui/advancements/backgrounds/adventure.png");
+	private static final Identifier TOAST_BACKGROUND = Identifier.tryParse("minecraft:textures/gui/advancements/backgrounds/adventure.png");
 
 	private final LunaLogger logger;
 	private final Supplier<MinecraftServer> serverSupplier;
@@ -67,7 +69,7 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 			toastText = DEFAULT_TITLE;
 		}
 
-		ResourceLocation advancementId = ResourceLocation.tryParse("luna:" + buildPath(keyPrefix, player.getUUID()));
+		Identifier advancementId = Identifier.tryParse("luna:" + buildPath(keyPrefix, player.getUUID()));
 		if (advancementId == null) {
 			return ToastResult.fail("invalid advancement id");
 		}
@@ -81,7 +83,7 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 					new ItemStack(Items.PAPER),
 					Component.literal(toastText),
 					Component.empty(),
-					Optional.ofNullable(TOAST_BACKGROUND),
+					Optional.ofNullable(TOAST_BACKGROUND).map(ClientAsset.ResourceTexture::new),
 					AdvancementType.GOAL,
 					true,
 					false,
@@ -103,12 +105,13 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 				false,
 				List.of(holder),
 				Set.of(),
-				Map.of(advancementId, progress)
+				Map.of(advancementId, progress),
+				true
 			));
 			scheduleRemoval(player.getUUID(), advancementId);
 			return ToastResult.ok();
 		} catch (Throwable throwable) {
-			logger.debug("Không thể gửi fake advancement toast cho " + player.getGameProfile().getName() + ": " + throwable.getMessage());
+			logger.debug("Không thể gửi fake advancement toast cho " + FabricPlayerNames.resolve(player) + ": " + throwable.getMessage());
 			return ToastResult.fail(throwable.getClass().getSimpleName());
 		}
 	}
@@ -118,7 +121,7 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 		cleanupExecutor.shutdownNow();
 	}
 
-	private void scheduleRemoval(UUID playerId, ResourceLocation advancementId) {
+	private void scheduleRemoval(UUID playerId, Identifier advancementId) {
 		cleanupExecutor.schedule(() -> {
 			MinecraftServer server = serverSupplier.get();
 			if (server == null) {
@@ -135,7 +138,8 @@ public final class FabricAdvancementToastService implements AutoCloseable {
 					false,
 					List.of(),
 					Set.of(advancementId),
-					Map.of()
+					Map.of(),
+					false
 				));
 			});
 		}, REMOVE_DELAY_MILLIS, TimeUnit.MILLISECONDS);

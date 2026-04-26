@@ -12,16 +12,16 @@ import dev.belikhun.luna.core.api.messenger.MessengerResultType;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionRequest;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
+import dev.belikhun.luna.core.fabric.util.FabricPlayerNames;
 import dev.belikhun.luna.core.fabric.toast.FabricAdvancementToastService;
 import dev.belikhun.luna.core.fabric.messaging.FabricMessageSource;
 import dev.belikhun.luna.core.fabric.messaging.FabricMessageTarget;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
-import net.minecraft.sounds.SoundSource;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -326,7 +326,7 @@ public final class FabricMessengerGateway {
 			if (result.success()) {
 				return;
 			}
-			logger.audit("MENTION_TOAST_FAIL player=" + player.getGameProfile().getName() + " reason=" + result.failureReason());
+			logger.audit("MENTION_TOAST_FAIL player=" + FabricPlayerNames.resolve(player) + " reason=" + result.failureReason());
 		}
 
 		if (!title.isBlank()) {
@@ -347,7 +347,7 @@ public final class FabricMessengerGateway {
 			normalized = "minecraft:" + normalized.replace('_', '.');
 		}
 
-		ResourceLocation location = ResourceLocation.tryParse(normalized);
+		Identifier location = Identifier.tryParse(normalized);
 		if (location == null) {
 			logger.debug("Sound " + label + " không hợp lệ: " + configuredSound);
 			return;
@@ -362,9 +362,9 @@ public final class FabricMessengerGateway {
 		float volume = parseFloat(volumeText, 1f);
 		float pitch = parseFloat(pitchText, 1f);
 		try {
-			player.playNotifySound(sound, SoundSource.MASTER, volume, pitch);
+			player.playSound(sound, volume, pitch);
 		} catch (Throwable throwable) {
-			logger.debug("Không thể phát sound " + label + " cho " + player.getGameProfile().getName() + ": " + configuredSound);
+			logger.debug("Không thể phát sound " + label + " cho " + FabricPlayerNames.resolve(player) + ": " + configuredSound);
 		}
 	}
 

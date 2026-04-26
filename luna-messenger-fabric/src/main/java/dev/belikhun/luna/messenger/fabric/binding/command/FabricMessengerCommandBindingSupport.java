@@ -7,6 +7,7 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import dev.belikhun.luna.core.fabric.util.FabricPlayerNames;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerCommandService;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
@@ -151,10 +152,7 @@ public final class FabricMessengerCommandBindingSupport {
 	private static PlayerIdentity resolveIdentity(CommandSourceStack source) {
 		try {
 			ServerPlayer player = source.getPlayerOrException();
-			String name = player.getGameProfile().getName();
-			if (name == null || name.isBlank()) {
-				name = player.getName().getString();
-			}
+			String name = FabricPlayerNames.resolve(player);
 			return new PlayerIdentity(player.getUUID(), name, "fabric");
 		} catch (CommandSyntaxException exception) {
 			return null;

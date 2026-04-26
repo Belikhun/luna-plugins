@@ -1,5 +1,5 @@
 plugins {
-	id("fabric-loom") version "1.10-SNAPSHOT"
+	id("fabric-loom") version "1.13.6"
 }
 
 import org.gradle.api.file.DuplicatesStrategy
@@ -9,12 +9,13 @@ import org.gradle.api.artifacts.VersionCatalogsExtension
 import net.fabricmc.loom.task.RemapJarTask
 
 dependencies {
-	minecraft("com.mojang:minecraft:1.21.1")
+	minecraft("com.mojang:minecraft:1.21.11")
 	mappings(loom.officialMojangMappings())
-	modImplementation("net.fabricmc:fabric-loader:0.16.10")
-	modImplementation("net.fabricmc.fabric-api:fabric-api:0.116.6+1.21.1")
+	modImplementation("net.fabricmc:fabric-loader:0.18.2")
+	modImplementation("net.fabricmc.fabric-api:fabric-api:0.139.4+1.21.11")
 
 	implementation(project(":luna-core-api"))
+	implementation("net.java.dev.jna:jna:5.14.0")
 	implementation(libs.rabbitmq.client)
 }
 
@@ -49,6 +50,7 @@ val familySourceSets = familyIds.map { familyId -> sourceSets.named("${familyId}
 
 dependencies {
 	add("bundled", project(":luna-core-api"))
+	add("bundled", "net.java.dev.jna:jna:5.14.0")
 	add("bundled", libs.rabbitmq.client)
 
 	familyIds.forEach { familyId ->

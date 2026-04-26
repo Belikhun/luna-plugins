@@ -9,6 +9,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.belikhun.luna.countdown.fabric.service.FabricCountdownCommandService;
+import me.lucko.fabric.api.permissions.v0.Permissions;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
@@ -75,7 +76,7 @@ public final class FabricCountdownCommandBindingSupport {
 			});
 
 		return literal(root)
-			.requires(source -> source.hasPermission(2))
+			.requires(Permissions.require("countdown.countdown", 2))
 			.then(literal("start").then(startLength))
 			.then(literal("stop").then(stopId))
 			.then(literal("stopall").executes(context -> {
@@ -105,7 +106,7 @@ public final class FabricCountdownCommandBindingSupport {
 				}));
 
 		return literal("shutdown")
-			.requires(source -> source.hasPermission(4))
+			.requires(Permissions.require("countdown.shutdown", 4))
 			.then(literal("cancel").executes(context -> {
 				var result = commandService.cancelShutdown();
 				sendFeedback(context.getSource(), result.success(), result.message());

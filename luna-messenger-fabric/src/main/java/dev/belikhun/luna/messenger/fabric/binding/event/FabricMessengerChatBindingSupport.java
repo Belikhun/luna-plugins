@@ -1,5 +1,6 @@
 package dev.belikhun.luna.messenger.fabric.binding.event;
 
+import dev.belikhun.luna.core.fabric.util.FabricPlayerNames;
 import dev.belikhun.luna.messenger.fabric.service.FabricMessengerCommandService;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.server.level.ServerPlayer;
@@ -51,10 +52,7 @@ public final class FabricMessengerChatBindingSupport {
 			return null;
 		}
 
-		String name = player.getGameProfile().getName();
-		if (name == null || name.isBlank()) {
-			name = player.getName().getString();
-		}
+		String name = FabricPlayerNames.resolve(player);
 		return new PlayerIdentity(player.getUUID(), name, "fabric");
 	}
 
