@@ -6,7 +6,7 @@ import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.profile.PermissionService;
 
 import com.velocitypowered.api.proxy.ProxyServer;
 
@@ -31,7 +31,7 @@ public final class DiscordAccountLinkService {
 	private final boolean databaseEnabled;
 	private final long codeTtlMs;
 	private final ProxyServer proxyServer;
-	private final LuckPermsService luckPermsService;
+	private final PermissionService permissionService;
 	private final String linkGroup;
 	private final String unlinkGroup;
 	private final List<String> linkActions;
@@ -46,7 +46,7 @@ public final class DiscordAccountLinkService {
 		boolean databaseEnabled,
 		long codeTtlMs,
 		ProxyServer proxyServer,
-		LuckPermsService luckPermsService,
+		PermissionService permissionService,
 		String linkGroup,
 		String unlinkGroup,
 		List<String> linkActions,
@@ -57,7 +57,7 @@ public final class DiscordAccountLinkService {
 		this.databaseEnabled = databaseEnabled;
 		this.codeTtlMs = Math.max(30_000L, codeTtlMs);
 		this.proxyServer = proxyServer;
-		this.luckPermsService = luckPermsService == null ? new LuckPermsService() : luckPermsService;
+		this.permissionService = permissionService;
 		this.linkGroup = normalizeGroupName(linkGroup);
 		this.unlinkGroup = normalizeGroupName(unlinkGroup);
 		this.linkActions = List.copyOf(linkActions);
@@ -71,7 +71,7 @@ public final class DiscordAccountLinkService {
 		Database sharedDatabase,
 		java.nio.file.Path configPath,
 		ProxyServer proxyServer,
-		LuckPermsService luckPermsService,
+		PermissionService permissionService,
 		LunaLogger logger
 	) {
 		Map<String, Object> root = LunaYamlConfig.loadMap(configPath);
@@ -92,7 +92,7 @@ public final class DiscordAccountLinkService {
 				false,
 				codeTtlMs,
 				proxyServer,
-				luckPermsService,
+				permissionService,
 				linkGroup,
 				unlinkGroup,
 				linkActions,
@@ -111,7 +111,7 @@ public final class DiscordAccountLinkService {
 				true,
 				codeTtlMs,
 				proxyServer,
-				luckPermsService,
+				permissionService,
 				linkGroup,
 				unlinkGroup,
 				linkActions,
@@ -127,7 +127,7 @@ public final class DiscordAccountLinkService {
 				false,
 				codeTtlMs,
 				proxyServer,
-				luckPermsService,
+				permissionService,
 				linkGroup,
 				unlinkGroup,
 				linkActions,
@@ -564,7 +564,7 @@ public final class DiscordAccountLinkService {
 			return;
 		}
 
-		boolean applied = luckPermsService.setUserPrimaryGroup(account.playerId(), groupName);
+		boolean applied = permissionService != null && permissionService.setUserPrimaryGroup(account.playerId(), groupName);
 		if (!applied) {
 			logger.warn("Không thể đặt nhóm LuckPerms khi link cho " + account.playerName() + " -> " + groupName);
 		}
@@ -575,14 +575,14 @@ public final class DiscordAccountLinkService {
 
 	private void applyUnlinkGroup(LinkedAccount account) {
 		if (unlinkGroup.isBlank()) {
-			boolean cleared = luckPermsService.clearUserPrimaryGroup(account.playerId());
+			boolean cleared = permissionService != null && permissionService.clearUserPrimaryGroup(account.playerId());
 			if (!cleared) {
 				logger.warn("Không thể xóa nhóm LuckPerms khi unlink cho " + account.playerName());
 			}
 			return;
 		}
 
-		boolean applied = luckPermsService.setUserPrimaryGroup(account.playerId(), unlinkGroup);
+		boolean applied = permissionService != null && permissionService.setUserPrimaryGroup(account.playerId(), unlinkGroup);
 		if (!applied) {
 			logger.warn("Không thể đặt nhóm LuckPerms khi unlink cho " + account.playerName() + " -> " + unlinkGroup);
 		}
@@ -592,7 +592,7 @@ public final class DiscordAccountLinkService {
 		if (playerId == null) {
 			return "";
 		}
-		return normalizeGroupName(luckPermsService.getGroupName(playerId));
+		return permissionService == null ? "" : normalizeGroupName(permissionService.getGroupName(playerId));
 	}
 
 	private void storePreviousGroup(UUID playerId, String previousGroup) {

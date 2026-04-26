@@ -31,6 +31,7 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
@@ -141,8 +142,8 @@ public final class LunaCoreVelocityPlugin {
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
 		AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(rootConfig);
 		VelocityMoneyFormat moneyFormat = VelocityMoneyFormat.fromConfig(rootConfig);
-		LuckPermsService luckPermsService = new LuckPermsService();
-		VelocityPlayerDisplayFormat playerDisplayFormat = VelocityPlayerDisplayFormat.fromConfig(rootConfig, luckPermsService);
+		PermissionService permissionService = new LuckPermsService();
+		VelocityPlayerDisplayFormat playerDisplayFormat = VelocityPlayerDisplayFormat.fromConfig(rootConfig, permissionService);
 
 		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
 		Database nextDatabase = createSharedDatabase(databaseConfig);
@@ -195,7 +196,7 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(Database.class, sharedDatabase);
-		dependencyManager.registerSingleton(LuckPermsService.class, luckPermsService);
+		dependencyManager.registerSingleton(PermissionService.class, permissionService);
 		dependencyManager.registerSingleton(VelocityMoneyFormat.class, moneyFormat);
 		dependencyManager.registerSingleton(VelocityPlayerDisplayFormat.class, playerDisplayFormat);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);

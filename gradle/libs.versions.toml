@@ -8,6 +8,8 @@ mariadb = "3.4.1"
 mysql = "9.1.0"
 sqlite = "3.47.2.0"
 velocity = "3.5.0-SNAPSHOT"
+moddevgradle = "2.0.74"
+neoforge = "21.1.172"
 jda = "5.6.1"
 miniplaceholders = "3.1.0"
 placeholderapi = "2.12.2"
@@ -17,6 +19,7 @@ huskhomes = "4.10"
 spark = "0.1-SNAPSHOT"
 rabbitmq = "5.24.0"
 tab = "5.5.0"
+forgeplaceholderapi = "2.1.0"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -25,6 +28,7 @@ mariadb-jdbc = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = 
 mysql-jdbc = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
 velocity-api = { module = "com.velocitypowered:velocity-api", version.ref = "velocity" }
+neoforge = { module = "net.neoforged:neoforge", version.ref = "neoforge" }
 jda = { module = "net.dv8tion:JDA", version.ref = "jda" }
 miniplaceholders-api = { module = "io.github.miniplaceholders:miniplaceholders-api", version.ref = "miniplaceholders" }
 placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
@@ -34,3 +38,7 @@ huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", versi
 spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }
 rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq" }
 tab-api = { module = "com.github.NEZNAMY:TAB-API", version.ref = "tab" }
+forgeplaceholderapi-neoforge = { module = "com.envyful.papi:neo21", version.ref = "forgeplaceholderapi" }
+
+[plugins]
+moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }

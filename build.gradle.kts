@@ -16,15 +16,18 @@ subprojects {
     group = "dev.belikhun.luna"
     version = "0.1.0-SNAPSHOT"
     val isApiModule = project.name.endsWith("-api")
+    val isNeoForgeModule = project.name.endsWith("-neoforge") || project.name == "luna-core-messaging"
     val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth" || project.name == "luna-vault" || project.name == "luna-glyph"
-    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule)
+    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule && !isNeoForgeModule)
     val platformTarget = when {
+        isNeoForgeModule -> "neoforge"
         isVelocityModule -> "velocity"
         isPaperModule -> "paper"
         else -> "api"
     }
     val moduleBaseName = when {
         isVelocityModule -> project.name.removeSuffix("-velocity")
+        isNeoForgeModule && project.name.endsWith("-neoforge") -> project.name.removeSuffix("-neoforge")
         project.name.endsWith("-paper") -> project.name.removeSuffix("-paper")
         isApiModule -> project.name
         else -> project.name
@@ -35,10 +38,11 @@ subprojects {
     repositories {
         mavenCentral()
         maven("https://repo.papermc.io/repository/maven-public/")
-            maven("https://repo.lucko.me/")
+        maven("https://repo.lucko.me/")
         maven("https://repo.helpch.at/releases/")
         maven("https://repo.loohpjames.com/repository")
         maven("https://repo.william278.net/releases")
+        maven("https://maven.neoforged.net/releases")
         maven("https://jitpack.io")
     }
 
@@ -65,6 +69,9 @@ subprojects {
 
     tasks.named<org.gradle.language.jvm.tasks.ProcessResources>("processResources") {
         filesMatching("paper-plugin.yml") {
+            expand("version" to pluginVersion)
+        }
+        filesMatching("META-INF/neoforge.mods.toml") {
             expand("version" to pluginVersion)
         }
         filesMatching("velocity-plugin.json") {

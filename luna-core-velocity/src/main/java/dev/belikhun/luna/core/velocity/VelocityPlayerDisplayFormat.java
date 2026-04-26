@@ -2,7 +2,7 @@ package dev.belikhun.luna.core.velocity;
 
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.config.ConfigValues;
-import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.profile.PermissionService;
 import io.github.miniplaceholders.api.MiniPlaceholders;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -17,19 +17,19 @@ public final class VelocityPlayerDisplayFormat {
 	private static final String DEFAULT_TEMPLATE = "%player_prefix% %displayname%";
 
 	private final String template;
-	private final LuckPermsService luckPermsService;
+	private final PermissionService permissionService;
 	private volatile boolean miniPlaceholdersEnabled = true;
 
-	public VelocityPlayerDisplayFormat(String template, LuckPermsService luckPermsService) {
+	public VelocityPlayerDisplayFormat(String template, PermissionService permissionService) {
 		this.template = normalize(template, DEFAULT_TEMPLATE);
-		this.luckPermsService = luckPermsService;
+		this.permissionService = permissionService;
 	}
 
-	public static VelocityPlayerDisplayFormat fromConfig(Map<String, Object> rootConfig, LuckPermsService luckPermsService) {
+	public static VelocityPlayerDisplayFormat fromConfig(Map<String, Object> rootConfig, PermissionService permissionService) {
 		Map<String, Object> strings = ConfigValues.map(rootConfig, "strings");
 		return new VelocityPlayerDisplayFormat(
 			ConfigValues.stringPreserveWhitespace(strings.get("user-display-format"), DEFAULT_TEMPLATE),
-			luckPermsService
+			permissionService
 		);
 	}
 
@@ -50,11 +50,11 @@ public final class VelocityPlayerDisplayFormat {
 	}
 
 	public String playerGroupName(UUID playerId) {
-		if (playerId == null || luckPermsService == null) {
+		if (playerId == null || permissionService == null) {
 			return "";
 		}
 
-		return normalizeValue(luckPermsService.getGroupName(playerId));
+		return normalizeValue(permissionService.getGroupName(playerId));
 	}
 
 	public String playerGroupDisplay(Player player) {
@@ -62,11 +62,11 @@ public final class VelocityPlayerDisplayFormat {
 	}
 
 	public String playerGroupDisplay(UUID playerId) {
-		if (playerId == null || luckPermsService == null) {
+		if (playerId == null || permissionService == null) {
 			return "";
 		}
 
-		return normalizeValue(luckPermsService.getGroupDisplayName(playerId));
+		return normalizeValue(permissionService.getGroupDisplayName(playerId));
 	}
 
 	public String playerPrefix(Player player) {
@@ -74,11 +74,11 @@ public final class VelocityPlayerDisplayFormat {
 	}
 
 	public String playerPrefix(UUID playerId) {
-		if (playerId == null || luckPermsService == null) {
+		if (playerId == null || permissionService == null) {
 			return "";
 		}
 
-		return normalizeValue(luckPermsService.getPlayerPrefix(playerId));
+		return normalizeValue(permissionService.getPlayerPrefix(playerId));
 	}
 
 	public String playerSuffix(Player player) {
@@ -86,11 +86,11 @@ public final class VelocityPlayerDisplayFormat {
 	}
 
 	public String playerSuffix(UUID playerId) {
-		if (playerId == null || luckPermsService == null) {
+		if (playerId == null || permissionService == null) {
 			return "";
 		}
 
-		return normalizeValue(luckPermsService.getPlayerSuffix(playerId));
+		return normalizeValue(permissionService.getPlayerSuffix(playerId));
 	}
 
 	public String format(Player player) {

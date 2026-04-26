@@ -13,7 +13,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
-import dev.belikhun.luna.core.api.profile.LuckPermsService;
+import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
@@ -85,10 +85,10 @@ public final class LunaMessengerVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
-		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
+		PermissionService permissionService = LunaCoreVelocity.services().dependencyManager().resolve(PermissionService.class);
 		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
 		backendStatusView = LunaCoreVelocity.services().backendStatusView();
-		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
+		discordAccountLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, permissionService, logger);
 		discordCommandRegistry = createDiscordCommandRegistry(discordAccountLinkService);
 		VelocityMessengerConfig config = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
 		currentConfig = config;
@@ -190,9 +190,9 @@ public final class LunaMessengerVelocityPlugin {
 	private synchronized void reloadRuntimeConfig() {
 		ensureDefaults();
 		VelocityMessengerConfig newConfig = VelocityMessengerConfig.load(dataDirectory.resolve("config.yml"));
-		LuckPermsService luckPermsService = LunaCoreVelocity.services().dependencyManager().resolve(LuckPermsService.class);
+		PermissionService permissionService = LunaCoreVelocity.services().dependencyManager().resolve(PermissionService.class);
 		Database sharedDatabase = LunaCoreVelocity.services().dependencyManager().resolveOptional(Database.class).orElse(null);
-		DiscordAccountLinkService newLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, luckPermsService, logger);
+		DiscordAccountLinkService newLinkService = DiscordAccountLinkService.create(sharedDatabase, dataDirectory.resolve("config.yml"), proxyServer, permissionService, logger);
 		DiscordCommandRegistry newCommandRegistry = createDiscordCommandRegistry(newLinkService);
 		DiscordBridgeGateway newBridge = createDiscordGateway(newConfig, newCommandRegistry);
 		DiscordBridgeGateway oldBridge = this.discordBridge;

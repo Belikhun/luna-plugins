@@ -1,0 +1,16 @@
+logging:
+  ansi: true
+  level: "INFO"
+  pluginMessaging:
+    enabled: false
+
+messaging:
+  rabbitmq:
+    enabled: false
+    uri: "amqp://guest:guest@127.0.0.1:5672/%2F"
+    exchange: "luna.plugin-messaging"
+    proxyQueue: "luna.proxy.messaging"
+    backendQueuePrefix: "luna.backend."
+    localServerName: ""
+    connectionTimeoutMillis: 5000
+    requestedHeartbeatSeconds: 15

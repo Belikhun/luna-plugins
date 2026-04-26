@@ -11,9 +11,33 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
-public final class LuckPermsService {
+
+public final class LuckPermsService implements PermissionService {
+	@Override
 	public boolean isAvailable() {
 		return luckPerms().isPresent();
+	}
+
+	@Override
+	public boolean hasPermission(UUID uniqueId, String permission) {
+		if (uniqueId == null || permission == null || permission.isBlank()) {
+			return false;
+		}
+
+		return getUser(uniqueId)
+			.map(user -> user.getCachedData().getPermissionData().checkPermission(permission).asBoolean())
+			.orElse(false);
+	}
+
+	@Override
+	public boolean hasPermission(String username, String permission) {
+		if (username == null || username.isBlank() || permission == null || permission.isBlank()) {
+			return false;
+		}
+
+		return getUser(username)
+			.map(user -> user.getCachedData().getPermissionData().checkPermission(permission).asBoolean())
+			.orElse(false);
 	}
 
 	public Optional<User> getUser(UUID uniqueId) {
@@ -54,6 +78,7 @@ public final class LuckPermsService {
 		return Optional.of(new LuckPermsGroupInfo(groupName, displayName));
 	}
 
+	@Override
 	public String getGroupName(UUID uniqueId) {
 		return getUser(uniqueId)
 			.map(this::primaryGroupName)
@@ -61,6 +86,7 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public String getGroupName(String username) {
 		return getUser(username)
 			.map(this::primaryGroupName)
@@ -68,18 +94,21 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public String getGroupDisplayName(UUID uniqueId) {
 		return getPrimaryGroupInfo(uniqueId)
 			.map(LuckPermsGroupInfo::displayName)
 			.orElse("");
 	}
 
+	@Override
 	public String getGroupDisplayName(String username) {
 		return getPrimaryGroupInfo(username)
 			.map(LuckPermsGroupInfo::displayName)
 			.orElse("");
 	}
 
+	@Override
 	public String getPlayerPrefix(UUID uniqueId) {
 		return getUser(uniqueId)
 			.map(this::userPrefix)
@@ -87,6 +116,7 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public String getPlayerPrefix(String username) {
 		return getUser(username)
 			.map(this::userPrefix)
@@ -94,6 +124,7 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public String getPlayerSuffix(UUID uniqueId) {
 		return getUser(uniqueId)
 			.map(this::userSuffix)
@@ -101,6 +132,7 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public String getPlayerSuffix(String username) {
 		return getUser(username)
 			.map(this::userSuffix)
@@ -108,14 +140,17 @@ public final class LuckPermsService {
 			.orElse("");
 	}
 
+	@Override
 	public Optional<LuckPermsUserInfo> getUserInfo(UUID uniqueId) {
 		return getUser(uniqueId).map(this::toUserInfo);
 	}
 
+	@Override
 	public Optional<LuckPermsUserInfo> getUserInfo(String username) {
 		return getUser(username).map(this::toUserInfo);
 	}
 
+	@Override
 	public boolean setUserPrimaryGroup(UUID uniqueId, String groupName) {
 		if (uniqueId == null) {
 			return false;
@@ -148,6 +183,7 @@ public final class LuckPermsService {
 		return true;
 	}
 
+	@Override
 	public boolean clearUserPrimaryGroup(UUID uniqueId) {
 		if (uniqueId == null) {
 			return false;
