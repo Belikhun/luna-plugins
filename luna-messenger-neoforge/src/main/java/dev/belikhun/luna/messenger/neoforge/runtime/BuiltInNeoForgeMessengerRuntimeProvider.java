@@ -35,11 +35,6 @@ public final class BuiltInNeoForgeMessengerRuntimeProvider implements NeoForgeMe
 
 	@Override
 	public BackendPlaceholderResolver createPlaceholderResolver(LunaLogger logger, DependencyManager dependencyManager) {
-		NeoForgeTabBridgeRuntime tabBridgeRuntime = dependencyManager.resolveOptional(NeoForgeTabBridgeRuntime.class).orElse(null);
-		if (tabBridgeRuntime == null) {
-			logger.warn("Thiếu NeoForgeTabBridgeRuntime, fallback sang resolver nội bộ tối thiểu.");
-		}
-
-		return new TabBridgeSnapshotPlaceholderResolver(tabBridgeRuntime);
+		return new TabBridgeSnapshotPlaceholderResolver(dependencyManager);
 	}
 }

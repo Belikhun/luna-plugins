@@ -31,6 +31,7 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 	private final LunaLogger logger;
 	private final NeoForgeCoreRuntimeConfig.HeartbeatConfig config;
 	private final AmqpMessagingConfig amqpMessagingConfig;
+	private final NeoForgeBackendStatusView statusView;
 	private final ScheduledExecutorService executor;
 	private final long bootEpochMillis;
 
@@ -42,18 +43,20 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 	private volatile boolean transportLoggingEnabled;
 	private volatile Consumer<byte[]> selectorPayloadConsumer;
 	private volatile long selectorPayloadChecksum;
-	private volatile BackendMetadata currentBackendMetadata;
+	private volatile long lastSnapshotRevision;
 
 	public NeoForgeHeartbeatPublisher(
 		MinecraftServer server,
 		LunaLogger logger,
 		NeoForgeCoreRuntimeConfig.HeartbeatConfig config,
-		AmqpMessagingConfig amqpMessagingConfig
+		AmqpMessagingConfig amqpMessagingConfig,
+		NeoForgeBackendStatusView statusView
 	) {
 		this.server = server;
 		this.logger = logger.scope("Heartbeat");
 		this.config = config == null ? NeoForgeCoreRuntimeConfig.HeartbeatConfig.defaults() : config.sanitize();
 		this.amqpMessagingConfig = amqpMessagingConfig == null ? AmqpMessagingConfig.disabled() : amqpMessagingConfig.sanitize();
+		this.statusView = statusView == null ? new NeoForgeBackendStatusView() : statusView;
 		this.executor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-neoforge-heartbeat");
 			thread.setDaemon(true);
@@ -68,11 +71,11 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		this.transportLoggingEnabled = this.config.transportLoggingEnabled();
 		this.selectorPayloadConsumer = null;
 		this.selectorPayloadChecksum = 0L;
-		this.currentBackendMetadata = null;
+		this.lastSnapshotRevision = -1L;
 	}
 
 	public BackendMetadata currentBackendMetadata() {
-		return currentBackendMetadata;
+		return statusView.currentBackendMetadata().orElse(null);
 	}
 
 	public void start() {
@@ -105,6 +108,7 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		heartbeatSecret = secret;
 		heartbeatReadTimeoutMillis = config.readTimeoutMillis();
 		transportLoggingEnabled = config.transportLoggingEnabled();
+		lastSnapshotRevision = -1L;
 		task = executor.scheduleAtFixedRate(
 			() -> postHeartbeat(true),
 			1L,
@@ -166,14 +170,15 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 
 		try {
 			long startedAt = System.currentTimeMillis();
+			URI requestUri = withSinceQuery(uri, lastSnapshotRevision);
 			BackendHeartbeatStats stats = collectStats(online);
 			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
 			bodyFields.put("online", String.valueOf(online));
 			bodyFields.put("clientSentEpochMillis", String.valueOf(startedAt));
 			String body = HeartbeatFormCodec.encodeToString(bodyFields);
-			transportLog("[TX] POST " + uri + " online=" + online + " body=" + body);
+			transportLog("[TX] POST " + requestUri + " online=" + online + " since=" + lastSnapshotRevision + " body=" + body);
 
-			HttpRequest request = HttpRequest.newBuilder(uri)
+			HttpRequest request = HttpRequest.newBuilder(requestUri)
 				.header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 				.header("X-Luna-Forwarding-Secret", secret)
 				.timeout(Duration.ofMillis(heartbeatReadTimeoutMillis))
@@ -181,14 +186,19 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 				.build();
 
 			HttpResponse<byte[]> response = currentClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-			transportLog("[RX] POST " + uri + " status=" + response.statusCode() + " body=" + formatFormBody(response.body()));
+			transportLog("[RX] POST " + requestUri + " status=" + response.statusCode() + " body=" + formatFormBody(response.body()));
 			if (response.statusCode() != 200) {
 				logger.warn("Heartbeat NeoForge nhận statusCode=" + response.statusCode() + " online=" + online);
 				return;
 			}
 
 			HeartbeatFormCodec.HeartbeatSnapshotPayload payload = HeartbeatFormCodec.decodeSnapshotPayload(response.body());
-			currentBackendMetadata = payload.currentBackendMetadata();
+			if (payload.fullSync()) {
+				statusView.updateSnapshot(payload);
+			} else {
+				statusView.applyDelta(payload);
+			}
+			lastSnapshotRevision = Math.max(lastSnapshotRevision, payload.revision());
 
 			fetchServerSelectorConfig(uri, secret, heartbeatReadTimeoutMillis);
 		} catch (Exception exception) {
@@ -474,6 +484,15 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 			}
 		}
 		return out.toString();
+	}
+
+	private URI withSinceQuery(URI baseUri, long sinceRevision) {
+		if (baseUri == null) {
+			return null;
+		}
+
+		String separator = baseUri.toString().contains("?") ? "&" : "?";
+		return URI.create(baseUri + separator + "since=" + sinceRevision);
 	}
 
 	private void transportLog(String message) {

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.messenger.neoforge.runtime;
 
+import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.messenger.BackendPlaceholderResolver;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionRequest;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionResult;
@@ -9,10 +10,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class TabBridgeSnapshotPlaceholderResolver implements BackendPlaceholderResolver {
-	private final NeoForgeTabBridgeRuntime tabBridgeRuntime;
+	private final DependencyManager dependencyManager;
 
-	TabBridgeSnapshotPlaceholderResolver(NeoForgeTabBridgeRuntime tabBridgeRuntime) {
-		this.tabBridgeRuntime = tabBridgeRuntime;
+	TabBridgeSnapshotPlaceholderResolver(DependencyManager dependencyManager) {
+		this.dependencyManager = dependencyManager;
 	}
 
 	@Override
@@ -28,6 +29,9 @@ final class TabBridgeSnapshotPlaceholderResolver implements BackendPlaceholderRe
 		exported.putIfAbsent("server_name", request.sourceServer());
 		exported.putIfAbsent("player_uuid", request.playerId().toString());
 
+		NeoForgeTabBridgeRuntime tabBridgeRuntime = dependencyManager == null
+			? null
+			: dependencyManager.resolveOptional(NeoForgeTabBridgeRuntime.class).orElse(null);
 		if (tabBridgeRuntime != null) {
 			for (Map.Entry<String, String> entry : tabBridgeRuntime.placeholderValues(request.playerId()).entrySet()) {
 				String key = entry.getKey();

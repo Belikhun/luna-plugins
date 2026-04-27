@@ -38,6 +38,28 @@ Current player ping placeholders:
 
 - `%luna_player_ping%`
 
+BlaceHolder compatibility placeholders now exposed through the `luna` namespace:
+
+- `%luna_world_<world>_weather%`
+- `%luna_world_<world>_weathericon%`
+- `%luna_world_<world>_weathercolor%`
+- `%luna_world_<world>_weatherduration%`
+- `%luna_voicechat_status%`
+- `%luna_voicechat_group%`
+- `%luna_player_level%`
+- `%luna_player_status%`
+- `%luna_player_status_<dot>%`
+- `%luna_stripcolor_legacy_<value>%`
+- `%luna_stripcolor_mm_<value>%`
+- `%luna_mm2l_<value>%`
+
+Compatibility notes:
+
+- These placeholders replace the old `%bh_*%` namespace in production configs.
+- `%luna_voicechat_*%` degrades safely when Simple Voice Chat is not installed or not active.
+- `%luna_stripcolor_*%` and `%luna_mm2l_*%` preserve the old embedded-brace input style such as `%luna_mm2l_{luckperms_prefix}%`.
+- The same imported `luna_*` keys are also resolved by the NeoForge TAB bridge when requested there.
+
 Current server bar placeholders:
 
 Standard bars:

@@ -14,6 +14,19 @@ public final class NeoForgeSparkMetrics {
 	private NeoForgeSparkMetrics() {
 	}
 
+	public static String resolveLegacyPlaceholder(String placeholder) {
+		if (placeholder == null || placeholder.isBlank()) {
+			return "";
+		}
+
+		try {
+			Spark spark = SparkProvider.get();
+			return safePlaceholderValue(spark, placeholder);
+		} catch (Throwable ignored) {
+			return "";
+		}
+	}
+
 	public static Snapshot collect(
 		LunaLogger logger,
 		Supplier<Double> fallbackTpsSupplier,
@@ -32,7 +45,8 @@ public final class NeoForgeSparkMetrics {
 
 			double systemCpuPercent = normalizeCpuPercent(spark.cpuSystem().poll(CpuUsage.MINUTES_1));
 			double processCpuPercent = normalizeCpuPercent(spark.cpuProcess().poll(CpuUsage.MINUTES_1));
-			return new Snapshot(tps, systemCpuPercent, processCpuPercent);
+			String sparkTickDuration10Sec = safePlaceholderValue(spark, "tickduration_10s");
+			return new Snapshot(tps, systemCpuPercent, processCpuPercent, sparkTickDuration10Sec);
 		} catch (IllegalStateException exception) {
 			warnOnce(logger, "Spark chưa sẵn sàng, dùng fallback nội bộ cho metrics: " + exception.getMessage());
 		} catch (Throwable throwable) {
@@ -42,8 +56,22 @@ public final class NeoForgeSparkMetrics {
 		return new Snapshot(
 			safeValue(fallbackTpsSupplier, 20D),
 			safeValue(fallbackSystemCpuSupplier, 0D),
-			safeValue(fallbackProcessCpuSupplier, 0D)
+			safeValue(fallbackProcessCpuSupplier, 0D),
+			""
 		);
+	}
+
+	private static String safePlaceholderValue(Spark spark, String placeholder) {
+		if (spark == null || placeholder == null || placeholder.isBlank()) {
+			return "";
+		}
+
+		try {
+			String value = spark.placeholders().resolveLegacyFormatting(placeholder);
+			return value == null ? "" : value;
+		} catch (Throwable ignored) {
+			return "";
+		}
 	}
 
 	private static void warnOnce(LunaLogger logger, String message) {
@@ -77,6 +105,6 @@ public final class NeoForgeSparkMetrics {
 		return Math.max(0D, Math.min(100D, percent));
 	}
 
-	public record Snapshot(double tps, double systemCpuUsagePercent, double processCpuUsagePercent) {
+	public record Snapshot(double tps, double systemCpuUsagePercent, double processCpuUsagePercent, String sparkTickDuration10Sec) {
 	}
 }

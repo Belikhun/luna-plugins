@@ -8,6 +8,7 @@ import org.gradle.jvm.tasks.Jar
 dependencies {
 	implementation(project(":luna-core-api"))
 	compileOnly(libs.adventure.minimessage)
+	compileOnly(libs.adventure.serializer.legacy)
 	compileOnly(libs.adventure.serializer.gson)
 	compileOnly(libs.luckperms.api)
 	compileOnly(libs.spark.api)
@@ -15,6 +16,10 @@ dependencies {
 
 val embeddedAdventureMiniMessage = configurations.detachedConfiguration(
 	dependencies.create(libs.adventure.minimessage.get())
+)
+
+val embeddedAdventureSerializerLegacy = configurations.detachedConfiguration(
+	dependencies.create(libs.adventure.serializer.legacy.get())
 )
 
 val embeddedAdventureSerializerGson = configurations.detachedConfiguration(
@@ -34,6 +39,7 @@ tasks.named<ShadowJar>("shadowJar") {
 	dependsOn(coreApiJar)
 	from(zipTree(coreApiJar.get().archiveFile.get().asFile))
 	from(embeddedAdventureMiniMessage.files.map { zipTree(it) })
+	from(embeddedAdventureSerializerLegacy.files.map { zipTree(it) })
 	from(embeddedAdventureSerializerGson.files.map { zipTree(it) })
 	from(embeddedSnakeYaml.files.map { zipTree(it) })
 	exclude("META-INF/MANIFEST.MF")

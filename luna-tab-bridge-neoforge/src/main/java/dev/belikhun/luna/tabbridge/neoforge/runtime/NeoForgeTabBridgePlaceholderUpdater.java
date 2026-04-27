@@ -1,12 +1,16 @@
 package dev.belikhun.luna.tabbridge.neoforge.runtime;
 
 import com.sun.management.OperatingSystemMXBean;
+import dev.belikhun.luna.core.api.compat.SimpleVoiceChatCompat;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport;
+import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeSparkMetrics;
+import net.minecraft.world.level.Level;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,6 +24,7 @@ import java.lang.reflect.Method;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Collection;
@@ -30,6 +35,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable {
 	private static final int DEFAULT_BAR_WIDTH = 25;
@@ -40,7 +47,14 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	private static final String LUNA_PREFIX = "luna_";
 	private static final String SAFE_SUFFIX = "_safe";
 	private static final String SERVER_TIME_PREFIX = "server_time_";
+	private static final String SPARK_PREFIX = "spark_";
 	private static final String SPARK_TICK_DURATION_10S = "spark_tickduration_10s";
+	private static final DateTimeFormatter WORLD_TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mm a", Locale.US);
+	private static final Pattern WORLD_WEATHER_PATTERN = Pattern.compile("^world_(.+)_(weather|weathericon|weathercolor|weatherduration)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern PLAYER_STATUS_PATTERN = Pattern.compile("^player_status(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("^stripcolor_(legacy|mm)_(.+)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern MM2L_PATTERN = Pattern.compile("^mm2l_(.+)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern BRACKET_PATTERN = Pattern.compile("\\{([^{}]+)}");
 
 	private final LunaLogger logger;
 	private final MinecraftServer server;
@@ -177,6 +191,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return new CurrentSnapshot(
 			sharedSnapshot.currentTps(),
 			sharedSnapshot.currentTickDurationMillis(),
+			sharedSnapshot.sparkTickDuration10Sec(),
 			playerPingMillis(player),
 			sharedSnapshot.uptimeMillis(),
 			sharedSnapshot.systemCpuPercent(),
@@ -202,6 +217,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return new SharedSnapshot(
 			sparkMetrics.tps(),
 			currentTickDurationMillis(sparkMetrics.tps()),
+			sparkMetrics.sparkTickDuration10Sec(),
 			uptimeMillis,
 			sparkMetrics.systemCpuUsagePercent(),
 			sparkMetrics.processCpuUsagePercent(),
@@ -251,23 +267,27 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 
 		String normalizedIdentifier = rawIdentifier.toLowerCase(Locale.ROOT);
 		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
-			return resolveRequestedBridgeValue(normalizedIdentifier, snapshot);
+			return resolveRequestedBridgeValue(player, rawIdentifier, normalizedIdentifier, snapshot);
 		}
 
 		return resolveNativePlaceholder(player, rawIdentifier, normalizedIdentifier, snapshot);
 	}
 
-	private String resolveRequestedBridgeValue(String lookupKey, CurrentSnapshot snapshot) {
-		boolean safeVariant = lookupKey.endsWith(SAFE_SUFFIX) && lookupKey.length() > SAFE_SUFFIX.length();
+	private String resolveRequestedBridgeValue(ServerPlayer player, String rawLookupKey, String normalizedLookupKey, CurrentSnapshot snapshot) {
+		boolean safeVariant = normalizedLookupKey.endsWith(SAFE_SUFFIX) && normalizedLookupKey.length() > SAFE_SUFFIX.length();
+		String rawKey = safeVariant
+			? rawLookupKey.substring(0, rawLookupKey.length() - SAFE_SUFFIX.length())
+			: rawLookupKey;
 		String normalizedKey = safeVariant
-			? lookupKey.substring(0, lookupKey.length() - SAFE_SUFFIX.length())
-			: lookupKey;
+			? normalizedLookupKey.substring(0, normalizedLookupKey.length() - SAFE_SUFFIX.length())
+			: normalizedLookupKey;
 		if (!normalizedKey.startsWith(LUNA_PREFIX)) {
 			return null;
 		}
 
-		String key = normalizedKey.substring(LUNA_PREFIX.length());
-		String value = resolvePaperLunaValue(key, snapshot);
+		String rawKeyWithoutPrefix = rawKey.substring(LUNA_PREFIX.length());
+		String normalizedKeyWithoutPrefix = normalizedKey.substring(LUNA_PREFIX.length());
+		String value = resolvePaperLunaValue(player, rawKeyWithoutPrefix, normalizedKeyWithoutPrefix, snapshot);
 		if (value == null) {
 			return null;
 		}
@@ -275,8 +295,13 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return safeVariant ? escapePlaceholderPercents(value) : value;
 	}
 
-	private String resolvePaperLunaValue(String key, CurrentSnapshot snapshot) {
-		String value = switch (key) {
+	private String resolvePaperLunaValue(ServerPlayer player, String rawKey, String normalizedKey, CurrentSnapshot snapshot) {
+		String importedValue = resolveImportedPlaceholder(player, rawKey, snapshot);
+		if (importedValue != null) {
+			return importedValue;
+		}
+
+		String value = switch (normalizedKey) {
 			case "current_server" -> localServerName;
 			case "status" -> server.isEnforceWhitelist() ? "MAINT" : "ONLINE";
 			case "online" -> Integer.toString(server.getPlayerCount());
@@ -303,76 +328,137 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			return value;
 		}
 
-		value = resolveCurrentBar(key, "tps_bar", width -> buildBar(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
+		value = resolveCurrentBar(normalizedKey, "tps_bar", width -> buildBar(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "player_ping_bar", width -> buildBar(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
+		value = resolveCurrentBar(normalizedKey, "player_ping_bar", width -> buildBar(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "latency_bar", width -> buildBar(LunaProgressBarPresets.latency("latency", 0D), width));
+		value = resolveCurrentBar(normalizedKey, "latency_bar", width -> buildBar(LunaProgressBarPresets.latency("latency", 0D), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "system_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
+		value = resolveCurrentBar(normalizedKey, "system_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "process_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
+		value = resolveCurrentBar(normalizedKey, "process_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "ram_bar", width -> buildBar(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
+		value = resolveCurrentBar(normalizedKey, "ram_bar", width -> buildBar(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
 		if (value != null) {
 			return value;
 		}
 
-		value = resolveCurrentBar(key, "tps_bar_only", width -> buildBarOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
+		value = resolveCurrentBar(normalizedKey, "tps_bar_only", width -> buildBarOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveExact(key, "tps_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps())));
+		value = resolveExact(normalizedKey, "tps_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps())));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "player_ping_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
+		value = resolveCurrentBar(normalizedKey, "player_ping_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveExact(key, "player_ping_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis())));
+		value = resolveExact(normalizedKey, "player_ping_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis())));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "latency_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("latency", 0D), width));
+		value = resolveCurrentBar(normalizedKey, "latency_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("latency", 0D), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveExact(key, "latency_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("latency", 0D)));
+		value = resolveExact(normalizedKey, "latency_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("latency", 0D)));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "system_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
+		value = resolveCurrentBar(normalizedKey, "system_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveExact(key, "system_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent())));
+		value = resolveExact(normalizedKey, "system_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent())));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "process_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
+		value = resolveCurrentBar(normalizedKey, "process_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
 		if (value != null) {
 			return value;
 		}
-		value = resolveExact(key, "process_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent())));
+		value = resolveExact(normalizedKey, "process_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent())));
 		if (value != null) {
 			return value;
 		}
-		value = resolveCurrentBar(key, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
+		value = resolveCurrentBar(normalizedKey, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
 		if (value != null) {
 			return value;
 		}
-		return resolveExact(key, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes())));
+		return resolveExact(normalizedKey, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes())));
+	}
+
+	private String resolveImportedPlaceholder(ServerPlayer player, String rawKey, CurrentSnapshot snapshot) {
+		String expandedKey = replaceInnerPlaceholders(player, rawKey, snapshot);
+		String expandedNormalized = expandedKey.toLowerCase(Locale.ROOT);
+
+		Matcher worldWeatherMatcher = WORLD_WEATHER_PATTERN.matcher(expandedKey);
+		if (worldWeatherMatcher.matches()) {
+			String worldName = worldWeatherMatcher.group(1);
+			ServerLevel level = findLevel(worldName);
+			if (level == null) {
+				return "unknown:" + worldName;
+			}
+
+			boolean raining = level.isRaining();
+			boolean thundering = level.isThundering();
+			return switch (worldWeatherMatcher.group(2).toLowerCase(Locale.ROOT)) {
+				case "weather" -> LunaImportedPlaceholderSupport.weatherText(raining, thundering);
+				case "weathericon" -> LunaImportedPlaceholderSupport.weatherIcon(raining, thundering);
+				case "weathercolor" -> LunaImportedPlaceholderSupport.weatherColor(raining, thundering);
+				case "weatherduration" -> LunaImportedPlaceholderSupport.formatDurationSeconds(Math.floorDiv(currentWeatherDurationTicks(level, raining, thundering), 20L));
+				default -> null;
+			};
+		}
+
+		if (expandedNormalized.equals("voicechat_status")) {
+			return LunaImportedPlaceholderSupport.voiceChatStatus(SimpleVoiceChatCompat.playerStatus(player.getUUID()));
+		}
+
+		if (expandedNormalized.equals("voicechat_group")) {
+			return SimpleVoiceChatCompat.playerGroup(player.getUUID());
+		}
+
+		if (expandedNormalized.equals("player_level")) {
+			return LunaImportedPlaceholderSupport.playerLevel(player.experienceLevel);
+		}
+
+		Matcher playerStatusMatcher = PLAYER_STATUS_PATTERN.matcher(expandedKey);
+		if (playerStatusMatcher.matches()) {
+			ServerLevel level = player.serverLevel();
+			if (level == null) {
+				return "<white>❌<reset>";
+			}
+			return LunaImportedPlaceholderSupport.playerStatusDot(toWorldKind(level), playerStatusMatcher.group(1));
+		}
+
+		Matcher stripColorMatcher = STRIP_COLOR_PATTERN.matcher(expandedKey);
+		if (stripColorMatcher.matches()) {
+			return switch (stripColorMatcher.group(1).toLowerCase(Locale.ROOT)) {
+				case "legacy" -> LunaImportedPlaceholderSupport.stripLegacyColors(stripColorMatcher.group(2));
+				case "mm" -> LunaImportedPlaceholderSupport.stripMiniMessage(stripColorMatcher.group(2));
+				default -> null;
+			};
+		}
+
+		Matcher mm2lMatcher = MM2L_PATTERN.matcher(expandedKey);
+		if (mm2lMatcher.matches()) {
+			return LunaImportedPlaceholderSupport.miniMessageToLegacy(mm2lMatcher.group(1));
+		}
+
+		return rawKey.equals(expandedKey) ? null : resolveImportedPlaceholder(player, expandedKey, snapshot);
 	}
 
 	private String resolveNativePlaceholder(ServerPlayer player, String rawIdentifier, String normalizedIdentifier, CurrentSnapshot snapshot) {
@@ -380,8 +466,17 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			return formatServerTime(rawIdentifier.substring(SERVER_TIME_PREFIX.length()));
 		}
 
+		if (normalizedIdentifier.startsWith(SPARK_PREFIX)) {
+			String sparkValue = NeoForgeSparkMetrics.resolveLegacyPlaceholder(normalizedIdentifier.substring(SPARK_PREFIX.length()));
+			if (!sparkValue.isBlank()) {
+				return sparkValue;
+			}
+		}
+
 		return switch (normalizedIdentifier) {
-			case SPARK_TICK_DURATION_10S -> formatDecimal(snapshot.currentTickDurationMillis());
+			case SPARK_TICK_DURATION_10S -> formatSparkTickDuration(snapshot);
+			case "world" -> currentWorldName(player);
+			case "world_time" -> currentWorldTime(player);
 			case "player_health" -> formatDecimal(Math.max(0D, player.getHealth()));
 			case "player_health_rounded" -> Integer.toString(Math.max(0, Math.round(player.getHealth())));
 			case "player_max_health" -> formatDecimal(Math.max(0D, player.getMaxHealth()));
@@ -414,6 +509,144 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return player.serverLevel().getBiome(blockPos).unwrapKey()
 			.map(key -> key.location().getPath())
 			.orElse("unknown");
+	}
+
+	private String currentWorldName(ServerPlayer player) {
+		ServerLevel level = player.serverLevel();
+		if (level == null || level.dimension() == null || level.dimension().location() == null) {
+			return "unknown";
+		}
+
+		ResourceLocation location = level.dimension().location();
+		return location.toString();
+	}
+
+	private String currentWorldTime(ServerPlayer player) {
+		ServerLevel level = player.serverLevel();
+		if (level == null) {
+			return "unknown";
+		}
+
+		long dayTicks = Math.floorMod(level.getDayTime(), 24000L);
+		int totalMinutes = (int) ((dayTicks * 1440L) / 24000L);
+		totalMinutes = Math.floorMod(totalMinutes + 360, 1440);
+		LocalTime worldTime = LocalTime.of(totalMinutes / 60, totalMinutes % 60);
+		return WORLD_TIME_FORMATTER.format(worldTime);
+	}
+
+	private String replaceInnerPlaceholders(ServerPlayer player, String value, CurrentSnapshot snapshot) {
+		if (value == null || value.isBlank()) {
+			return "";
+		}
+
+		String resolved = value;
+		for (int depth = 0; depth < 8; depth++) {
+			Matcher matcher = BRACKET_PATTERN.matcher(resolved);
+			StringBuffer buffer = new StringBuffer();
+			boolean changed = false;
+
+			while (matcher.find()) {
+				String token = matcher.group(1);
+				String replacement = resolveInlinePlaceholder(player, token, snapshot);
+				if (replacement == null) {
+					matcher.appendReplacement(buffer, Matcher.quoteReplacement(matcher.group(0)));
+					continue;
+				}
+				matcher.appendReplacement(buffer, Matcher.quoteReplacement(replacement));
+				changed = true;
+			}
+
+			matcher.appendTail(buffer);
+			if (!changed) {
+				return resolved;
+			}
+			resolved = buffer.toString();
+		}
+
+		return resolved;
+	}
+
+	private String resolveInlinePlaceholder(ServerPlayer player, String identifier, CurrentSnapshot snapshot) {
+		if (identifier == null || identifier.isBlank()) {
+			return null;
+		}
+
+		String rawIdentifier = identifier.trim();
+		if (rawIdentifier.startsWith("%") && rawIdentifier.endsWith("%") && rawIdentifier.length() >= 3) {
+			rawIdentifier = rawIdentifier.substring(1, rawIdentifier.length() - 1);
+		}
+
+		String normalizedIdentifier = rawIdentifier.toLowerCase(Locale.ROOT);
+		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
+			return resolvePaperLunaValue(player, rawIdentifier.substring(LUNA_PREFIX.length()), normalizedIdentifier.substring(LUNA_PREFIX.length()), snapshot);
+		}
+
+		return resolveNativePlaceholder(player, rawIdentifier, normalizedIdentifier, snapshot);
+	}
+
+	private ServerLevel findLevel(String worldName) {
+		if (worldName == null || worldName.isBlank()) {
+			return null;
+		}
+
+		String normalized = worldName.trim().toLowerCase(Locale.ROOT);
+		for (ServerLevel level : server.getAllLevels()) {
+			ResourceLocation location = level.dimension().location();
+			if (location != null) {
+				if (normalized.equals(location.getPath().toLowerCase(Locale.ROOT)) || normalized.equals(location.toString().toLowerCase(Locale.ROOT))) {
+					return level;
+				}
+			}
+
+			Object levelData = invokeNoArg(level, "getLevelData");
+			String levelName = invokeString(levelData, "getLevelName");
+			if (levelName != null && normalized.equals(levelName.trim().toLowerCase(Locale.ROOT))) {
+				return level;
+			}
+		}
+
+		return null;
+	}
+
+	private long currentWeatherDurationTicks(ServerLevel level, boolean raining, boolean thundering) {
+		Object levelData = invokeNoArg(level, "getLevelData");
+		if (levelData == null) {
+			return 0L;
+		}
+
+		if (thundering) {
+			Integer thunderTime = invokeInt(levelData, "getThunderTime");
+			if (thunderTime != null && thunderTime >= 0) {
+				return thunderTime.longValue();
+			}
+		}
+
+		if (raining) {
+			Integer rainTime = invokeInt(levelData, "getRainTime");
+			if (rainTime != null && rainTime >= 0) {
+				return rainTime.longValue();
+			}
+		}
+
+		Integer clearWeatherTime = invokeInt(levelData, "getClearWeatherTime");
+		return clearWeatherTime == null || clearWeatherTime < 0 ? 0L : clearWeatherTime.longValue();
+	}
+
+	private WorldKind toWorldKind(ServerLevel level) {
+		if (level == null) {
+			return WorldKind.CUSTOM;
+		}
+
+		if (Level.OVERWORLD.equals(level.dimension())) {
+			return WorldKind.NORMAL;
+		}
+		if (Level.NETHER.equals(level.dimension())) {
+			return WorldKind.NETHER;
+		}
+		if (Level.END.equals(level.dimension())) {
+			return WorldKind.END;
+		}
+		return WorldKind.CUSTOM;
 	}
 
 	private String currentServerInfoName() {
@@ -626,6 +859,11 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return null;
 	}
 
+	private String invokeString(Object target, String methodName) {
+		Object value = invokeNoArg(target, methodName);
+		return value instanceof String stringValue ? stringValue : null;
+	}
+
 	private Object invokeNoArg(Object target, String methodName) {
 		if (target == null) {
 			return null;
@@ -773,12 +1011,26 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return String.format(Locale.US, "%.2f", Math.max(0D, value));
 	}
 
+	private String formatSparkTickDuration(CurrentSnapshot snapshot) {
+		String sparkValue = safe(snapshot.sparkTickDuration10Sec());
+		if (!sparkValue.isBlank()) {
+			return sparkValue;
+		}
+
+		String fallback = formatOneDecimal(snapshot.currentTickDurationMillis());
+		return fallback + "/" + fallback + "/" + fallback + "/" + fallback;
+	}
+
 	private String formatDecimal(double value) {
 		String text = String.format(Locale.US, "%.2f", Math.max(0D, value));
 		while (text.contains(".") && (text.endsWith("0") || text.endsWith("."))) {
 			text = text.substring(0, text.length() - 1);
 		}
 		return text;
+	}
+
+	private String formatOneDecimal(double value) {
+		return String.format(Locale.US, "%.1f", Math.max(0D, value));
 	}
 
 	private String escapePlaceholderPercents(String value) {
@@ -792,6 +1044,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	private record CurrentSnapshot(
 		double currentTps,
 		double currentTickDurationMillis,
+		String sparkTickDuration10Sec,
 		int playerPingMillis,
 		long uptimeMillis,
 		double systemCpuPercent,
@@ -807,6 +1060,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	private record SharedSnapshot(
 		double currentTps,
 		double currentTickDurationMillis,
+		String sparkTickDuration10Sec,
 		long uptimeMillis,
 		double systemCpuPercent,
 		double processCpuPercent,

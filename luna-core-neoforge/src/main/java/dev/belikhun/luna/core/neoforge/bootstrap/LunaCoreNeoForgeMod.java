@@ -5,10 +5,12 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.profile.PermissionService;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForgeServices;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreConfigLoader;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreRuntimeConfig;
+import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeBackendStatusView;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeHeartbeatPublisher;
 import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
 import dev.belikhun.luna.core.neoforge.serverselector.NeoForgeServerSelectorController;
@@ -57,7 +59,8 @@ public final class LunaCoreNeoForgeMod {
 
 		AmqpMessagingConfig amqpMessagingConfig = runtimeConfig.amqpMessagingConfig();
 		PermissionService permissionService = new LuckPermsService();
-		heartbeatPublisher = new NeoForgeHeartbeatPublisher(server, logger, runtimeConfig.heartbeatConfig(), amqpMessagingConfig);
+		NeoForgeBackendStatusView backendStatusView = new NeoForgeBackendStatusView();
+		heartbeatPublisher = new NeoForgeHeartbeatPublisher(server, logger, runtimeConfig.heartbeatConfig(), amqpMessagingConfig, backendStatusView);
 		serverSelectorController = new NeoForgeServerSelectorController(server, dependencyManager, logger, permissionService);
 		dependencyManager.registerSingleton(MinecraftServer.class, server);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
@@ -65,6 +68,8 @@ public final class LunaCoreNeoForgeMod {
 		dependencyManager.registerSingleton(NeoForgeCoreRuntimeConfig.class, runtimeConfig);
 		dependencyManager.registerSingleton(AmqpMessagingConfig.class, amqpMessagingConfig);
 		dependencyManager.registerSingleton(PermissionService.class, permissionService);
+		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusView);
+		dependencyManager.registerSingleton(NeoForgeBackendStatusView.class, backendStatusView);
 		dependencyManager.registerSingleton(NeoForgeHeartbeatPublisher.class, heartbeatPublisher);
 		dependencyManager.registerSingleton(NeoForgeServerSelectorController.class, serverSelectorController);
 		LunaCoreNeoForge.set(new LunaCoreNeoForgeServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher));
@@ -94,6 +99,10 @@ public final class LunaCoreNeoForgeMod {
 
 	@SubscribeEvent
 	public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+		if (serverSelectorController != null && event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+			serverSelectorController.cleanupPlayer(player.getUUID());
+		}
+
 		if (heartbeatPublisher == null) {
 			return;
 		}

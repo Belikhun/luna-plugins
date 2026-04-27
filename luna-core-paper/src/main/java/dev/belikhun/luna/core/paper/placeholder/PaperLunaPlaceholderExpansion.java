@@ -1,11 +1,15 @@
 package dev.belikhun.luna.core.paper.placeholder;
 
+import dev.belikhun.luna.core.api.compat.SimpleVoiceChatCompat;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
+import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport;
+import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
+import me.clip.placeholderapi.PlaceholderAPI;
 import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import me.lucko.spark.api.Spark;
 import me.lucko.spark.api.SparkProvider;
@@ -13,6 +17,7 @@ import me.lucko.spark.api.statistic.StatisticWindow.CpuUsage;
 import me.lucko.spark.api.statistic.StatisticWindow.TicksPerSecond;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -22,12 +27,19 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private static final int DEFAULT_BAR_WIDTH = 25;
 	private static final int MIN_BAR_WIDTH = 1;
 	private static final int MAX_BAR_WIDTH = 120;
 	private static final String SAFE_SUFFIX = "_safe";
+	private static final Pattern WORLD_WEATHER_PATTERN = Pattern.compile("^world_(.+)_(weather|weathericon|weathercolor|weatherduration)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern PLAYER_STATUS_PATTERN = Pattern.compile("^player_status(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("^stripcolor_(legacy|mm)_(.+)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern MM2L_PATTERN = Pattern.compile("^mm2l_(.+)$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern BRACKET_PATTERN = Pattern.compile("\\{[^{}]+}");
 
 	private final JavaPlugin plugin;
 	private final BackendStatusView statusView;
@@ -63,19 +75,28 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			return "";
 		}
 
-		String normalized = params.trim().toLowerCase(Locale.ROOT);
+		String raw = params.trim();
+		String normalized = raw.toLowerCase(Locale.ROOT);
 		boolean safeVariant = normalized.endsWith(SAFE_SUFFIX) && normalized.length() > SAFE_SUFFIX.length();
-		String lookupKey = safeVariant
+		String rawLookupKey = safeVariant
+			? raw.substring(0, raw.length() - SAFE_SUFFIX.length())
+			: raw;
+		String normalizedLookupKey = safeVariant
 			? normalized.substring(0, normalized.length() - SAFE_SUFFIX.length())
 			: normalized;
-		String value = resolveCurrent(player, lookupKey);
+		String value = resolveCurrent(player, rawLookupKey, normalizedLookupKey);
 		if (safeVariant && value != null) {
 			value = escapePlaceholderPercents(value);
 		}
 		return value == null ? "" : value;
 	}
 
-	private String resolveCurrent(OfflinePlayer player, String normalized) {
+	private String resolveCurrent(OfflinePlayer player, String rawKey, String normalized) {
+		String importedValue = resolveImportedPlaceholder(player, rawKey, normalized);
+		if (importedValue != null) {
+			return importedValue;
+		}
+
 		String value = switch (normalized) {
 			case "current_server" -> currentServerName();
 			case "host_name", "server_name" -> currentServerInfoName();
@@ -170,6 +191,103 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			return value;
 		}
 		return resolveExact(normalized, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes())));
+	}
+
+	private String resolveImportedPlaceholder(OfflinePlayer player, String rawKey, String normalizedKey) {
+		String expandedKey = replaceInnerPlaceholders(player, rawKey);
+		String expandedNormalized = expandedKey.toLowerCase(Locale.ROOT);
+
+		Matcher worldWeatherMatcher = WORLD_WEATHER_PATTERN.matcher(expandedKey);
+		if (worldWeatherMatcher.matches()) {
+			String worldName = worldWeatherMatcher.group(1);
+			World world = Bukkit.getWorld(worldName);
+			if (world == null) {
+				return "unknown:" + worldName;
+			}
+
+			boolean raining = world.hasStorm();
+			boolean thundering = world.isThundering();
+			return switch (worldWeatherMatcher.group(2).toLowerCase(Locale.ROOT)) {
+				case "weather" -> LunaImportedPlaceholderSupport.weatherText(raining, thundering);
+				case "weathericon" -> LunaImportedPlaceholderSupport.weatherIcon(raining, thundering);
+				case "weathercolor" -> LunaImportedPlaceholderSupport.weatherColor(raining, thundering);
+				case "weatherduration" -> LunaImportedPlaceholderSupport.formatDurationSeconds(Math.floorDiv(Math.max(0L, world.getWeatherDuration()), 20L));
+				default -> null;
+			};
+		}
+
+		if (expandedNormalized.equals("voicechat_status")) {
+			return player != null && player.isOnline()
+				? LunaImportedPlaceholderSupport.voiceChatStatus(SimpleVoiceChatCompat.playerStatus(player.getUniqueId()))
+				: "<white>⛔<reset>";
+		}
+
+		if (expandedNormalized.equals("voicechat_group")) {
+			return SimpleVoiceChatCompat.playerGroup(player == null ? null : player.getUniqueId());
+		}
+
+		if (expandedNormalized.equals("player_level")) {
+			Player onlinePlayer = player == null ? null : player.getPlayer();
+			return LunaImportedPlaceholderSupport.playerLevel(onlinePlayer == null ? 0 : onlinePlayer.getLevel());
+		}
+
+		Matcher playerStatusMatcher = PLAYER_STATUS_PATTERN.matcher(expandedKey);
+		if (playerStatusMatcher.matches()) {
+			Player onlinePlayer = player == null ? null : player.getPlayer();
+			if (onlinePlayer == null || onlinePlayer.getWorld() == null) {
+				return "<white>❌<reset>";
+			}
+
+			return LunaImportedPlaceholderSupport.playerStatusDot(
+				toWorldKind(onlinePlayer.getWorld().getEnvironment()),
+				playerStatusMatcher.group(1)
+			);
+		}
+
+		Matcher stripColorMatcher = STRIP_COLOR_PATTERN.matcher(expandedKey);
+		if (stripColorMatcher.matches()) {
+			return switch (stripColorMatcher.group(1).toLowerCase(Locale.ROOT)) {
+				case "legacy" -> LunaImportedPlaceholderSupport.stripLegacyColors(stripColorMatcher.group(2));
+				case "mm" -> LunaImportedPlaceholderSupport.stripMiniMessage(stripColorMatcher.group(2));
+				default -> null;
+			};
+		}
+
+		Matcher mm2lMatcher = MM2L_PATTERN.matcher(expandedKey);
+		if (mm2lMatcher.matches()) {
+			return LunaImportedPlaceholderSupport.miniMessageToLegacy(mm2lMatcher.group(1));
+		}
+
+		return normalizedKey.equals(expandedNormalized) ? null : resolveImportedPlaceholder(player, expandedKey, expandedNormalized);
+	}
+
+	private String replaceInnerPlaceholders(OfflinePlayer player, String value) {
+		if (value == null || value.isBlank()) {
+			return "";
+		}
+
+		String resolved = value;
+		for (int depth = 0; depth < 8; depth++) {
+			if (!BRACKET_PATTERN.matcher(resolved).find()) {
+				return resolved;
+			}
+
+			String next = PlaceholderAPI.setBracketPlaceholders(player, resolved);
+			if (next == null || next.equals(resolved)) {
+				return resolved;
+			}
+			resolved = next;
+		}
+		return resolved;
+	}
+
+	private WorldKind toWorldKind(World.Environment environment) {
+		return switch (environment) {
+			case NORMAL -> WorldKind.NORMAL;
+			case NETHER -> WorldKind.NETHER;
+			case THE_END -> WorldKind.END;
+			default -> WorldKind.CUSTOM;
+		};
 	}
 
 	private String resolveCurrentBar(String key, String baseKey, IntFunction<String> renderer) {
