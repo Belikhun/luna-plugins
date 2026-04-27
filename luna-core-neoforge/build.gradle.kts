@@ -43,6 +43,7 @@ tasks.named<ShadowJar>("shadowJar") {
 	from(embeddedAdventureSerializerLegacy.files.map { zipTree(it) })
 	from(embeddedAdventureSerializerGson.files.map { zipTree(it) })
 	from(embeddedSnakeYaml.files.map { zipTree(it) })
+	relocate("org.yaml.snakeyaml", "dev.belikhun.luna.shadow.snakeyaml")
 	exclude("META-INF/MANIFEST.MF")
 	exclude("com/google/gson/**")
 	exclude("META-INF/maven/com.google.code.gson/**")

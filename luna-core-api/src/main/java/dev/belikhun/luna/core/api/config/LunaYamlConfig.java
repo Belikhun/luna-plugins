@@ -17,6 +17,11 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 public final class LunaYamlConfig {
+	private static final List<String> SNAKE_YAML_PACKAGES = List.of(
+		"org.yaml.snakeyaml",
+		"dev.belikhun.luna.shadow.snakeyaml"
+	);
+
 	private LunaYamlConfig() {
 	}
 
@@ -100,9 +105,9 @@ public final class LunaYamlConfig {
 
 	public static void dumpMap(Path outputPath, Map<String, Object> data) {
 		try {
-			Class<?> dumperOptionsClass = Class.forName("org.yaml.snakeyaml.DumperOptions");
+			Class<?> dumperOptionsClass = resolveSnakeYamlClass("DumperOptions");
 			Object dumperOptions = dumperOptionsClass.getConstructor().newInstance();
-			Class<?> flowStyleClass = Class.forName("org.yaml.snakeyaml.DumperOptions$FlowStyle");
+			Class<?> flowStyleClass = resolveSnakeYamlClass("DumperOptions$FlowStyle");
 			Object blockFlowStyle = flowStyleClass.getField("BLOCK").get(null);
 			dumperOptionsClass.getMethod("setDefaultFlowStyle", flowStyleClass).invoke(dumperOptions, blockFlowStyle);
 			dumperOptionsClass.getMethod("setPrettyFlow", boolean.class).invoke(dumperOptions, true);
@@ -110,7 +115,7 @@ public final class LunaYamlConfig {
 			dumperOptionsClass.getMethod("setIndicatorIndent", int.class).invoke(dumperOptions, 1);
 			dumperOptionsClass.getMethod("setSplitLines", boolean.class).invoke(dumperOptions, false);
 
-			Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+			Class<?> yamlClass = resolveSnakeYamlClass("Yaml");
 			Object yaml = yamlClass.getConstructor(dumperOptionsClass).newInstance(dumperOptions);
 			Path parent = outputPath.getParent();
 			if (parent != null) {
@@ -144,15 +149,32 @@ public final class LunaYamlConfig {
 
 	private static Object invokeSnakeYamlLoad(InputStream stream) {
 		try {
-			Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
+			Class<?> yamlClass = resolveSnakeYamlClass("Yaml");
 			Object yaml = yamlClass.getConstructor().newInstance();
 			Method loadMethod = yamlClass.getMethod("load", java.io.Reader.class);
 			return loadMethod.invoke(yaml, new InputStreamReader(stream, StandardCharsets.UTF_8));
 		} catch (ClassNotFoundException exception) {
-			throw new ConfigStoreException("Thiếu SnakeYAML trên classpath. Hãy đảm bảo plugin nền tảng (luna-core-velocity) cung cấp thư viện này.", exception);
+			throw new ConfigStoreException("Thiếu SnakeYAML trên classpath. Hãy đảm bảo nền tảng hiện tại đã cung cấp hoặc nhúng thư viện này.", exception);
 		} catch (Exception exception) {
 			throw new ConfigStoreException("Không thể gọi SnakeYAML để đọc cấu hình.", exception);
 		}
+	}
+
+	private static Class<?> resolveSnakeYamlClass(String simpleName) throws ClassNotFoundException {
+		ClassNotFoundException lastException = null;
+		for (String packageName : SNAKE_YAML_PACKAGES) {
+			try {
+				return Class.forName(packageName + "." + simpleName);
+			} catch (ClassNotFoundException exception) {
+				lastException = exception;
+			}
+		}
+
+		if (lastException != null) {
+			throw lastException;
+		}
+
+		throw new ClassNotFoundException(simpleName);
 	}
 
 	private static Map<String, Object> loadMapWithBukkit(Path file) {
