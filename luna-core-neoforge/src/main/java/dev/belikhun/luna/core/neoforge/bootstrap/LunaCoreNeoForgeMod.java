@@ -13,6 +13,9 @@ import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreRuntimeConfig;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeBackendStatusView;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeHeartbeatPublisher;
 import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
+import dev.belikhun.luna.core.neoforge.placeholder.BuiltInNeoForgePlaceholderService;
+import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderProviderFactory;
+import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderService;
 import dev.belikhun.luna.core.neoforge.serverselector.NeoForgeServerSelectorController;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -32,12 +35,14 @@ public final class LunaCoreNeoForgeMod {
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
 	private NeoForgeHeartbeatPublisher heartbeatPublisher;
+	private NeoForgePlaceholderService placeholderService;
 	private NeoForgeServerSelectorController serverSelectorController;
 
 	public LunaCoreNeoForgeMod() {
 		this.logger = NeoForgeLunaLoggers.create("LunaCore", true);
 		this.dependencyManager = new DependencyManager();
 		this.heartbeatPublisher = null;
+		this.placeholderService = null;
 		this.serverSelectorController = null;
 		NeoForge.EVENT_BUS.register(this);
 		logger.audit("Đã đăng ký LunaCore NeoForge bootstrap.");
@@ -58,9 +63,20 @@ public final class LunaCoreNeoForgeMod {
 		}
 
 		AmqpMessagingConfig amqpMessagingConfig = runtimeConfig.amqpMessagingConfig();
+		String localServerName = amqpMessagingConfig.effectiveLocalServerName("backend");
+		if (localServerName == null || localServerName.isBlank()) {
+			localServerName = "backend";
+		}
 		PermissionService permissionService = new LuckPermsService();
 		NeoForgeBackendStatusView backendStatusView = new NeoForgeBackendStatusView();
 		heartbeatPublisher = new NeoForgeHeartbeatPublisher(server, logger, runtimeConfig.heartbeatConfig(), amqpMessagingConfig, backendStatusView);
+		placeholderService = new BuiltInNeoForgePlaceholderService(
+			logger,
+			server,
+			localServerName,
+			NeoForgePlaceholderProviderFactory.createDefault(permissionService),
+			heartbeatPublisher::currentBackendMetadata
+		);
 		serverSelectorController = new NeoForgeServerSelectorController(server, dependencyManager, logger, permissionService);
 		dependencyManager.registerSingleton(MinecraftServer.class, server);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
@@ -71,6 +87,7 @@ public final class LunaCoreNeoForgeMod {
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusView);
 		dependencyManager.registerSingleton(NeoForgeBackendStatusView.class, backendStatusView);
 		dependencyManager.registerSingleton(NeoForgeHeartbeatPublisher.class, heartbeatPublisher);
+		dependencyManager.registerSingleton(NeoForgePlaceholderService.class, placeholderService);
 		dependencyManager.registerSingleton(NeoForgeServerSelectorController.class, serverSelectorController);
 		LunaCoreNeoForge.set(new LunaCoreNeoForgeServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher));
 		heartbeatPublisher.start();
@@ -121,6 +138,8 @@ public final class LunaCoreNeoForgeMod {
 			heartbeatPublisher.shutdown();
 			heartbeatPublisher = null;
 		}
+
+		placeholderService = null;
 
 		dependencyManager.clear();
 		LunaCoreNeoForge.clear();

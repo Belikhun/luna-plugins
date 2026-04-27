@@ -5,7 +5,6 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.messenger.BackendPlaceholderResolver;
 import dev.belikhun.luna.core.messaging.neoforge.NeoForgePluginMessagingBus;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgeRuntime;
 
 public final class BuiltInNeoForgeMessengerRuntimeProvider implements NeoForgeMessengerRuntimeProvider {
 	@Override
@@ -35,6 +34,6 @@ public final class BuiltInNeoForgeMessengerRuntimeProvider implements NeoForgeMe
 
 	@Override
 	public BackendPlaceholderResolver createPlaceholderResolver(LunaLogger logger, DependencyManager dependencyManager) {
-		return new TabBridgeSnapshotPlaceholderResolver(dependencyManager);
+		return new CoreBackedNeoForgePlaceholderResolver(dependencyManager);
 	}
 }

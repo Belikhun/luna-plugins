@@ -1,13 +1,11 @@
 package dev.belikhun.luna.tabbridge.neoforge.bootstrap;
 
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
-import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeHeartbeatPublisher;
 import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
+import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderService;
 import dev.belikhun.luna.tabbridge.neoforge.runtime.BuiltInNeoForgeTabBridgeRelationalPlaceholderSource;
 import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgePlaceholderUpdater;
 import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgeRelationalPlaceholderSource;
@@ -39,24 +37,17 @@ public final class LunaTabBridgeNeoForgeMod {
 	public void onServerStarted(ServerStartedEvent event) {
 		dependencyManager = LunaCoreNeoForge.services().dependencyManager();
 		tabBridgeRuntime = NeoForgeTabBridgeRuntimeFactory.create(logger, dependencyManager);
+		NeoForgePlaceholderService placeholderService = dependencyManager.resolveOptional(NeoForgePlaceholderService.class)
+			.orElseThrow(() -> new IllegalStateException("Thiếu NeoForgePlaceholderService từ LunaCore NeoForge."));
 		PermissionService permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
 		relationalPlaceholderSource = dependencyManager.resolveOptional(NeoForgeTabBridgeRelationalPlaceholderSource.class)
 			.orElseGet(() -> new BuiltInNeoForgeTabBridgeRelationalPlaceholderSource(event.getServer(), permissionService));
 		dependencyManager.registerSingleton(NeoForgeTabBridgeRuntime.class, tabBridgeRuntime);
-		String localServerName = dependencyManager.resolveOptional(AmqpMessagingConfig.class)
-			.map(config -> config.effectiveLocalServerName("backend"))
-			.filter(value -> value != null && !value.isBlank())
-			.orElse("backend");
-		java.util.function.Supplier<BackendMetadata> currentBackendMetadataSupplier = dependencyManager.resolveOptional(NeoForgeHeartbeatPublisher.class)
-			.<java.util.function.Supplier<BackendMetadata>>map(publisher -> publisher::currentBackendMetadata)
-			.orElse(() -> null);
 		placeholderUpdater = new NeoForgeTabBridgePlaceholderUpdater(
-			logger,
 			event.getServer(),
 			tabBridgeRuntime,
 			relationalPlaceholderSource,
-			localServerName,
-			currentBackendMetadataSupplier
+			placeholderService
 		);
 		tabBridgeRuntime.bindPlaceholderResolver(placeholderUpdater::resolvePlaceholder);
 		placeholderUpdater.refreshOnlinePlayers();
