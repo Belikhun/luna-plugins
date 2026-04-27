@@ -36,6 +36,8 @@ public final class VelocityServerSelectorValidator {
 		"ram_percent",
 		"latency_ms",
 		"version",
+		"software",
+		"server_software",
 		"server_version",
 		"server_version_full",
 		"motd",

@@ -244,6 +244,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		long ramUsedBytes = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().ramUsedBytes() : 0L;
 		long ramMaxBytes = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().ramMaxBytes() : 0L;
 		long latencyMs = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().heartbeatLatencyMillis() : 0L;
+		String software = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().software() : "unknown";
 		String versionFull = backendStatus != null && backendStatus.stats() != null ? backendStatus.stats().version() : "unknown";
 		String versionShort = shortVersion(versionFull);
 
@@ -267,6 +268,8 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		values.put("ram_max_mb", String.valueOf(Math.max(0L, ramMaxBytes / 1024L / 1024L)));
 		values.put("ram_percent", String.format(Locale.US, "%.1f", ramMaxBytes <= 0L ? 0D : Math.min(100D, (ramUsedBytes * 100D) / ramMaxBytes)));
 		values.put("latency_ms", String.valueOf(Math.max(0L, latencyMs)));
+		values.put("software", software == null || software.isBlank() ? "unknown" : software);
+		values.put("server_software", software == null || software.isBlank() ? "unknown" : software);
 		values.put("version", versionShort);
 		values.put("server_version", versionShort);
 		values.put("server_version_full", versionFull);

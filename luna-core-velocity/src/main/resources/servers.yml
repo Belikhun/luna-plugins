@@ -47,7 +47,8 @@ server-selector:
           - ""
           - "<color:#87ff08>ℹ %online%/%max% người chơi</color>"
           - "<color:#FFD634>⌚ đã chạy %uptime%</color>"
-          - "<color:#6DFFD4>🧪 %tps% tps</color>"
+          - "<color:#6DFFD4>🧪 %server_software%</color> <gray>%version%</gray>"
+          - "<color:#6DFFD4>⚗ %tps% tps</color>"
           - ""
           - "<dark_gray>> %luna_host_name%</dark_gray>"
       MAINT:
