@@ -13,6 +13,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -23,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRuntime {
 	private static final PluginMessageChannel TAB_BRIDGE_CHANNEL = PluginMessageChannel.of("tab:bridge-6");
+	private static final long INITIAL_PLACEHOLDER_WARMUP_MILLIS = 10_000L;
 	private static final byte UPDATE_GAME_MODE_ID = 1;
 	private static final byte HAS_PERMISSION_ID = 2;
 	private static final byte INVISIBLE_ID = 3;
@@ -41,9 +45,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	private final Map<UUID, Map<String, Map<String, String>>> relationalPlaceholdersByPlayer;
 	private final Map<UUID, PlayerBridgeState> stateByPlayer;
 	private final Map<UUID, NeoForgeTabBridgePacket> packetsByPlayer;
+	private final Map<UUID, Deque<byte[]>> queuedOutgoingPayloadsByPlayer;
 	private final Map<UUID, Map<String, RequestedPlaceholderState>> requestedPlaceholdersByPlayer;
 	private final Map<UUID, Map<String, String>> lastSentPlaceholderValuesByPlayer;
 	private final Map<UUID, Map<String, Map<String, String>>> lastSentRelationalPlaceholderValuesByPlayer;
+	private final Set<UUID> readyPlayers;
+	private final Map<UUID, Long> placeholderWarmupUntilByPlayer;
 	private volatile NeoForgeTabBridgePlaceholderResolver placeholderResolver;
 
 	RawChannelNeoForgeTabBridgeRuntime(LunaLogger logger, NeoForgePluginMessagingBus bus, PermissionService permissionService, NeoForgeTabBridgePlayerStateSource playerStateSource) {
@@ -55,9 +62,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		this.relationalPlaceholdersByPlayer = new ConcurrentHashMap<>();
 		this.stateByPlayer = new ConcurrentHashMap<>();
 		this.packetsByPlayer = new ConcurrentHashMap<>();
+		this.queuedOutgoingPayloadsByPlayer = new ConcurrentHashMap<>();
 		this.requestedPlaceholdersByPlayer = new ConcurrentHashMap<>();
 		this.lastSentPlaceholderValuesByPlayer = new ConcurrentHashMap<>();
 		this.lastSentRelationalPlaceholderValuesByPlayer = new ConcurrentHashMap<>();
+		this.readyPlayers = ConcurrentHashMap.newKeySet();
+		this.placeholderWarmupUntilByPlayer = new ConcurrentHashMap<>();
 		this.placeholderResolver = null;
 		this.bus.registerOutgoing(TAB_BRIDGE_CHANNEL);
 		this.bus.registerIncoming(TAB_BRIDGE_CHANNEL, context -> {
@@ -72,7 +82,9 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 				context.payload(),
 				System.currentTimeMillis()
 			));
+			markPlayerReady(source.getUUID());
 			handleIncoming(source, context.payload());
+			flushQueuedMessages(source);
 			logger.debug("Đã nhận TAB bridge payload bytes=" + context.payload().length + " cho " + source.getGameProfile().getName());
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -89,7 +101,24 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 			return false;
 		}
 
-		return bus.send(player, TAB_BRIDGE_CHANNEL, payload);
+		UUID playerId = player.getUUID();
+		if (!isPlayerReady(playerId)) {
+			enqueuePayload(playerId, payload);
+			return false;
+		}
+
+		Deque<byte[]> queuedPayloads = queuedOutgoingPayloadsByPlayer.get(playerId);
+		if (queuedPayloads != null && !queuedPayloads.isEmpty()) {
+			enqueuePayload(playerId, payload);
+			return flushQueuedMessages(player);
+		}
+
+		if (bus.send(player, TAB_BRIDGE_CHANNEL, payload)) {
+			return true;
+		}
+
+		enqueuePayload(playerId, payload);
+		return false;
 	}
 
 	@Override
@@ -104,6 +133,7 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 			safeValues.putAll(placeholderValues);
 		}
 		Map<String, String> mergedValues = mergePlaceholderSnapshot(playerId, safeValues);
+		flushQueuedMessages(player);
 		pushRequestedPlaceholderUpdates(player, mergedValues);
 		syncPlayerState(player);
 	}
@@ -141,6 +171,7 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		}
 
 		Map<String, Map<String, String>> previousValues = relationalPlaceholdersByPlayer.put(playerId, Map.copyOf(safeValues));
+		flushQueuedMessages(player);
 		pushRequestedRelationalPlaceholderUpdates(player, previousValues, safeValues);
 	}
 
@@ -186,9 +217,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		relationalPlaceholdersByPlayer.remove(playerId);
 		stateByPlayer.remove(playerId);
 		packetsByPlayer.remove(playerId);
+		queuedOutgoingPayloadsByPlayer.remove(playerId);
 		requestedPlaceholdersByPlayer.remove(playerId);
 		lastSentPlaceholderValuesByPlayer.remove(playerId);
 		lastSentRelationalPlaceholderValuesByPlayer.remove(playerId);
+		readyPlayers.remove(playerId);
+		placeholderWarmupUntilByPlayer.remove(playerId);
 	}
 
 	@Override
@@ -199,9 +233,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		relationalPlaceholdersByPlayer.clear();
 		stateByPlayer.clear();
 		packetsByPlayer.clear();
+		queuedOutgoingPayloadsByPlayer.clear();
 		requestedPlaceholdersByPlayer.clear();
 		lastSentPlaceholderValuesByPlayer.clear();
 		lastSentRelationalPlaceholderValuesByPlayer.clear();
+		readyPlayers.clear();
+		placeholderWarmupUntilByPlayer.clear();
 	}
 
 	private void handleIncoming(ServerPlayer player, byte[] payload) {
@@ -233,7 +270,9 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 			input.readBoolean();
 		}
 
+		clearQueuedMessages(player.getUUID());
 		requestedPlaceholdersByPlayer.put(player.getUUID(), requestedPlaceholders);
+		startPlaceholderWarmup(player.getUUID());
 		sendPlayerJoinResponse(player, forwardGroup, requestedPlaceholders);
 		PlayerBridgeState currentState = captureState(player);
 		sendInitialStatePackets(player, currentState);
@@ -248,20 +287,17 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		}
 
 		registerPlaceholder(player.getUUID(), identifier, refreshMillis);
+		startPlaceholderWarmup(player.getUUID());
 		if (identifier != null && identifier.startsWith("%rel_")) {
 			Map<String, String> valuesByTarget = relationalPlaceholdersByPlayer
 				.getOrDefault(player.getUUID(), Map.of())
 				.get(identifier);
 			sendRelationalPlaceholderUpdates(player, identifier, valuesByTarget, Map.of());
-			rememberSentRelationalPlaceholderValues(player.getUUID(), identifier, valuesByTarget);
-			markPlaceholderEvaluated(player.getUUID(), identifier);
 			return;
 		}
 
 		Map<String, String> snapshot = placeholdersByPlayer.getOrDefault(player.getUUID(), Map.of());
 		sendSinglePlaceholderUpdate(player, identifier, snapshot);
-		rememberSentPlaceholderValue(player.getUUID(), identifier, resolvePlaceholderValue(player, identifier, snapshot));
-		markPlaceholderEvaluated(player.getUUID(), identifier);
 	}
 
 	private void handlePermissionRequest(ServerPlayer player, DataInputStream input) throws IOException {
@@ -357,13 +393,10 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 				if (identifier.startsWith("%rel_")) {
 					Map<String, String> valuesByTarget = relationalSnapshot.get(identifier);
 					writeRelationalPlaceholderMap(output, valuesByTarget);
-					rememberSentRelationalPlaceholderValues(player.getUUID(), identifier, valuesByTarget);
 				} else {
 					String value = resolvePlaceholderValue(player, identifier, snapshot);
 					output.writeUTF(value);
-					rememberSentPlaceholderValue(player.getUUID(), identifier, value);
 				}
-				markPlaceholderEvaluated(player.getUUID(), identifier);
 			}
 
 			output.writeInt(currentGameModeId(player));
@@ -374,7 +407,9 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	}
 
 	private void pushRequestedPlaceholderUpdates(ServerPlayer player, Map<String, String> placeholderValues) {
-		Map<String, RequestedPlaceholderState> requestedPlaceholders = requestedPlaceholdersByPlayer.get(player.getUUID());
+		UUID playerId = player.getUUID();
+		boolean warmupActive = isPlaceholderWarmupActive(playerId);
+		Map<String, RequestedPlaceholderState> requestedPlaceholders = requestedPlaceholdersByPlayer.get(playerId);
 		if (requestedPlaceholders == null || requestedPlaceholders.isEmpty()) {
 			return;
 		}
@@ -391,14 +426,14 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 			}
 
 			String value = resolvePlaceholderValue(player, identifier, placeholderValues);
-			if (!placeholderValueChanged(player.getUUID(), identifier, value)) {
-				markPlaceholderEvaluated(player.getUUID(), identifier);
+			if (!warmupActive && !placeholderValueChanged(playerId, identifier, value)) {
+				markPlaceholderEvaluated(playerId, identifier);
 				continue;
 			}
 
 			sendSinglePlaceholderUpdate(player, identifier, placeholderValues);
-			rememberSentPlaceholderValue(player.getUUID(), identifier, value);
-			markPlaceholderEvaluated(player.getUUID(), identifier);
+			rememberSentPlaceholderValue(playerId, identifier, value);
+			markPlaceholderEvaluated(playerId, identifier);
 		}
 	}
 
@@ -583,6 +618,105 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		});
 	}
 
+	private void enqueuePayload(UUID playerId, byte[] payload) {
+		if (playerId == null || payload == null) {
+			return;
+		}
+
+		queuedOutgoingPayloadsByPlayer.compute(playerId, (ignored, existing) -> {
+			Deque<byte[]> queue = existing == null ? new ArrayDeque<>() : existing;
+			synchronized (queue) {
+				queue.addLast(Arrays.copyOf(payload, payload.length));
+			}
+			return queue;
+		});
+	}
+
+	private boolean flushQueuedMessages(ServerPlayer player) {
+		if (player == null) {
+			return false;
+		}
+
+		UUID playerId = player.getUUID();
+		if (!isPlayerReady(playerId)) {
+			return false;
+		}
+
+		Deque<byte[]> queuedPayloads = queuedOutgoingPayloadsByPlayer.get(playerId);
+		if (queuedPayloads == null || queuedPayloads.isEmpty()) {
+			return true;
+		}
+
+		while (true) {
+			byte[] nextPayload;
+			synchronized (queuedPayloads) {
+				nextPayload = queuedPayloads.peekFirst();
+			}
+			if (nextPayload == null) {
+				queuedOutgoingPayloadsByPlayer.remove(playerId, queuedPayloads);
+				return true;
+			}
+
+			if (!bus.send(player, TAB_BRIDGE_CHANNEL, nextPayload)) {
+				return false;
+			}
+
+			synchronized (queuedPayloads) {
+				queuedPayloads.pollFirst();
+				if (queuedPayloads.isEmpty()) {
+					queuedOutgoingPayloadsByPlayer.remove(playerId, queuedPayloads);
+					return true;
+				}
+			}
+		}
+	}
+
+	private void clearQueuedMessages(UUID playerId) {
+		if (playerId == null) {
+			return;
+		}
+
+		queuedOutgoingPayloadsByPlayer.remove(playerId);
+	}
+
+	private void markPlayerReady(UUID playerId) {
+		if (playerId == null) {
+			return;
+		}
+
+		readyPlayers.add(playerId);
+	}
+
+	private boolean isPlayerReady(UUID playerId) {
+		return playerId != null && readyPlayers.contains(playerId);
+	}
+
+	private void startPlaceholderWarmup(UUID playerId) {
+		if (playerId == null) {
+			return;
+		}
+
+		placeholderWarmupUntilByPlayer.put(playerId, System.currentTimeMillis() + INITIAL_PLACEHOLDER_WARMUP_MILLIS);
+	}
+
+	private boolean isPlaceholderWarmupActive(UUID playerId) {
+		if (playerId == null) {
+			return false;
+		}
+
+		Long warmupUntilMillis = placeholderWarmupUntilByPlayer.get(playerId);
+		if (warmupUntilMillis == null) {
+			return false;
+		}
+
+		if (System.currentTimeMillis() <= warmupUntilMillis) {
+			return true;
+		}
+
+		placeholderWarmupUntilByPlayer.remove(playerId, warmupUntilMillis);
+		return false;
+	}
+
 	private int normalizeRefreshMillis(int refreshMillis) {
 		if (refreshMillis == -1) {
 			return -1;
@@ -665,13 +799,19 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	private static final class RequestedPlaceholderState {
 		private final int refreshMillis;
 		private volatile long nextEvaluationAtMillis;
+		private volatile boolean initialEvaluationPending;
 
 		private RequestedPlaceholderState(int refreshMillis) {
 			this.refreshMillis = refreshMillis;
 			this.nextEvaluationAtMillis = 0L;
+			this.initialEvaluationPending = true;
 		}
 
 		private boolean shouldEvaluate() {
+			if (initialEvaluationPending) {
+				return true;
+			}
+
 			if (refreshMillis == -1) {
 				return false;
 			}
@@ -680,6 +820,8 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		}
 
 		private void advance() {
+			initialEvaluationPending = false;
+
 			if (refreshMillis == -1) {
 				nextEvaluationAtMillis = Long.MAX_VALUE;
 				return;
@@ -888,7 +1030,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		relationalPlaceholdersByPlayer.remove(playerId);
 		stateByPlayer.remove(playerId);
 		packetsByPlayer.remove(playerId);
+		queuedOutgoingPayloadsByPlayer.remove(playerId);
 		requestedPlaceholdersByPlayer.remove(playerId);
+		lastSentPlaceholderValuesByPlayer.remove(playerId);
+		lastSentRelationalPlaceholderValuesByPlayer.remove(playerId);
+		readyPlayers.remove(playerId);
+		placeholderWarmupUntilByPlayer.remove(playerId);
 	}
 
 	private String currentWorldName(ServerPlayer player) {

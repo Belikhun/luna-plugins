@@ -252,11 +252,15 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		}
 
 		String trimmed = identifier.trim();
-		if (!trimmed.startsWith("%") || !trimmed.endsWith("%") || trimmed.length() < 3) {
+		if (trimmed.isEmpty()) {
 			return "";
 		}
 
-		return trimmed.substring(1, trimmed.length() - 1);
+		if (trimmed.startsWith("%") && trimmed.endsWith("%") && trimmed.length() >= 3) {
+			return trimmed.substring(1, trimmed.length() - 1);
+		}
+
+		return trimmed;
 	}
 
 	private String resolveRequestedValue(ServerPlayer player, String identifier, CurrentSnapshot snapshot) {
