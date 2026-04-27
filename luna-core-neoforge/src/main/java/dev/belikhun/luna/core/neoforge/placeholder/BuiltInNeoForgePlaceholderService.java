@@ -32,6 +32,9 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -59,6 +62,8 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	private final String localServerName;
 	private final Supplier<BackendMetadata> currentBackendMetadataSupplier;
 	private final List<NeoForgePlaceholderProvider> placeholderProviders;
+	private final ConcurrentMap<ReflectionMemberKey, Optional<Method>> zeroArgMethodCache = new ConcurrentHashMap<>();
+	private final ConcurrentMap<ReflectionMemberKey, Optional<Field>> fieldCache = new ConcurrentHashMap<>();
 	private volatile SharedSnapshot latestSharedSnapshot;
 
 	public BuiltInNeoForgePlaceholderService(
@@ -414,14 +419,11 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 		String normalized = safe(value);
 		values.put(key, normalized);
 		values.put("luna_" + key, normalized);
-		values.put(key + "_safe", escapePlaceholderPercents(normalized));
-		values.put("luna_" + key + "_safe", escapePlaceholderPercents(normalized));
 	}
 
 	void putLunaAlias(Map<String, String> values, String key, String value) {
 		String normalized = safe(value);
 		values.put("luna_" + key, normalized);
-		values.put("luna_" + key + "_safe", escapePlaceholderPercents(normalized));
 	}
 
 	String buildBar(LunaProgressBar bar, int width) {
@@ -572,10 +574,13 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 		}
 
 		try {
-			Method method = target.getClass().getMethod(methodName);
-			method.setAccessible(true);
+			Method method = findZeroArgMethod(target.getClass(), methodName);
+			if (method == null) {
+				return null;
+			}
+
 			return method.invoke(target);
-		} catch (ReflectiveOperationException ignored) {
+		} catch (ReflectiveOperationException | RuntimeException ignored) {
 			return null;
 		}
 	}
@@ -585,18 +590,76 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 			return null;
 		}
 
-		Class<?> type = target.getClass();
-		while (type != null) {
+		try {
+			Field field = findField(target.getClass(), fieldName);
+			return field == null ? null : field.get(target);
+		} catch (ReflectiveOperationException | RuntimeException ignored) {
+			return null;
+		}
+	}
+
+	private Method findZeroArgMethod(Class<?> type, String methodName) {
+		ReflectionMemberKey key = new ReflectionMemberKey(type, methodName);
+		return zeroArgMethodCache.computeIfAbsent(key, ignored -> {
+			Method method = findZeroArgMethodUncached(type, methodName);
+			if (method == null) {
+				return Optional.empty();
+			}
+
 			try {
-				Field field = type.getDeclaredField(fieldName);
-				field.setAccessible(true);
-				return field.get(target);
-			} catch (ReflectiveOperationException ignored) {
-				type = type.getSuperclass();
+				method.setAccessible(true);
+			} catch (RuntimeException ignoredRuntime) {
+				// Some transformed classes may reject accessibility changes; invocation can still succeed.
+			}
+			return Optional.of(method);
+		}).orElse(null);
+	}
+
+	private Method findZeroArgMethodUncached(Class<?> type, String methodName) {
+		for (Method method : type.getMethods()) {
+			if (method.getParameterCount() == 0 && method.getName().equals(methodName)) {
+				return method;
 			}
 		}
 
+		Class<?> current = type;
+		while (current != null) {
+			for (Method method : current.getDeclaredMethods()) {
+				if (method.getParameterCount() == 0 && method.getName().equals(methodName)) {
+					return method;
+				}
+			}
+			current = current.getSuperclass();
+		}
+
 		return null;
+	}
+
+	private Field findField(Class<?> type, String fieldName) {
+		ReflectionMemberKey key = new ReflectionMemberKey(type, fieldName);
+		return fieldCache.computeIfAbsent(key, ignored -> {
+			Class<?> current = type;
+			while (current != null) {
+				for (Field field : current.getDeclaredFields()) {
+					if (!field.getName().equals(fieldName)) {
+						continue;
+					}
+
+					try {
+						field.setAccessible(true);
+					} catch (RuntimeException ignoredRuntime) {
+						// Some transformed classes may reject accessibility changes; reads can still succeed.
+					}
+					return Optional.of(field);
+				}
+				current = current.getSuperclass();
+			}
+
+			return Optional.empty();
+		}).orElse(null);
+	}
+
+	private record ReflectionMemberKey(Class<?> ownerType, String name) {
 	}
 
 	private long currentUptimeMillis() {
