@@ -31,3 +31,7 @@ dependencies:
       required: true
     ProtocolLib:
       required: true
+    voicechat:
+      load: BEFORE
+      required: false
+      join-classpath: true

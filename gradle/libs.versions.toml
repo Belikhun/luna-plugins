@@ -21,6 +21,7 @@ spark = "0.1-SNAPSHOT"
 rabbitmq = "5.24.0"
 tab = "5.5.0"
 forgeplaceholderapi = "2.1.0"
+voicechatapi = "2.6.13"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
@@ -43,6 +44,7 @@ spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }
 rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq" }
 tab-api = { module = "com.github.NEZNAMY:TAB-API", version.ref = "tab" }
 forgeplaceholderapi-neoforge = { module = "com.envyful.papi:neo21", version.ref = "forgeplaceholderapi" }
+voicechat-api = { module = "de.maxhenkel.voicechat:voicechat-api", version.ref = "voicechatapi" }
 
 [plugins]
 moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }

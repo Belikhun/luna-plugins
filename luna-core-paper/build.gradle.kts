@@ -5,6 +5,7 @@ dependencies {
     compileOnly(libs.paper.api)
     compileOnly(libs.placeholderapi)
     compileOnly(libs.spark.api)
+    compileOnly(libs.voicechat.api)
     compileOnly(libs.rabbitmq.client)
     implementation(project(":luna-core-api"))
     compileOnly(libs.mariadb.jdbc)

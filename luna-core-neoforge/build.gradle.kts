@@ -12,6 +12,7 @@ dependencies {
 	compileOnly(libs.adventure.serializer.gson)
 	compileOnly(libs.luckperms.api)
 	compileOnly(libs.spark.api)
+	compileOnly(libs.voicechat.api)
 }
 
 val embeddedAdventureMiniMessage = configurations.detachedConfiguration(

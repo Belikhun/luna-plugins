@@ -2,6 +2,7 @@ package dev.belikhun.luna.core.paper;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.paper.command.LunaCoreCommand;
+import dev.belikhun.luna.core.paper.compat.voicechat.PaperSimpleVoiceChatBootstrap;
 import dev.belikhun.luna.core.api.config.migration.ConfigStoreMigrator;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.DatabaseManager;
@@ -158,6 +159,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		HelpCommandListener helpCommandListener = new HelpCommandListener(services);
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
 		Bukkit.getPluginManager().registerEvents(new PaperHeartbeatPlayerListener(heartbeatPublisher), this);
+		registerSimpleVoiceChatCompat(coreLogger);
 		registerPlaceholderExpansion(coreLogger, backendStatusView);
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
@@ -188,6 +190,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		LunaLogger logger = services != null ? services.logger().scope("Core") : LunaLogger.forPlugin(this, true).scope("Core");
 		logger.audit("Đang tắt Luna Core.");
 		if (services != null) {
+			PaperSimpleVoiceChatBootstrap.unregister();
 			if (lunaPlaceholderExpansion != null && lunaPlaceholderExpansion.isRegistered()) {
 				lunaPlaceholderExpansion.unregister();
 				lunaPlaceholderExpansion = null;
@@ -201,6 +204,19 @@ public final class LunaCorePlugin extends JavaPlugin {
 
 		LunaCore.clear();
 		logger.success("Luna Core đã tắt hoàn tất.");
+	}
+
+	private void registerSimpleVoiceChatCompat(LunaLogger logger) {
+		if (!Bukkit.getPluginManager().isPluginEnabled("voicechat")) {
+			logger.audit("Simple Voice Chat không hoạt động. Voicechat placeholders sẽ dùng giá trị dự phòng.");
+			return;
+		}
+
+		try {
+			PaperSimpleVoiceChatBootstrap.register(this, logger.scope("VoiceChat"));
+		} catch (Throwable throwable) {
+			logger.error("Không thể đăng ký Luna Core với Simple Voice Chat API.", throwable);
+		}
 	}
 
 	private void registerPlaceholderExpansion(LunaLogger logger, BackendStatusView statusView) {
