@@ -16,11 +16,11 @@ public final class LunaCoreNeoForge {
 		return services;
 	}
 
-	static void set(LunaCoreNeoForgeServices coreServices) {
+	public static void set(LunaCoreNeoForgeServices coreServices) {
 		services = coreServices;
 	}
 
-	static void clear() {
+	public static void clear() {
 		services = null;
 	}
 }

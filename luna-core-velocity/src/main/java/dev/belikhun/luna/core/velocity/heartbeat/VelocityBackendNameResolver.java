@@ -37,6 +37,25 @@ public final class VelocityBackendNameResolver {
 		return fallback;
 	}
 
+	public String serverHost(String backendName) {
+		if (backendName == null || backendName.isBlank()) {
+			return "";
+		}
+
+		RegisteredServer server = proxyServer.getServer(backendName).orElse(null);
+		if (server == null) {
+			return "";
+		}
+
+		InetSocketAddress address = server.getServerInfo().getAddress();
+		if (address == null) {
+			return "";
+		}
+
+		String host = address.getHostString();
+		return host == null ? "" : host.trim();
+	}
+
 	private boolean matches(String remoteIp, InetSocketAddress address) {
 		String literal = address.getAddress() == null ? "" : address.getAddress().getHostAddress();
 		String host = address.getHostString();

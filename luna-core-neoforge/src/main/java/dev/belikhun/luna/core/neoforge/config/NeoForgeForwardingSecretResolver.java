@@ -1,4 +1,4 @@
-package dev.belikhun.luna.core.neoforge;
+package dev.belikhun.luna.core.neoforge.config;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import net.neoforged.fml.loading.FMLPaths;

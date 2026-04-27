@@ -77,7 +77,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 			String resolvedServerName = nameResolver.resolve(serverName, request.headers(), stats.serverPort());
 			rememberResolvedName(serverName, resolvedServerName);
 			VelocityServerSelectorConfig.ServerDefinition definition = selectorConfig.server(resolvedServerName);
-			BackendMetadata backendMetadata = resolveBackendMetadata(resolvedServerName, payload, definition);
+			BackendMetadata backendMetadata = resolvedBackendMetadata(resolveBackendMetadata(resolvedServerName, payload, definition), resolvedServerName);
 			long sinceRevision = parseSinceRevision(request.queryParam("since", "-1"));
 			BackendServerStatus status = online
 				? statusRegistry.upsert(backendMetadata, stats, System.currentTimeMillis())
@@ -197,6 +197,16 @@ public final class VelocityHeartbeatHttpEndpoints {
 		return new BackendMetadata(resolvedServerName, displayName, accentColor, serverName).sanitize();
 	}
 
+	private BackendMetadata resolvedBackendMetadata(BackendMetadata metadata, String backendName) {
+		BackendMetadata sanitized = metadata == null ? new BackendMetadata(backendName, "", "", "") : metadata.sanitize();
+		if (sanitized.serverName() != null && !sanitized.serverName().isBlank()) {
+			return sanitized;
+		}
+
+		String host = nameResolver.serverHost(backendName);
+		return new BackendMetadata(sanitized.name(), sanitized.displayName(), sanitized.accentColor(), host).sanitize();
+	}
+
 	private Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> markSelf(
 		Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> delta,
 		String selfServerName
@@ -274,7 +284,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 		for (VelocityServerSelectorConfig.ServerDefinition definition : selectorConfig.servers().values()) {
 			String key = normalize(definition.backendName());
 			BackendServerStatus currentStatus = current.get(key);
-			BackendMetadata definitionMetadata = selectorConfig.backendMetadata(definition.backendName());
+			BackendMetadata definitionMetadata = resolvedBackendMetadata(selectorConfig.backendMetadata(definition.backendName()), definition.backendName());
 			if (currentStatus == null) {
 				merged.put(key, new BackendServerStatus(
 					definitionMetadata.name(),

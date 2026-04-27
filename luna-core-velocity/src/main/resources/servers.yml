@@ -1,30 +1,23 @@
 server-info:
   survival:
-    server-name: "maylocnuoc"
     display: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
     accent-color: "#25EED0"
   infdun:
-    server-name: "maylocnuoc"
     display: "<gradient:#31ADAD:#8CE67C>INFINITY DUNGEONS</gradient>"
     accent-color: "#8CE67C"
   sandbox:
-    server-name: "maylockhongkhi"
     display: "<gradient:#E98700:#FF61BB>SANDBOX</gradient>"
     accent-color: "#FF61BB"
   event:
-    server-name: "maylocnuoc"
     display: "<gradient:#bafdc1:#9BC1F9>EVENT1</gradient>"
     accent-color: "#9BC1F9"
   event2:
-    server-name: "maylocnuoc"
     display: "<gradient:#9863E7:#FCD05C>EV</gradient><gradient:#FCD05C:#5FE2C5>ENT2</gradient>"
     accent-color: "#5FE2C5"
   manhunt:
-    server-name: "maylocnuoc"
     display: "<gradient:#EC8C8C:#FFC58B>M</gradient><gradient:#FFC58B:#FFFF9E>A</gradient><gradient:#FFFF9E:#9AFF9A>NH</gradient><gradient:#9AFF9A:#97CFF5>U</gradient><gradient:#97CFF5:#A39AFF>N</gradient><gradient:#A39AFF:#EEA0FF>T</gradient>"
     accent-color: "#EEA0FF"
   iceboat:
-    server-name: "maylocnuoc"
     display: "<gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient>"
     accent-color: "#1EA9FB"
 
@@ -46,7 +39,7 @@ server-selector:
       - ""
       - "<color:#ffa1a5>ℹ Máy chủ đang ngoại tuyến!</color>"
       - ""
-      - "<dark_gray>> %server_name%</dark_gray>"
+      - "<dark_gray>> %luna_server_name%</dark_gray>"
     by-status:
       ONLINE:
         name: "<color:#87ff08>(✔)</color> <b>%server_display%</b> <gray>[⛏ %version%]</gray>"
@@ -56,25 +49,25 @@ server-selector:
           - "<color:#FFD634>⌚ đã chạy %uptime%</color>"
           - "<color:#6DFFD4>🧪 %tps% tps</color>"
           - ""
-          - "<dark_gray>> %server_name%</dark_gray>"
+          - "<dark_gray>> %luna_server_name%</dark_gray>"
       MAINT:
         name: "<color:#FFD634>(⚠)</color> <b>%server_display%</b>"
         footer:
           - ""
           - "<color:#FFD634>ℹ Máy chủ đang bảo trì!</color>"
           - ""
-          - "<dark_gray>> %server_name%</dark_gray>"
+          - "<dark_gray>> %luna_server_name%</dark_gray>"
       NOP:
         name: "<gray>(🔒)</gray> <b>%server_display%</b>"
         footer:
           - ""
           - "<color:#ffa1a5>ℹ Bạn không có quyền truy cập!</color>"
           - ""
-          - "<dark_gray>> %server_name%</dark_gray>"
+          - "<dark_gray>> %luna_server_name%</dark_gray>"
   messages:
     opening: "<yellow>Đang mở danh sách máy chủ...</yellow>"
     player-only: "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"
-    not-found: "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"
+    not-found: "<red>❌ Không tìm thấy máy chủ %luna_server_name%.</red>"
     offline: "<red>❌ %server_display% hiện đang ngoại tuyến.</red>"
     maint: "<yellow>⚠ %server_display% đang bảo trì.</yellow>"
     no-permission: "<red>❌ Bạn không có quyền vào %server_display%.</red>"

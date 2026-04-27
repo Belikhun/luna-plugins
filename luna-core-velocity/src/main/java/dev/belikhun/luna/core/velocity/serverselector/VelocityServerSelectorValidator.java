@@ -18,6 +18,7 @@ public final class VelocityServerSelectorValidator {
 	private static final Pattern MATERIAL_PATTERN = Pattern.compile("[A-Z0-9_]+");
 	private static final Set<String> KNOWN_PLACEHOLDERS = Set.of(
 		"server_name",
+		"luna_server_name",
 		"server_display",
 		"server_accent_color",
 		"server_status",

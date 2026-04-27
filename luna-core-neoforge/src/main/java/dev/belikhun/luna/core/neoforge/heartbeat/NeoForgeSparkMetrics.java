@@ -1,4 +1,4 @@
-package dev.belikhun.luna.core.neoforge;
+package dev.belikhun.luna.core.neoforge.heartbeat;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import me.lucko.spark.api.Spark;

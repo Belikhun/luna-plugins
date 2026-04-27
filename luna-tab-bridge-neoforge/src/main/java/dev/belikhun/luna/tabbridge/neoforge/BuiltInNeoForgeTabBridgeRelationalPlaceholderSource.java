@@ -1,4 +1,4 @@
-package dev.belikhun.luna.tabbridge.neoforge;
+package dev.belikhun.luna.tabbridge.neoforge.runtime;
 
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import net.minecraft.server.MinecraftServer;
@@ -8,7 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-final class BuiltInNeoForgeTabBridgeRelationalPlaceholderSource implements NeoForgeTabBridgeRelationalPlaceholderSource {
+public final class BuiltInNeoForgeTabBridgeRelationalPlaceholderSource implements NeoForgeTabBridgeRelationalPlaceholderSource {
 	private static final String REL_PLAYER_NAME = "%rel_luna_player_name%";
 	private static final String REL_PLAYER_GROUP_NAME = "%rel_luna_player_group_name%";
 	private static final String REL_PLAYER_GROUP_DISPLAY = "%rel_luna_player_group_display%";
@@ -20,7 +20,7 @@ final class BuiltInNeoForgeTabBridgeRelationalPlaceholderSource implements NeoFo
 	private final MinecraftServer server;
 	private final PermissionService permissionService;
 
-	BuiltInNeoForgeTabBridgeRelationalPlaceholderSource(MinecraftServer server, PermissionService permissionService) {
+	public BuiltInNeoForgeTabBridgeRelationalPlaceholderSource(MinecraftServer server, PermissionService permissionService) {
 		this.server = server;
 		this.permissionService = permissionService;
 	}

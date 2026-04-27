@@ -1,4 +1,4 @@
-package dev.belikhun.luna.tabbridge.neoforge;
+package dev.belikhun.luna.tabbridge.neoforge.runtime;
 
 import net.minecraft.server.level.ServerPlayer;
 

@@ -1,4 +1,4 @@
-package dev.belikhun.luna.tabbridge.neoforge;
+package dev.belikhun.luna.tabbridge.neoforge.runtime;
 
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannelDescriptor;

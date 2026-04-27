@@ -1,10 +1,12 @@
-package dev.belikhun.luna.core.neoforge;
+package dev.belikhun.luna.core.neoforge.heartbeat;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
+import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreRuntimeConfig;
+import dev.belikhun.luna.core.neoforge.config.NeoForgeForwardingSecretResolver;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.players.PlayerList;

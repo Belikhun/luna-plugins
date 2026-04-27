@@ -1,4 +1,4 @@
-package dev.belikhun.luna.core.neoforge;
+package dev.belikhun.luna.core.neoforge.logging;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import org.slf4j.LoggerFactory;

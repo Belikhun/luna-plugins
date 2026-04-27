@@ -206,6 +206,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		BackendServerStatus backendStatus = statusRegistry.status(backendName).orElse(null);
 		String display = definition != null ? definition.displayName() : backendName;
 		String accent = definition != null ? definition.accentColor() : "";
+		String serverInfoName = backendName;
 		if (definition == null) {
 			VelocityServerSelectorConfig.ServerInfo info = config.serverInfo(backendName);
 			if (info != null) {
@@ -215,7 +216,18 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 				if (accent.isBlank() && info.accentColor() != null && !info.accentColor().isBlank()) {
 					accent = info.accentColor();
 				}
+				if (info.serverName() != null && !info.serverName().isBlank()) {
+					serverInfoName = info.serverName();
+				}
 			}
+		} else {
+			VelocityServerSelectorConfig.ServerInfo info = config.serverInfo(backendName);
+			if (info != null && info.serverName() != null && !info.serverName().isBlank()) {
+				serverInfoName = info.serverName();
+			}
+		}
+		if (serverInfoName.isBlank()) {
+			serverInfoName = backendHost(backendName);
 		}
 		if (backendStatus != null) {
 			display = backendStatus.serverDisplay();
@@ -237,6 +249,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 
 		values.put("player_name", player.getUsername());
 		values.put("server_name", backendName);
+		values.put("luna_server_name", serverInfoName);
 		values.put("server_display", display);
 		values.put("server_accent_color", accent);
 		values.put("server_status", status.name());
@@ -286,6 +299,20 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 			return "";
 		}
 		return value.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private String backendHost(String backendName) {
+		if (backendName == null || backendName.isBlank()) {
+			return "";
+		}
+
+		RegisteredServer server = proxyServer.getServer(backendName).orElse(null);
+		if (server == null || server.getServerInfo() == null || server.getServerInfo().getAddress() == null) {
+			return backendName;
+		}
+
+		String host = server.getServerInfo().getAddress().getHostString();
+		return host == null || host.isBlank() ? backendName : host.trim();
 	}
 
 	private String shortVersion(String full) {

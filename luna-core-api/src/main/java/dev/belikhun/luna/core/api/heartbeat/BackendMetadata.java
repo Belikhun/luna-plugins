@@ -20,9 +20,6 @@ public record BackendMetadata(
 		if (sanitizedDisplay.isBlank()) {
 			sanitizedDisplay = sanitizedName;
 		}
-		if (sanitizedServerName.isBlank()) {
-			sanitizedServerName = sanitizedName;
-		}
 		return new BackendMetadata(sanitizedName, sanitizedDisplay, sanitizedAccent, sanitizedServerName);
 	}
 

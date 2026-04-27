@@ -60,7 +60,7 @@ public record VelocityServerSelectorConfig(
 			Map<String, Object> infoNode = ConfigValues.map(entry.getValue());
 			String displayName = ConfigValues.string(infoNode, "display", key);
 			String accentColor = ConfigValues.string(infoNode, "accent-color", "");
-			String serverName = ConfigValues.string(infoNode, "server-name", key);
+			String serverName = ConfigValues.string(infoNode, "server-name", "");
 			serverInfo.put(key, new ServerInfo(displayName, accentColor, serverName));
 		}
 
@@ -127,7 +127,7 @@ public record VelocityServerSelectorConfig(
 			parseTemplate(templateSection, new ServerTemplate("<b>%server_display%</b>", List.of(), "%line%", List.of(), "", Map.of())),
 			ConfigValues.string(messages, "opening", "<yellow>Đang mở danh sách máy chủ...</yellow>"),
 			ConfigValues.string(messages, "player-only", "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"),
-			ConfigValues.string(messages, "not-found", "<red>❌ Không tìm thấy máy chủ %server_name%.</red>"),
+			ConfigValues.string(messages, "not-found", "<red>❌ Không tìm thấy máy chủ %luna_server_name%.</red>"),
 			ConfigValues.string(messages, "offline", "<red>❌ %server_display% hiện đang ngoại tuyến.</red>"),
 			ConfigValues.string(messages, "maint", "<yellow>⚠ %server_display% đang bảo trì.</yellow>"),
 			ConfigValues.string(messages, "no-permission", "<red>❌ Bạn không có quyền vào %server_display%.</red>"),

@@ -1,4 +1,4 @@
-package dev.belikhun.luna.core.neoforge;
+package dev.belikhun.luna.core.neoforge.text;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
