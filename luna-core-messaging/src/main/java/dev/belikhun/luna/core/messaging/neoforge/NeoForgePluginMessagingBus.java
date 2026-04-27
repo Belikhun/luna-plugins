@@ -7,31 +7,32 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageContext;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageHandler;
+import dev.belikhun.luna.core.api.messaging.PluginMessageListenerRegistration;
+import dev.belikhun.luna.core.api.messaging.StandardPluginMessenger;
+import dev.belikhun.luna.core.api.exception.PluginMessagingException;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Comparator;
-import java.util.Map;
 import java.util.Objects;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 public final class NeoForgePluginMessagingBus implements PluginMessageBus<ServerPlayer, ServerPlayer> {
 	private static final long DEFAULT_SENDER_WARMUP_WINDOW_MILLIS = 1500L;
 
 	private final LunaLogger logger;
 	private final NeoForgeAmqpTransport amqpTransport;
-	private final Map<PluginMessageChannel, PluginMessageHandler<ServerPlayer>> incomingHandlers;
-	private final Set<PluginMessageChannel> outgoingChannels;
-	private final Map<UUID, Long> senderBoundAt;
+	private final StandardPluginMessenger<Object, ServerPlayer> messenger;
+	private final java.util.Map<UUID, Long> senderBoundAt;
 	private volatile long senderWarmupWindowMillis;
 
 	public NeoForgePluginMessagingBus(LunaLogger logger) {
 		this.logger = logger.scope("Bus");
-		this.incomingHandlers = new ConcurrentHashMap<>();
-		this.outgoingChannels = ConcurrentHashMap.newKeySet();
-		this.senderBoundAt = new ConcurrentHashMap<>();
+		this.messenger = new StandardPluginMessenger<>((registration, throwable) -> this.logger.warn(
+			"Listener owner=" + registration.getOwner() + " ném lỗi khi xử lý plugin message channel=" + registration.getChannel() + ": " + throwable.getMessage()
+		));
+		this.senderBoundAt = new java.util.concurrent.ConcurrentHashMap<>();
 		this.senderWarmupWindowMillis = DEFAULT_SENDER_WARMUP_WINDOW_MILLIS;
 		this.amqpTransport = createAmqpTransport();
 	}
@@ -65,40 +66,145 @@ public final class NeoForgePluginMessagingBus implements PluginMessageBus<Server
 	}
 
 	public PluginMessageDispatchResult dispatchIncoming(ServerPlayer source, PluginMessageChannel channel, byte[] payload) {
-		PluginMessageHandler<ServerPlayer> handler = incomingHandlers.get(channel);
-		if (handler == null) {
-			return PluginMessageDispatchResult.PASS_THROUGH;
+		return dispatchIncomingMessage(source, channel, payload);
+	}
+
+	@Override
+	public PluginMessageListenerRegistration<Object, ServerPlayer> registerIncomingPluginChannel(Object owner, PluginMessageChannel channel, PluginMessageHandler<ServerPlayer> handler) {
+		PluginMessageChannel safeChannel = Objects.requireNonNull(channel, "channel");
+		boolean shouldRegisterTransport = messenger.getIncomingChannelRegistrations(safeChannel).isEmpty();
+		PluginMessageListenerRegistration<Object, ServerPlayer> registration = messenger.registerIncomingPluginChannel(owner, safeChannel, handler);
+		if (shouldRegisterTransport) {
+			amqpTransport.registerIncoming(safeChannel, this::dispatchIncomingContext);
+		}
+		return registration;
+	}
+
+	@Override
+	public void unregisterIncomingPluginChannel(Object owner, PluginMessageChannel channel, PluginMessageHandler<ServerPlayer> handler) {
+		PluginMessageChannel safeChannel = Objects.requireNonNull(channel, "channel");
+		messenger.unregisterIncomingPluginChannel(owner, safeChannel, handler);
+		if (messenger.getIncomingChannelRegistrations(safeChannel).isEmpty()) {
+			amqpTransport.unregisterIncoming(safeChannel);
+		}
+	}
+
+	@Override
+	public void unregisterIncomingPluginChannel(Object owner, PluginMessageChannel channel) {
+		PluginMessageChannel safeChannel = Objects.requireNonNull(channel, "channel");
+		messenger.unregisterIncomingPluginChannel(owner, safeChannel);
+		if (messenger.getIncomingChannelRegistrations(safeChannel).isEmpty()) {
+			amqpTransport.unregisterIncoming(safeChannel);
+		}
+	}
+
+	@Override
+	public void unregisterIncomingPluginChannel(Object owner) {
+		Set<PluginMessageChannel> channels = messenger.getIncomingChannels(owner);
+		messenger.unregisterIncomingPluginChannel(owner);
+		for (PluginMessageChannel channel : channels) {
+			if (messenger.getIncomingChannelRegistrations(channel).isEmpty()) {
+				amqpTransport.unregisterIncoming(channel);
+			}
+		}
+	}
+
+	@Override
+	public void registerOutgoingPluginChannel(Object owner, PluginMessageChannel channel) {
+		PluginMessageChannel safeChannel = Objects.requireNonNull(channel, "channel");
+		boolean shouldRegisterTransport = !messenger.getOutgoingChannels().contains(safeChannel);
+		messenger.registerOutgoingPluginChannel(owner, safeChannel);
+		if (shouldRegisterTransport) {
+			amqpTransport.registerOutgoing(safeChannel);
+		}
+	}
+
+	@Override
+	public void unregisterOutgoingPluginChannel(Object owner, PluginMessageChannel channel) {
+		PluginMessageChannel safeChannel = Objects.requireNonNull(channel, "channel");
+		messenger.unregisterOutgoingPluginChannel(owner, safeChannel);
+		if (!messenger.getOutgoingChannels().contains(safeChannel)) {
+			amqpTransport.unregisterOutgoing(safeChannel);
+		}
+	}
+
+	@Override
+	public void unregisterOutgoingPluginChannel(Object owner) {
+		Set<PluginMessageChannel> channels = messenger.getOutgoingChannels(owner);
+		messenger.unregisterOutgoingPluginChannel(owner);
+		for (PluginMessageChannel channel : channels) {
+			if (!messenger.getOutgoingChannels().contains(channel)) {
+				amqpTransport.unregisterOutgoing(channel);
+			}
+		}
+	}
+
+	@Override
+	public Set<PluginMessageChannel> getOutgoingChannels() {
+		return messenger.getOutgoingChannels();
+	}
+
+	@Override
+	public Set<PluginMessageChannel> getOutgoingChannels(Object owner) {
+		return messenger.getOutgoingChannels(owner);
+	}
+
+	@Override
+	public Set<PluginMessageChannel> getIncomingChannels() {
+		return messenger.getIncomingChannels();
+	}
+
+	@Override
+	public Set<PluginMessageChannel> getIncomingChannels(Object owner) {
+		return messenger.getIncomingChannels(owner);
+	}
+
+	@Override
+	public Set<PluginMessageListenerRegistration<Object, ServerPlayer>> getIncomingChannelRegistrations(Object owner) {
+		return messenger.getIncomingChannelRegistrations(owner);
+	}
+
+	@Override
+	public Set<PluginMessageListenerRegistration<Object, ServerPlayer>> getIncomingChannelRegistrations(PluginMessageChannel channel) {
+		return messenger.getIncomingChannelRegistrations(channel);
+	}
+
+	@Override
+	public Set<PluginMessageListenerRegistration<Object, ServerPlayer>> getIncomingChannelRegistrations(Object owner, PluginMessageChannel channel) {
+		return messenger.getIncomingChannelRegistrations(owner, channel);
+	}
+
+	@Override
+	public boolean isRegistrationValid(PluginMessageListenerRegistration<Object, ServerPlayer> registration) {
+		return messenger.isRegistrationValid(registration);
+	}
+
+	@Override
+	public boolean isIncomingChannelRegistered(Object owner, PluginMessageChannel channel) {
+		return messenger.isIncomingChannelRegistered(owner, channel);
+	}
+
+	@Override
+	public boolean isOutgoingChannelRegistered(Object owner, PluginMessageChannel channel) {
+		return messenger.isOutgoingChannelRegistered(owner, channel);
+	}
+
+	@Override
+	public PluginMessageDispatchResult dispatchIncomingMessage(ServerPlayer source, PluginMessageChannel channel, byte[] payload) {
+		return messenger.dispatchIncomingMessage(source, channel, payload);
+	}
+
+	@Override
+	public void clear() {
+		for (PluginMessageChannel channel : messenger.getIncomingChannels()) {
+			amqpTransport.unregisterIncoming(channel);
 		}
 
-		return handler.handle(new PluginMessageContext<>(channel, source, payload));
-	}
-
-	@Override
-	public void registerIncoming(PluginMessageChannel channel, PluginMessageHandler<ServerPlayer> handler) {
-		incomingHandlers.put(Objects.requireNonNull(channel, "channel"), Objects.requireNonNull(handler, "handler"));
-	}
-
-	@Override
-	public void unregisterIncoming(PluginMessageChannel channel) {
-		if (channel == null) {
-			return;
+		for (PluginMessageChannel channel : messenger.getOutgoingChannels()) {
+			amqpTransport.unregisterOutgoing(channel);
 		}
 
-		incomingHandlers.remove(channel);
-	}
-
-	@Override
-	public void registerOutgoing(PluginMessageChannel channel) {
-		outgoingChannels.add(Objects.requireNonNull(channel, "channel"));
-	}
-
-	@Override
-	public void unregisterOutgoing(PluginMessageChannel channel) {
-		if (channel == null) {
-			return;
-		}
-
-		outgoingChannels.remove(channel);
+		messenger.clear();
 	}
 
 	@Override
@@ -110,9 +216,8 @@ public final class NeoForgePluginMessagingBus implements PluginMessageBus<Server
 			return false;
 		}
 
-		if (!outgoingChannels.contains(channel)) {
-			logger.debug("Bỏ qua gửi plugin message vì channel chưa đăng ký: " + channel);
-			return false;
+		if (!messenger.getOutgoingChannels().contains(channel)) {
+			throw new PluginMessagingException("Outgoing plugin channel chưa được đăng ký: " + channel.value());
 		}
 
 		Long boundAt = senderBoundAt.get(target.getUUID());
@@ -121,15 +226,23 @@ public final class NeoForgePluginMessagingBus implements PluginMessageBus<Server
 			return false;
 		}
 
+		if (NeoForgePayloadFallbackTransport.supports(channel) && NeoForgePayloadFallbackTransport.send(target, channel, payload)) {
+			return true;
+		}
+
 		return amqpTransport.send(target, channel, payload);
 	}
 
 	@Override
 	public void close() {
-		incomingHandlers.clear();
-		outgoingChannels.clear();
+		NeoForgePayloadFallbackTransport.deactivate(this);
+		clear();
 		senderBoundAt.clear();
 		amqpTransport.close();
+	}
+
+	private PluginMessageDispatchResult dispatchIncomingContext(PluginMessageContext<ServerPlayer> context) {
+		return messenger.dispatchIncomingMessage(context.source(), context.channel(), context.payload());
 	}
 
 	private NeoForgeAmqpTransport createAmqpTransport() {

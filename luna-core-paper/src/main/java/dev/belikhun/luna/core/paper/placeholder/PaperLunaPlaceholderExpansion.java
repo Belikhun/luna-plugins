@@ -78,6 +78,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private String resolveCurrent(OfflinePlayer player, String normalized) {
 		String value = switch (normalized) {
 			case "current_server" -> currentServerName();
+			case "server_name" -> currentServerInfoName();
 			case "status" -> statusText();
 			case "online" -> Integer.toString(Bukkit.getOnlinePlayers().size());
 			case "max" -> Integer.toString(Bukkit.getMaxPlayers());
@@ -419,5 +420,12 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			host = "127.0.0.1";
 		}
 		return (host + ":" + Bukkit.getPort()).toLowerCase(Locale.ROOT);
+	}
+
+	private String currentServerInfoName() {
+		return statusView.currentBackendMetadata()
+			.map(BackendMetadata::serverName)
+			.filter(value -> value != null && !value.isBlank())
+			.orElseGet(this::currentServerName);
 	}
 }

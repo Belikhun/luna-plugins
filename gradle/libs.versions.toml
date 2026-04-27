@@ -3,6 +3,7 @@
 
 [versions]
 paper = "1.21.10-R0.1-SNAPSHOT"
+adventure = "4.17.0"
 vault = "1.7.1"
 mariadb = "3.4.1"
 mysql = "9.1.0"
@@ -23,6 +24,8 @@ forgeplaceholderapi = "2.1.0"
 
 [libraries]
 paper-api = { module = "io.papermc.paper:paper-api", version.ref = "paper" }
+adventure-minimessage = { module = "net.kyori:adventure-text-minimessage", version.ref = "adventure" }
+adventure-serializer-gson = { module = "net.kyori:adventure-text-serializer-gson", version.ref = "adventure" }
 vault-api = { module = "com.github.MilkBowl:VaultAPI", version.ref = "vault" }
 mariadb-jdbc = { module = "org.mariadb.jdbc:mariadb-java-client", version.ref = "mariadb" }
 mysql-jdbc = { module = "com.mysql:mysql-connector-j", version.ref = "mysql" }

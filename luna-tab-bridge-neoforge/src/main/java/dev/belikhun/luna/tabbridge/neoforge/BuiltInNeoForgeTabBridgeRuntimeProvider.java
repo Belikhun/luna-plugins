@@ -20,11 +20,13 @@ public final class BuiltInNeoForgeTabBridgeRuntimeProvider implements NeoForgeTa
 	public NeoForgeTabBridgeRuntime createRuntime(LunaLogger logger, DependencyManager dependencyManager) {
 		NeoForgePluginMessagingBus bus = dependencyManager.resolveOptional(NeoForgePluginMessagingBus.class).orElse(null);
 		PermissionService permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
+		NeoForgeTabBridgePlayerStateSource playerStateSource = dependencyManager.resolveOptional(NeoForgeTabBridgePlayerStateSource.class)
+			.orElseGet(NoopNeoForgeTabBridgePlayerStateSource::new);
 		if (bus == null) {
 			logger.warn("Thiếu NeoForgePluginMessagingBus, fallback sang TAB bridge runtime no-op.");
 			return new NoopNeoForgeTabBridgeRuntime();
 		}
 
-		return new RawChannelNeoForgeTabBridgeRuntime(logger, bus, permissionService);
+		return new RawChannelNeoForgeTabBridgeRuntime(logger, bus, permissionService, playerStateSource);
 	}
 }

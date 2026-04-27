@@ -4,6 +4,7 @@ import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 final class NoopNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRuntime {
@@ -14,6 +15,15 @@ final class NoopNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRuntime {
 
 	@Override
 	public void updatePlayerPlaceholders(ServerPlayer player, Map<String, String> placeholderValues) {
+	}
+
+	@Override
+	public void updatePlayerRelationalPlaceholders(ServerPlayer player, Map<String, Map<String, String>> placeholderValues) {
+	}
+
+	@Override
+	public Set<String> requestedPlaceholderIdentifiers(UUID playerId) {
+		return Set.of();
 	}
 
 	@Override

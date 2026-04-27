@@ -1,23 +1,30 @@
 server-info:
   survival:
+    server-name: "maylocnuoc"
     display: "<gradient:#AC92FE:#25EED0>SMP</gradient>"
     accent-color: "#25EED0"
   infdun:
+    server-name: "maylocnuoc"
     display: "<gradient:#31ADAD:#8CE67C>INFINITY DUNGEONS</gradient>"
     accent-color: "#8CE67C"
   sandbox:
+    server-name: "maylockhongkhi"
     display: "<gradient:#E98700:#FF61BB>SANDBOX</gradient>"
     accent-color: "#FF61BB"
   event:
+    server-name: "maylocnuoc"
     display: "<gradient:#bafdc1:#9BC1F9>EVENT1</gradient>"
     accent-color: "#9BC1F9"
   event2:
+    server-name: "maylocnuoc"
     display: "<gradient:#9863E7:#FCD05C>EV</gradient><gradient:#FCD05C:#5FE2C5>ENT2</gradient>"
     accent-color: "#5FE2C5"
   manhunt:
+    server-name: "maylocnuoc"
     display: "<gradient:#EC8C8C:#FFC58B>M</gradient><gradient:#FFC58B:#FFFF9E>A</gradient><gradient:#FFFF9E:#9AFF9A>NH</gradient><gradient:#9AFF9A:#97CFF5>U</gradient><gradient:#97CFF5:#A39AFF>N</gradient><gradient:#A39AFF:#EEA0FF>T</gradient>"
     accent-color: "#EEA0FF"
   iceboat:
+    server-name: "maylocnuoc"
     display: "<gradient:#E5C09A:#FFC2DD>BOAT</gradient> <gradient:#0CC6C7:#1EA9FB>RACING</gradient>"
     accent-color: "#1EA9FB"
 

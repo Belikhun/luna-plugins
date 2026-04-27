@@ -1,5 +1,13 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
 	alias(libs.plugins.moddevgradle)
+}
+
+val embeddedRabbitMqClient = configurations.detachedConfiguration(
+	dependencies.create(libs.rabbitmq.client.get())
+).apply {
+	isTransitive = false
 }
 
 dependencies {
@@ -11,4 +19,9 @@ dependencies {
 
 neoForge {
 	version = libs.versions.neoforge.get()
+}
+
+tasks.named<ShadowJar>("shadowJar") {
+	from(embeddedRabbitMqClient.files.map { zipTree(it) })
+	exclude("META-INF/MANIFEST.MF")
 }

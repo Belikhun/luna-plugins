@@ -1,109 +1,428 @@
 package dev.belikhun.luna.tabbridge.neoforge;
 
 import com.sun.management.OperatingSystemMXBean;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
+import dev.belikhun.luna.core.neoforge.NeoForgeSparkMetrics;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable {
 	private static final int DEFAULT_BAR_WIDTH = 25;
-	private static final long REFRESH_INTERVAL_SECONDS = 2L;
+	private static final int MIN_BAR_WIDTH = 1;
+	private static final int MAX_BAR_WIDTH = 120;
+	private static final long REFRESH_INTERVAL_MILLIS = 500L;
 	private static final String DEFAULT_COLOR = "#F1FF68";
+	private static final String LUNA_PREFIX = "luna_";
+	private static final String SAFE_SUFFIX = "_safe";
 
 	private final LunaLogger logger;
 	private final MinecraftServer server;
 	private final NeoForgeTabBridgeRuntime runtime;
+	private final NeoForgeTabBridgeRelationalPlaceholderSource relationalPlaceholderSource;
 	private final String localServerName;
+	private final Supplier<BackendMetadata> currentBackendMetadataSupplier;
 	private final ScheduledExecutorService refreshExecutor;
+	private volatile boolean closed;
 
-	NeoForgeTabBridgePlaceholderUpdater(LunaLogger logger, MinecraftServer server, NeoForgeTabBridgeRuntime runtime, String localServerName) {
+	NeoForgeTabBridgePlaceholderUpdater(LunaLogger logger, MinecraftServer server, NeoForgeTabBridgeRuntime runtime, NeoForgeTabBridgeRelationalPlaceholderSource relationalPlaceholderSource, String localServerName, Supplier<BackendMetadata> currentBackendMetadataSupplier) {
 		this.logger = logger.scope("Placeholders");
 		this.server = Objects.requireNonNull(server, "server");
 		this.runtime = Objects.requireNonNull(runtime, "runtime");
+		this.relationalPlaceholderSource = Objects.requireNonNull(relationalPlaceholderSource, "relationalPlaceholderSource");
 		this.localServerName = localServerName == null || localServerName.isBlank() ? "backend" : localServerName;
+		this.currentBackendMetadataSupplier = currentBackendMetadataSupplier == null ? () -> null : currentBackendMetadataSupplier;
 		this.refreshExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-tabbridge-neoforge-placeholders");
 			thread.setDaemon(true);
 			return thread;
 		});
 		this.refreshExecutor.scheduleAtFixedRate(
-			() -> this.server.execute(this::refreshOnlinePlayers),
-			REFRESH_INTERVAL_SECONDS,
-			REFRESH_INTERVAL_SECONDS,
-			TimeUnit.SECONDS
+			() -> {
+				if (closed) {
+					return;
+				}
+
+				this.server.execute(() -> {
+					if (!closed) {
+						refreshOnlinePlayers();
+					}
+				});
+			},
+			REFRESH_INTERVAL_MILLIS,
+			REFRESH_INTERVAL_MILLIS,
+			TimeUnit.MILLISECONDS
 		);
 	}
 
 	void refreshOnlinePlayers() {
+		if (closed) {
+			return;
+		}
+
+		SharedSnapshot sharedSnapshot = sharedSnapshot();
+
 		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-			refreshPlayer(player);
+			refreshPlayer(player, sharedSnapshot);
 		}
 	}
 
 	void refreshPlayer(ServerPlayer player) {
-		if (player == null) {
+		refreshPlayer(player, sharedSnapshot());
+	}
+
+	String resolvePlaceholder(ServerPlayer player, String identifier) {
+		if (closed || player == null || identifier == null || identifier.isBlank() || identifier.startsWith("%rel_")) {
+			return null;
+		}
+
+		String normalizedIdentifier = normalizeIdentifier(identifier);
+		if (normalizedIdentifier.isBlank()) {
+			return null;
+		}
+
+		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
+			CurrentSnapshot snapshot = currentSnapshot(player, sharedSnapshot());
+			return resolveRequestedBridgeValue(normalizedIdentifier, snapshot);
+		}
+
+		return resolveNativePlaceholder(player, normalizedIdentifier);
+	}
+
+	private void refreshPlayer(ServerPlayer player, SharedSnapshot sharedSnapshot) {
+		if (closed || player == null) {
 			return;
 		}
 
-		runtime.updatePlayerPlaceholders(player, snapshotFor(player));
+		runtime.updatePlayerPlaceholders(player, snapshotFor(player, sharedSnapshot));
+		runtime.updatePlayerRelationalPlaceholders(player, relationalPlaceholderSource.resolve(player));
 	}
 
-	private Map<String, String> snapshotFor(ServerPlayer player) {
+	private Map<String, String> snapshotFor(ServerPlayer player, SharedSnapshot sharedSnapshot) {
 		Map<String, String> values = new LinkedHashMap<>();
 		int playerPingMillis = playerPingMillis(player);
-		double currentTps = currentTps();
 		putCore(values, "current_server", localServerName);
 		putCore(values, "status", server.isEnforceWhitelist() ? "MAINT" : "ONLINE");
 		putCore(values, "online", Integer.toString(server.getPlayerCount()));
 		putCore(values, "max", Integer.toString(server.getMaxPlayers()));
-		putCore(values, "tps", formatTps(currentTps));
+		putCore(values, "tps", formatTps(sharedSnapshot.currentTps()));
 		putCore(values, "player_ping", Integer.toString(playerPingMillis));
 		putCore(values, "latency", "0");
-		putCore(values, "uptime", Formatters.compactDuration(Duration.ofMillis(currentUptimeMillis())));
-		putCore(values, "uptime_ms", Long.toString(currentUptimeMillis()));
-		putCore(values, "system_cpu", formatPercent(systemCpuPercent()));
-		putCore(values, "process_cpu", formatPercent(processCpuPercent()));
+		putCore(values, "uptime", Formatters.compactDuration(Duration.ofMillis(sharedSnapshot.uptimeMillis())));
+		putCore(values, "uptime_long", Formatters.duration(Duration.ofMillis(sharedSnapshot.uptimeMillis())));
+		putCore(values, "uptime_ms", Long.toString(sharedSnapshot.uptimeMillis()));
+		putCore(values, "system_cpu", formatPercent(sharedSnapshot.systemCpuPercent()));
+		putCore(values, "process_cpu", formatPercent(sharedSnapshot.processCpuPercent()));
 		putCore(values, "version", safe(server.getServerVersion()));
 		putCore(values, "display", localServerName);
+		putCore(values, "server_name", currentServerInfoName());
 		putCore(values, "color", DEFAULT_COLOR);
 		putCore(values, "whitelist", Boolean.toString(server.isEnforceWhitelist()));
+		putCore(values, "total_entities", Integer.toString(sharedSnapshot.totalEntities()));
+		putCore(values, "total_living_entities", Integer.toString(sharedSnapshot.totalLivingEntities()));
+		putCore(values, "total_chunks", Integer.toString(sharedSnapshot.totalChunks()));
 
-		putCore(values, "tps_bar", buildBar(LunaProgressBarPresets.tps("tps", currentTps), DEFAULT_BAR_WIDTH));
+		putCore(values, "tps_bar", buildBar(LunaProgressBarPresets.tps("tps", sharedSnapshot.currentTps()), DEFAULT_BAR_WIDTH));
 		putCore(values, "player_ping_bar", buildBar(LunaProgressBarPresets.latency("ping", playerPingMillis), DEFAULT_BAR_WIDTH));
 		putCore(values, "latency_bar", buildBar(LunaProgressBarPresets.latency("latency", 0D), DEFAULT_BAR_WIDTH));
-		putCore(values, "system_cpu_bar", buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent()), DEFAULT_BAR_WIDTH));
-		putCore(values, "process_cpu_bar", buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent()), DEFAULT_BAR_WIDTH));
-		putCore(values, "ram_bar", buildBar(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), DEFAULT_BAR_WIDTH));
+		putCore(values, "system_cpu_bar", buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", sharedSnapshot.systemCpuPercent()), DEFAULT_BAR_WIDTH));
+		putCore(values, "process_cpu_bar", buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", sharedSnapshot.processCpuPercent()), DEFAULT_BAR_WIDTH));
+		putCore(values, "ram_bar", buildBar(LunaProgressBarPresets.ram("ram", sharedSnapshot.ramUsedBytes(), sharedSnapshot.ramMaxBytes()), DEFAULT_BAR_WIDTH));
 
-		putCore(values, "tps_bar_only", buildBarOnly(LunaProgressBarPresets.tps("tps", currentTps), DEFAULT_BAR_WIDTH));
+		putCore(values, "tps_bar_only", buildBarOnly(LunaProgressBarPresets.tps("tps", sharedSnapshot.currentTps()), DEFAULT_BAR_WIDTH));
 		putCore(values, "player_ping_bar_only", buildBarOnly(LunaProgressBarPresets.latency("ping", playerPingMillis), DEFAULT_BAR_WIDTH));
 		putCore(values, "latency_bar_only", buildBarOnly(LunaProgressBarPresets.latency("latency", 0D), DEFAULT_BAR_WIDTH));
-		putCore(values, "system_cpu_bar_only", buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent()), DEFAULT_BAR_WIDTH));
-		putCore(values, "process_cpu_bar_only", buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent()), DEFAULT_BAR_WIDTH));
-		putCore(values, "ram_bar_only", buildBarOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes()), DEFAULT_BAR_WIDTH));
+		putCore(values, "system_cpu_bar_only", buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", sharedSnapshot.systemCpuPercent()), DEFAULT_BAR_WIDTH));
+		putCore(values, "process_cpu_bar_only", buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", sharedSnapshot.processCpuPercent()), DEFAULT_BAR_WIDTH));
+		putCore(values, "ram_bar_only", buildBarOnly(LunaProgressBarPresets.ram("ram", sharedSnapshot.ramUsedBytes(), sharedSnapshot.ramMaxBytes()), DEFAULT_BAR_WIDTH));
 
-		putCore(values, "tps_bar_value_only", buildValueOnly(LunaProgressBarPresets.tps("tps", currentTps)));
+		putCore(values, "tps_bar_value_only", buildValueOnly(LunaProgressBarPresets.tps("tps", sharedSnapshot.currentTps())));
 		putCore(values, "player_ping_bar_value_only", buildValueOnly(LunaProgressBarPresets.latency("ping", playerPingMillis)));
 		putCore(values, "latency_bar_value_only", buildValueOnly(LunaProgressBarPresets.latency("latency", 0D)));
-		putCore(values, "system_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", systemCpuPercent())));
-		putCore(values, "process_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", processCpuPercent())));
-		putCore(values, "ram_bar_value_only", buildValueOnly(LunaProgressBarPresets.ram("ram", currentRamUsedBytes(), currentRamMaxBytes())));
+		putCore(values, "system_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", sharedSnapshot.systemCpuPercent())));
+		putCore(values, "process_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", sharedSnapshot.processCpuPercent())));
+		putCore(values, "ram_bar_value_only", buildValueOnly(LunaProgressBarPresets.ram("ram", sharedSnapshot.ramUsedBytes(), sharedSnapshot.ramMaxBytes())));
+		putRequestedBridgeValues(values, runtime.requestedPlaceholderIdentifiers(player.getUUID()), currentSnapshot(player, sharedSnapshot));
 		return Map.copyOf(values);
+	}
+
+	private CurrentSnapshot currentSnapshot(ServerPlayer player, SharedSnapshot sharedSnapshot) {
+		return new CurrentSnapshot(
+			sharedSnapshot.currentTps(),
+			playerPingMillis(player),
+			sharedSnapshot.uptimeMillis(),
+			sharedSnapshot.systemCpuPercent(),
+			sharedSnapshot.processCpuPercent(),
+			sharedSnapshot.ramUsedBytes(),
+			sharedSnapshot.ramMaxBytes(),
+			sharedSnapshot.totalEntities(),
+			sharedSnapshot.totalLivingEntities(),
+			sharedSnapshot.totalChunks()
+		);
+	}
+
+	private SharedSnapshot sharedSnapshot() {
+		long uptimeMillis = currentUptimeMillis();
+		long ramUsedBytes = currentRamUsedBytes();
+		long ramMaxBytes = currentRamMaxBytes();
+		NeoForgeSparkMetrics.Snapshot sparkMetrics = NeoForgeSparkMetrics.collect(
+			logger,
+			this::currentTps,
+			this::systemCpuPercent,
+			this::processCpuPercent
+		);
+		return new SharedSnapshot(
+			sparkMetrics.tps(),
+			uptimeMillis,
+			sparkMetrics.systemCpuUsagePercent(),
+			sparkMetrics.processCpuUsagePercent(),
+			ramUsedBytes,
+			ramMaxBytes,
+			countEntities(),
+			countLivingEntities(),
+			countLoadedChunks()
+		);
+	}
+
+	private void putRequestedBridgeValues(Map<String, String> values, Collection<String> requestedIdentifiers, CurrentSnapshot snapshot) {
+		if (requestedIdentifiers == null || requestedIdentifiers.isEmpty()) {
+			return;
+		}
+
+		for (String requestedIdentifier : requestedIdentifiers) {
+			String lookupKey = normalizeRequestedLookupKey(requestedIdentifier);
+			if (lookupKey.isBlank() || values.containsKey(lookupKey)) {
+				continue;
+			}
+
+			String resolvedValue = resolveRequestedBridgeValue(lookupKey, snapshot);
+			if (resolvedValue != null) {
+				values.put(lookupKey, resolvedValue);
+			}
+		}
+	}
+
+	private String normalizeRequestedLookupKey(String identifier) {
+		String inner = normalizeIdentifier(identifier);
+		return inner.startsWith(LUNA_PREFIX) ? inner : "";
+	}
+
+	private String normalizeIdentifier(String identifier) {
+		if (identifier == null) {
+			return "";
+		}
+
+		String normalized = identifier.trim().toLowerCase(Locale.ROOT);
+		if (!normalized.startsWith("%") || !normalized.endsWith("%") || normalized.length() < 3) {
+			return "";
+		}
+
+		return normalized.substring(1, normalized.length() - 1);
+	}
+
+	private String resolveRequestedBridgeValue(String lookupKey, CurrentSnapshot snapshot) {
+		boolean safeVariant = lookupKey.endsWith(SAFE_SUFFIX) && lookupKey.length() > SAFE_SUFFIX.length();
+		String normalizedKey = safeVariant
+			? lookupKey.substring(0, lookupKey.length() - SAFE_SUFFIX.length())
+			: lookupKey;
+		if (!normalizedKey.startsWith(LUNA_PREFIX)) {
+			return null;
+		}
+
+		String key = normalizedKey.substring(LUNA_PREFIX.length());
+		String value = resolvePaperLunaValue(key, snapshot);
+		if (value == null) {
+			return null;
+		}
+
+		return safeVariant ? escapePlaceholderPercents(value) : value;
+	}
+
+	private String resolvePaperLunaValue(String key, CurrentSnapshot snapshot) {
+		String value = switch (key) {
+			case "current_server" -> localServerName;
+			case "status" -> server.isEnforceWhitelist() ? "MAINT" : "ONLINE";
+			case "online" -> Integer.toString(server.getPlayerCount());
+			case "max" -> Integer.toString(server.getMaxPlayers());
+			case "tps" -> formatTps(snapshot.currentTps());
+			case "player_ping" -> Integer.toString(snapshot.playerPingMillis());
+			case "latency" -> "0";
+			case "uptime" -> Formatters.compactDuration(Duration.ofMillis(snapshot.uptimeMillis()));
+			case "uptime_long" -> Formatters.duration(Duration.ofMillis(snapshot.uptimeMillis()));
+			case "uptime_ms" -> Long.toString(snapshot.uptimeMillis());
+			case "system_cpu" -> formatPercent(snapshot.systemCpuPercent());
+			case "process_cpu" -> formatPercent(snapshot.processCpuPercent());
+			case "version" -> safe(server.getServerVersion());
+			case "display" -> localServerName;
+			case "server_name" -> currentServerInfoName();
+			case "color" -> DEFAULT_COLOR;
+			case "whitelist" -> Boolean.toString(server.isEnforceWhitelist());
+			case "total_entities" -> Integer.toString(snapshot.totalEntities());
+			case "total_living_entities" -> Integer.toString(snapshot.totalLivingEntities());
+			case "total_chunks" -> Integer.toString(snapshot.totalChunks());
+			default -> null;
+		};
+		if (value != null) {
+			return value;
+		}
+
+		value = resolveCurrentBar(key, "tps_bar", width -> buildBar(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "player_ping_bar", width -> buildBar(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "latency_bar", width -> buildBar(LunaProgressBarPresets.latency("latency", 0D), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "system_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "process_cpu_bar", width -> buildBar(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "ram_bar", width -> buildBar(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
+		if (value != null) {
+			return value;
+		}
+
+		value = resolveCurrentBar(key, "tps_bar_only", width -> buildBarOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(key, "tps_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.tps("tps", snapshot.currentTps())));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "player_ping_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(key, "player_ping_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("ping", snapshot.playerPingMillis())));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "latency_bar_only", width -> buildBarOnly(LunaProgressBarPresets.latency("latency", 0D), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(key, "latency_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.latency("latency", 0D)));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "system_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(key, "system_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", snapshot.systemCpuPercent())));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "process_cpu_bar_only", width -> buildBarOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent()), width));
+		if (value != null) {
+			return value;
+		}
+		value = resolveExact(key, "process_cpu_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", snapshot.processCpuPercent())));
+		if (value != null) {
+			return value;
+		}
+		value = resolveCurrentBar(key, "ram_bar_only", width -> buildBarOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()), width));
+		if (value != null) {
+			return value;
+		}
+		return resolveExact(key, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes())));
+	}
+
+	private String resolveNativePlaceholder(ServerPlayer player, String normalizedIdentifier) {
+		return switch (normalizedIdentifier) {
+			case "player_x" -> Integer.toString(player.getBlockX());
+			case "player_y" -> Integer.toString(player.getBlockY());
+			case "player_z" -> Integer.toString(player.getBlockZ());
+			case "player_biome" -> currentBiomeName(player);
+			case "server_name" -> currentServerInfoName();
+			default -> null;
+		};
+	}
+
+	private String currentBiomeName(ServerPlayer player) {
+		BlockPos blockPos = player.blockPosition();
+		return player.serverLevel().getBiome(blockPos).unwrapKey()
+			.map(key -> key.location().getPath())
+			.orElse("unknown");
+	}
+
+	private String currentServerInfoName() {
+		BackendMetadata metadata = currentBackendMetadataSupplier.get();
+		if (metadata != null) {
+			BackendMetadata sanitized = metadata.sanitize();
+			if (sanitized.serverName() != null && !sanitized.serverName().isBlank()) {
+				return sanitized.serverName();
+			}
+		}
+		return localServerName;
+	}
+
+	private String resolveCurrentBar(String key, String baseKey, java.util.function.IntFunction<String> renderer) {
+		Integer width = parseCurrentWidth(key, baseKey);
+		if (width == null) {
+			return null;
+		}
+		return renderer.apply(width);
+	}
+
+	private String resolveExact(String key, String exactKey, java.util.function.Supplier<String> renderer) {
+		if (!key.equals(exactKey)) {
+			return null;
+		}
+		return renderer.get();
+	}
+
+	private Integer parseCurrentWidth(String key, String baseKey) {
+		if (key.equals(baseKey)) {
+			return DEFAULT_BAR_WIDTH;
+		}
+
+		String prefix = baseKey + "_";
+		if (!key.startsWith(prefix)) {
+			return null;
+		}
+
+		String widthRaw = key.substring(prefix.length()).trim();
+		if (widthRaw.isEmpty()) {
+			return DEFAULT_BAR_WIDTH;
+		}
+
+		try {
+			return clampWidth(Integer.parseInt(widthRaw));
+		} catch (NumberFormatException exception) {
+			return null;
+		}
 	}
 
 	private void putCore(Map<String, String> values, String key, String value) {
@@ -127,7 +446,7 @@ final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable {
 	}
 
 	private int clampWidth(int width) {
-		return Math.max(1, Math.min(120, width));
+		return Math.max(MIN_BAR_WIDTH, Math.min(MAX_BAR_WIDTH, width));
 	}
 
 	private double currentTps() {
@@ -269,6 +588,71 @@ final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable {
 		return Math.max(1L, Runtime.getRuntime().maxMemory());
 	}
 
+	private int countEntities() {
+		int total = 0;
+		for (ServerLevel level : server.getAllLevels()) {
+			total += countEntities(level, false);
+		}
+		return Math.max(0, total);
+	}
+
+	private int countLivingEntities() {
+		int total = 0;
+		for (ServerLevel level : server.getAllLevels()) {
+			total += countEntities(level, true);
+		}
+		return Math.max(0, total);
+	}
+
+	private int countLoadedChunks() {
+		int total = 0;
+		for (ServerLevel level : server.getAllLevels()) {
+			Object chunkSource = level.getChunkSource();
+			Integer loadedChunks = invokeInt(chunkSource, "getLoadedChunksCount");
+			if (loadedChunks != null && loadedChunks >= 0) {
+				total += loadedChunks;
+				continue;
+			}
+
+			Object chunkMap = readField(chunkSource, "chunkMap");
+			Integer reflectedSize = invokeInt(chunkMap, "size");
+			if (reflectedSize != null && reflectedSize >= 0) {
+				total += reflectedSize;
+			}
+		}
+		return Math.max(0, total);
+	}
+
+	private int countEntities(ServerLevel level, boolean livingOnly) {
+		Iterable<?> entities = allEntities(level);
+		if (entities == null) {
+			return 0;
+		}
+
+		int total = 0;
+		for (Object entity : entities) {
+			if (!livingOnly || entity instanceof LivingEntity) {
+				total++;
+			}
+		}
+		return total;
+	}
+
+	private Iterable<?> allEntities(ServerLevel level) {
+		Object direct = invokeNoArg(level, "getAllEntities");
+		if (direct instanceof Iterable<?> iterable) {
+			return iterable;
+		}
+
+		Object entityGetter = invokeNoArg(level, "getEntities");
+		Object nested = invokeNoArg(entityGetter, "getAll");
+		if (nested instanceof Iterable<?> iterable) {
+			return iterable;
+		}
+
+		return null;
+	}
+
 	private double systemCpuPercent() {
 		return cpuPercent(OperatingSystemMXBean::getCpuLoad);
 	}
@@ -308,8 +692,36 @@ final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable {
 		return value == null ? "" : value;
 	}
 
+	private record CurrentSnapshot(
+		double currentTps,
+		int playerPingMillis,
+		long uptimeMillis,
+		double systemCpuPercent,
+		double processCpuPercent,
+		long ramUsedBytes,
+		long ramMaxBytes,
+		int totalEntities,
+		int totalLivingEntities,
+		int totalChunks
+	) {
+	}
+
+	private record SharedSnapshot(
+		double currentTps,
+		long uptimeMillis,
+		double systemCpuPercent,
+		double processCpuPercent,
+		long ramUsedBytes,
+		long ramMaxBytes,
+		int totalEntities,
+		int totalLivingEntities,
+		int totalChunks
+	) {
+	}
+
 	@Override
 	public void close() {
+		closed = true;
 		refreshExecutor.shutdownNow();
 	}
 }

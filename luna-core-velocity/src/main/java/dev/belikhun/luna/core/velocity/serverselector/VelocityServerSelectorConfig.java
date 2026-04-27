@@ -60,7 +60,8 @@ public record VelocityServerSelectorConfig(
 			Map<String, Object> infoNode = ConfigValues.map(entry.getValue());
 			String displayName = ConfigValues.string(infoNode, "display", key);
 			String accentColor = ConfigValues.string(infoNode, "accent-color", "");
-			serverInfo.put(key, new ServerInfo(displayName, accentColor));
+			String serverName = ConfigValues.string(infoNode, "server-name", key);
+			serverInfo.put(key, new ServerInfo(displayName, accentColor, serverName));
 		}
 
 		Map<String, ServerDefinition> servers = new LinkedHashMap<>();
@@ -170,6 +171,7 @@ public record VelocityServerSelectorConfig(
 		ServerInfo info = serverInfo(normalized);
 		String displayName = "";
 		String accentColor = "";
+		String serverName = normalized;
 
 		if (definition != null) {
 			displayName = definition.displayName();
@@ -184,7 +186,11 @@ public record VelocityServerSelectorConfig(
 			accentColor = info.accentColor();
 		}
 
-		return new BackendMetadata(normalized, displayName, accentColor).sanitize();
+		if (info != null && info.serverName() != null && !info.serverName().isBlank()) {
+			serverName = info.serverName();
+		}
+
+		return new BackendMetadata(normalized, displayName, accentColor, serverName).sanitize();
 	}
 
 	public List<String> knownServerNames() {
@@ -435,7 +441,8 @@ public record VelocityServerSelectorConfig(
 
 	public record ServerInfo(
 		String displayName,
-		String accentColor
+		String accentColor,
+		String serverName
 	) {
 	}
 }

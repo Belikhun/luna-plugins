@@ -3,6 +3,9 @@ plugins {
     id("com.gradleup.shadow") version "9.0.2" apply false
 }
 
+import org.gradle.api.artifacts.Configuration
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 tasks.named<Delete>("clean") {
     delete(layout.projectDirectory.dir("output"))
 }
@@ -83,10 +86,14 @@ subprojects {
     }
 
     if (!isApiModule) {
-        tasks.named<org.gradle.jvm.tasks.Jar>("shadowJar") {
+        tasks.named<ShadowJar>("shadowJar") {
             destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/$platformTarget"))
             archiveBaseName.set("${moduleBaseName}-$platformTarget")
             archiveVersion.set("")
+
+            if (isNeoForgeModule) {
+                configurations = project.provider { emptyList<Configuration>() }
+            }
         }
     }
 }

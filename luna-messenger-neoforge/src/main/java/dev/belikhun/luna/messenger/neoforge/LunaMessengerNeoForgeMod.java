@@ -8,6 +8,7 @@ import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
+import dev.belikhun.luna.core.neoforge.NeoForgeLunaLoggers;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -23,7 +24,6 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.logging.Logger;
 
 @Mod(LunaMessengerNeoForgeMod.MOD_ID)
 public final class LunaMessengerNeoForgeMod {
@@ -34,7 +34,7 @@ public final class LunaMessengerNeoForgeMod {
 	private NeoForgeMessengerRuntime messengerRuntime;
 
 	public LunaMessengerNeoForgeMod() {
-		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaMessengerNeoForge"), true).scope("MessengerNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaMessengerNeoForge", true).scope("MessengerNeoForge");
 		NeoForge.EVENT_BUS.register(this);
 	}
 

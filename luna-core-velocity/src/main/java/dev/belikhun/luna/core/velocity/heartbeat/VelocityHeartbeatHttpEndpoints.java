@@ -94,8 +94,8 @@ public final class VelocityHeartbeatHttpEndpoints {
 				: Map.of();
 			boolean fullSync = sinceRevision < 0;
 			byte[] body = fullSync
-				? HeartbeatFormCodec.encodeSnapshot(responseRows, statusRegistry.currentRevision(), resolvedServerName, true)
-				: HeartbeatFormCodec.encodeDelta(markSelf(statusRegistry.deltaFieldsSince(sinceRevision), resolvedServerName), statusRegistry.currentRevision(), resolvedServerName);
+				? HeartbeatFormCodec.encodeSnapshot(responseRows, statusRegistry.currentRevision(), resolvedServerName, true, backendMetadata)
+				: HeartbeatFormCodec.encodeDelta(markSelf(statusRegistry.deltaFieldsSince(sinceRevision), resolvedServerName), statusRegistry.currentRevision(), resolvedServerName, backendMetadata);
 			transportLog("[TX] POST /heartbeat/" + serverName + " status=200 raw=" + formatFormBody(body));
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
@@ -190,9 +190,11 @@ public final class VelocityHeartbeatHttpEndpoints {
 		String definitionAccent = definition != null && definition.accentColor() != null && !definition.accentColor().isBlank()
 			? definition.accentColor()
 			: configuredMetadata.accentColor();
+		String definitionServerName = configuredMetadata.serverName();
 		String displayName = ConfigValues.string(payload, "server_display", definitionDisplay);
 		String accentColor = ConfigValues.string(payload, "server_accent_color", definitionAccent);
-		return new BackendMetadata(resolvedServerName, displayName, accentColor).sanitize();
+		String serverName = ConfigValues.string(payload, "server_name", definitionServerName);
+		return new BackendMetadata(resolvedServerName, displayName, accentColor, serverName).sanitize();
 	}
 
 	private Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> markSelf(

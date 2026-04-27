@@ -10,7 +10,6 @@ import com.velocitypowered.api.proxy.messages.MinecraftChannelIdentifier;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.core.api.exception.PluginMessagingException;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageContext;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
@@ -21,7 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object, Object> {
+final class VelocityBungeePluginMessagingBus {
 	private static final HexFormat HEX_FORMAT = HexFormat.of();
 
 	private final ProxyServer proxyServer;
@@ -41,7 +40,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		this.proxyServer.getEventManager().register(plugin, this);
 	}
 
-	@Override
 	public void registerIncoming(PluginMessageChannel channel, PluginMessageHandler<Object> handler) {
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		incomingHandlers.put(identifier.getId(), handler);
@@ -51,7 +49,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		}
 	}
 
-	@Override
 	public void unregisterIncoming(PluginMessageChannel channel) {
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		if (incomingHandlers.remove(identifier.getId()) != null) {
@@ -64,7 +61,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		}
 	}
 
-	@Override
 	public void registerOutgoing(PluginMessageChannel channel) {
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		if (outgoingChannels.add(identifier.getId())) {
@@ -75,7 +71,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		}
 	}
 
-	@Override
 	public void unregisterOutgoing(PluginMessageChannel channel) {
 		MinecraftChannelIdentifier identifier = toIdentifier(channel);
 		if (outgoingChannels.remove(identifier.getId())) {
@@ -88,7 +83,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		}
 	}
 
-	@Override
 	public boolean send(Object target, PluginMessageChannel channel, byte[] payload) {
 		ChannelIdentifier identifier = toIdentifier(channel);
 		if (!outgoingChannels.contains(identifier.getId())) {
@@ -120,7 +114,6 @@ final class VelocityBungeePluginMessagingBus implements PluginMessageBus<Object,
 		throw new PluginMessagingException("Không hỗ trợ target type cho plugin messaging: " + target.getClass().getName());
 	}
 
-	@Override
 	public void close() {
 		proxyServer.getEventManager().unregisterListeners(plugin);
 

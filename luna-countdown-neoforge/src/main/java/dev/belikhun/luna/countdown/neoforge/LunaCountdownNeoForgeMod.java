@@ -7,9 +7,11 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
+import dev.belikhun.luna.core.neoforge.NeoForgeLunaLoggers;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -25,11 +27,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
-import java.util.logging.Logger;
 
 @Mod(LunaCountdownNeoForgeMod.MOD_ID)
 public final class LunaCountdownNeoForgeMod {
 	public static final String MOD_ID = "lunacountdown";
+	private static final String COUNTDOWN_PERMISSION = "countdown.countdown";
+	private static final String SHUTDOWN_PERMISSION = "countdown.shutdown";
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
@@ -37,7 +40,7 @@ public final class LunaCountdownNeoForgeMod {
 	private NeoForgeShutdownTimer shutdownTimer;
 
 	public LunaCountdownNeoForgeMod() {
-		this.logger = LunaLogger.forLogger(Logger.getLogger("LunaCountdownNeoForge"), true).scope("CountdownNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaCountdownNeoForge", true).scope("CountdownNeoForge");
 		NeoForge.EVENT_BUS.register(this);
 	}
 
@@ -79,7 +82,7 @@ public final class LunaCountdownNeoForgeMod {
 
 	private void registerCountdownCommand(RegisterCommandsEvent event, String root) {
 		event.getDispatcher().register(Commands.literal(root)
-			.requires(source -> source.hasPermission(2))
+			.requires(source -> hasPermission(source, COUNTDOWN_PERMISSION))
 			.executes(context -> sendCountdownUsage(context.getSource(), root))
 			.then(Commands.literal("start")
 				.executes(context -> sendCountdownStartUsage(context.getSource(), root))
@@ -113,7 +116,7 @@ public final class LunaCountdownNeoForgeMod {
 
 	private void registerShutdownCommand(RegisterCommandsEvent event, String root) {
 		event.getDispatcher().register(Commands.literal(root)
-			.requires(source -> source.hasPermission(4))
+			.requires(source -> hasPermission(source, SHUTDOWN_PERMISSION))
 			.executes(context -> sendShutdownUsage(context.getSource(), root))
 			.then(Commands.literal("cancel")
 				.executes(context -> executeShutdownCancel(context.getSource())))
@@ -282,6 +285,21 @@ public final class LunaCountdownNeoForgeMod {
 
 	private String safe(String value) {
 		return value == null ? "" : value;
+	}
+
+	private boolean hasPermission(CommandSourceStack source, String permission) {
+		if (source == null || permission == null || permission.isBlank()) {
+			return false;
+		}
+
+		if (!(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+			return true;
+		}
+
+		PermissionService permissionService = LunaCoreNeoForge.services().dependencyManager()
+			.resolveOptional(PermissionService.class)
+			.orElse(null);
+		return permissionService != null && permissionService.hasPermission(player.getUUID(), permission);
 	}
 
 	private CompletableFuture<Suggestions> suggestCountdownLengths(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {

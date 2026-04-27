@@ -11,6 +11,7 @@ import dev.belikhun.luna.core.api.messenger.MessengerResultMessage;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
+import dev.belikhun.luna.core.neoforge.NeoForgeTextComponents;
 import dev.belikhun.luna.core.messaging.neoforge.NeoForgePluginMessagingBus;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -249,7 +250,8 @@ final class PresenceTrackingNeoForgeMessengerRuntime implements NeoForgeMessenge
 	}
 
 	private void deliverResult(NeoForgeMessengerResult result) {
-		ServerPlayer receiver = LunaCoreNeoForge.services().server().getPlayerList().getPlayer(result.receiverId());
+		var server = LunaCoreNeoForge.services().server();
+		ServerPlayer receiver = server.getPlayerList().getPlayer(result.receiverId());
 		if (receiver == null) {
 			return;
 		}
@@ -259,7 +261,7 @@ final class PresenceTrackingNeoForgeMessengerRuntime implements NeoForgeMessenge
 			return;
 		}
 
-		receiver.sendSystemMessage(Component.literal(plainMessage));
+		receiver.sendSystemMessage(NeoForgeTextComponents.mini(server, result.miniMessage()));
 	}
 
 	private boolean isDuplicateControlCommand(UUID playerId, MessengerCommandType commandType, String argument, String targetName) {

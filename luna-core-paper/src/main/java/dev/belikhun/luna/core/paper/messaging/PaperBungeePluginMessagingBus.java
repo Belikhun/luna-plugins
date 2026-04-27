@@ -2,7 +2,6 @@ package dev.belikhun.luna.core.paper.messaging;
 
 import dev.belikhun.luna.core.api.exception.PluginMessagingException;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageContext;
 import dev.belikhun.luna.core.api.messaging.PluginMessageHandler;
@@ -15,7 +14,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Player>, PluginMessageListener {
+final class PaperBungeePluginMessagingBus implements PluginMessageListener {
 	private static final String BUNGEE_COMPAT_CHANNEL = "BungeeCord";
 
 	private final Plugin plugin;
@@ -34,7 +33,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		this.outgoingChannels = ConcurrentHashMap.newKeySet();
 	}
 
-	@Override
 	public void registerIncoming(PluginMessageChannel channel, PluginMessageHandler<Player> handler) {
 		String bukkitChannel = toBukkitChannel(channel);
 		PluginMessageHandler<Player> previous = incomingHandlers.put(bukkitChannel, handler);
@@ -46,7 +44,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		}
 	}
 
-	@Override
 	public void unregisterIncoming(PluginMessageChannel channel) {
 		String bukkitChannel = toBukkitChannel(channel);
 		if (incomingHandlers.remove(bukkitChannel) != null) {
@@ -57,7 +54,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		}
 	}
 
-	@Override
 	public void registerOutgoing(PluginMessageChannel channel) {
 		String bukkitChannel = toBukkitChannel(channel);
 		if (outgoingChannels.add(bukkitChannel)) {
@@ -68,7 +64,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		}
 	}
 
-	@Override
 	public void unregisterOutgoing(PluginMessageChannel channel) {
 		String bukkitChannel = toBukkitChannel(channel);
 		if (outgoingChannels.remove(bukkitChannel)) {
@@ -79,7 +74,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		}
 	}
 
-	@Override
 	public boolean send(Player target, PluginMessageChannel channel, byte[] payload) {
 		String bukkitChannel = toBukkitChannel(channel);
 		if (!outgoingChannels.contains(bukkitChannel)) {
@@ -96,7 +90,6 @@ final class PaperBungeePluginMessagingBus implements PluginMessageBus<Player, Pl
 		return true;
 	}
 
-	@Override
 	public void close() {
 		for (String channel : incomingHandlers.keySet()) {
 			messenger.unregisterIncomingPluginChannel(plugin, channel, this);

@@ -116,14 +116,19 @@ public final class HeartbeatFormCodec {
 	}
 
 	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot) {
-		return encodeSnapshot(snapshot, 0L, null, true);
+		return encodeSnapshot(snapshot, 0L, null, true, null);
 	}
 
 	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot, long revision, String selfServerName, boolean fullSync) {
+		return encodeSnapshot(snapshot, revision, selfServerName, fullSync, null);
+	}
+
+	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot, long revision, String selfServerName, boolean fullSync, BackendMetadata currentBackendMetadata) {
 		Map<String, String> out = new LinkedHashMap<>();
 		out.put("revision", String.valueOf(Math.max(0L, revision)));
 		out.put("fullSync", String.valueOf(fullSync));
 		out.put("serverCount", String.valueOf(snapshot == null ? 0 : snapshot.size()));
+		encodeCurrentBackendMetadata(out, currentBackendMetadata);
 		if (snapshot == null || snapshot.isEmpty()) {
 			return encode(out);
 		}
@@ -151,10 +156,15 @@ public final class HeartbeatFormCodec {
 	}
 
 	public static byte[] encodeDelta(Map<String, BackendServerStatusDelta> delta, long revision, String selfServerName) {
+		return encodeDelta(delta, revision, selfServerName, null);
+	}
+
+	public static byte[] encodeDelta(Map<String, BackendServerStatusDelta> delta, long revision, String selfServerName, BackendMetadata currentBackendMetadata) {
 		Map<String, String> out = new LinkedHashMap<>();
 		out.put("revision", String.valueOf(Math.max(0L, revision)));
 		out.put("fullSync", String.valueOf(false));
 		out.put("serverCount", String.valueOf(delta == null ? 0 : delta.size()));
+		encodeCurrentBackendMetadata(out, currentBackendMetadata);
 		if (delta == null || delta.isEmpty()) {
 			return encode(out);
 		}
@@ -197,7 +207,7 @@ public final class HeartbeatFormCodec {
 		long revision = longValue(fields, "revision", 0L);
 		boolean fullSync = boolValue(fields, "fullSync", true);
 		int count = intValue(fields, "serverCount", 0);
-		BackendMetadata currentBackendMetadata = null;
+		BackendMetadata currentBackendMetadata = decodeCurrentBackendMetadata(fields);
 		for (int index = 0; index < count; index++) {
 			String prefix = "server." + index + ".";
 			String name = string(fields, prefix + "server_name", string(fields, prefix + "name", "")).trim();
@@ -237,6 +247,32 @@ public final class HeartbeatFormCodec {
 		}
 
 		return new HeartbeatSnapshotPayload(Math.max(0L, revision), fullSync, out, deltas, currentBackendMetadata);
+	}
+
+	private static void encodeCurrentBackendMetadata(Map<String, String> out, BackendMetadata currentBackendMetadata) {
+		BackendMetadata sanitized = currentBackendMetadata == null ? null : currentBackendMetadata.sanitize();
+		if (sanitized == null || sanitized.isBlank()) {
+			return;
+		}
+
+		out.put("currentBackendName", emptySafe(sanitized.name()));
+		out.put("currentBackendDisplay", emptySafe(sanitized.displayName()));
+		out.put("currentBackendAccentColor", emptySafe(sanitized.accentColor()));
+		out.put("currentBackendServerName", emptySafe(sanitized.serverName()));
+	}
+
+	private static BackendMetadata decodeCurrentBackendMetadata(Map<String, String> fields) {
+		String currentName = string(fields, "currentBackendName", "").trim();
+		if (currentName.isBlank()) {
+			return null;
+		}
+
+		return new BackendMetadata(
+			currentName,
+			string(fields, "currentBackendDisplay", currentName),
+			string(fields, "currentBackendAccentColor", ""),
+			string(fields, "currentBackendServerName", currentName)
+		).sanitize();
 	}
 
 	public record HeartbeatSnapshotPayload(

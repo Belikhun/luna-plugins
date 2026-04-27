@@ -8,6 +8,7 @@ public record LunaCoreNeoForgeServices(
 	String modId,
 	MinecraftServer server,
 	DependencyManager dependencyManager,
-	LunaLogger logger
+	LunaLogger logger,
+	NeoForgeHeartbeatPublisher heartbeatPublisher
 ) {
 }

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.neoforge;
 
+import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
@@ -18,7 +19,7 @@ public final class NeoForgeCoreConfigLoader {
 	private NeoForgeCoreConfigLoader() {
 	}
 
-	public static AmqpMessagingConfig loadAmqpMessagingConfig(Class<?> resourceAnchor, LunaLogger logger) {
+	public static NeoForgeCoreRuntimeConfig loadRuntimeConfig(Class<?> resourceAnchor, LunaLogger logger) {
 		try {
 			LunaYamlConfig.ensureFile(CONFIG_PATH, () -> resourceAnchor.getClassLoader().getResourceAsStream(CONFIG_RESOURCE));
 			Map<String, Object> current = new LinkedHashMap<>(LunaYamlConfig.loadMap(CONFIG_PATH));
@@ -28,13 +29,47 @@ public final class NeoForgeCoreConfigLoader {
 				logger.audit("Đã cập nhật config NeoForge mặc định tại " + CONFIG_PATH.toAbsolutePath() + ".");
 			}
 
-			AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(current);
-			logger.audit("Đã nạp AMQP config NeoForge từ " + CONFIG_PATH.toAbsolutePath() + ". enabled=" + amqpMessagingConfig.enabled());
-			return amqpMessagingConfig;
+			NeoForgeCoreRuntimeConfig runtimeConfig = parseRuntimeConfig(current);
+			logger.audit(
+				"Đã nạp config NeoForge từ " + CONFIG_PATH.toAbsolutePath()
+					+ ". heartbeat=" + runtimeConfig.heartbeatConfig().enabled()
+					+ ", amqp=" + runtimeConfig.amqpMessagingConfig().enabled()
+					+ ", logging.level=" + runtimeConfig.loggingLevel()
+			);
+			return runtimeConfig;
 		} catch (RuntimeException exception) {
-			logger.error("Không thể nạp config NeoForge. Dùng AMQP disabled mặc định.", exception);
-			return AmqpMessagingConfig.disabled();
+			logger.error("Không thể nạp config NeoForge. Dùng cấu hình mặc định tối thiểu.", exception);
+			return new NeoForgeCoreRuntimeConfig(
+				true,
+				"INFO",
+				AmqpMessagingConfig.disabled(),
+				NeoForgeCoreRuntimeConfig.HeartbeatConfig.defaults()
+			);
 		}
+	}
+
+	public static AmqpMessagingConfig loadAmqpMessagingConfig(Class<?> resourceAnchor, LunaLogger logger) {
+		return loadRuntimeConfig(resourceAnchor, logger).amqpMessagingConfig();
+	}
+
+	private static NeoForgeCoreRuntimeConfig parseRuntimeConfig(Map<String, Object> rootConfig) {
+		Map<String, Object> loggingConfig = ConfigValues.map(rootConfig, "logging");
+		Map<String, Object> heartbeatConfig = ConfigValues.map(rootConfig, "heartbeat");
+		Map<String, Object> heartbeatTransportLoggingConfig = ConfigValues.map(loggingConfig, "heartbeatTransport");
+		return new NeoForgeCoreRuntimeConfig(
+			ConfigValues.booleanValue(loggingConfig, "ansi", true),
+			ConfigValues.string(loggingConfig, "level", "INFO"),
+			AmqpMessagingConfigCodec.fromConfigMap(rootConfig),
+			new NeoForgeCoreRuntimeConfig.HeartbeatConfig(
+				ConfigValues.booleanValue(heartbeatConfig, "enabled", true),
+				ConfigValues.string(heartbeatConfig, "endpoint", "http://127.0.0.1:32452/api/heartbeat"),
+				ConfigValues.string(heartbeatConfig, "serverName", ""),
+				ConfigValues.intValue(heartbeatConfig, "intervalSeconds", 5),
+				ConfigValues.intValue(heartbeatConfig, "connectTimeoutMillis", 3000),
+				ConfigValues.intValue(heartbeatConfig, "readTimeoutMillis", 3000),
+				ConfigValues.booleanValue(heartbeatTransportLoggingConfig, "enabled", false)
+			)
+		);
 	}
 
 	private static Map<String, Object> loadDefaults(Class<?> resourceAnchor) {

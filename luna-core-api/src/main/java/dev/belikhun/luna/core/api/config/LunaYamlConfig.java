@@ -107,7 +107,7 @@ public final class LunaYamlConfig {
 			dumperOptionsClass.getMethod("setDefaultFlowStyle", flowStyleClass).invoke(dumperOptions, blockFlowStyle);
 			dumperOptionsClass.getMethod("setPrettyFlow", boolean.class).invoke(dumperOptions, true);
 			dumperOptionsClass.getMethod("setIndent", int.class).invoke(dumperOptions, 2);
-			dumperOptionsClass.getMethod("setIndicatorIndent", int.class).invoke(dumperOptions, 2);
+			dumperOptionsClass.getMethod("setIndicatorIndent", int.class).invoke(dumperOptions, 1);
 			dumperOptionsClass.getMethod("setSplitLines", boolean.class).invoke(dumperOptions, false);
 
 			Class<?> yamlClass = Class.forName("org.yaml.snakeyaml.Yaml");
