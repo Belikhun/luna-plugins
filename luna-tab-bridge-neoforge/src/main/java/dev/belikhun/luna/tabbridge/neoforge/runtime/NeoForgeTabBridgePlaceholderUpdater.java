@@ -157,6 +157,8 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		String currentHostName = currentServerInfoName();
 		putCore(values, "server_name", currentHostName);
 		putLunaAlias(values, "host_name", currentHostName);
+		putCore(values, "player_status", resolvePaperLunaValue(player, "player_status", "player_status", currentSnapshot(player, sharedSnapshot)));
+		putCore(values, "player_status_⏺", resolvePaperLunaValue(player, "player_status_⏺", "player_status_⏺", currentSnapshot(player, sharedSnapshot)));
 		putCore(values, "color", DEFAULT_COLOR);
 		putCore(values, "whitelist", Boolean.toString(server.isEnforceWhitelist()));
 		putCore(values, "total_entities", Integer.toString(sharedSnapshot.totalEntities()));

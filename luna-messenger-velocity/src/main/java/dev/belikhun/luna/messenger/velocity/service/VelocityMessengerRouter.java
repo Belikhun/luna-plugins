@@ -1414,7 +1414,7 @@ public final class VelocityMessengerRouter {
 
 	private String renderWithStack(String template, Map<String, String> internalValues, Map<String, String> backendValues, Player player) {
 		String internalRendered = render(template, internalValues == null ? Map.of() : internalValues);
-		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered);
+		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered, rawPlaceholderKeys(backendValues));
 		return renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
 	}
 
@@ -1651,10 +1651,11 @@ public final class VelocityMessengerRouter {
 		Map<String, String> unescapedValues
 	) {
 		Map<String, String> unescapedMap = unescapedValues == null ? Map.of() : unescapedValues;
+		Map<String, String> safeBackendValues = backendValues == null ? Map.of() : backendValues;
 		String rendered = render(template, internalValues == null ? Map.of() : internalValues);
 		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
-		rendered = miniPlaceholderResolver.resolve(player, rendered);
-		rendered = renderRaw(rendered, backendValues == null ? Map.of() : backendValues);
+		rendered = miniPlaceholderResolver.resolve(player, rendered, rawPlaceholderKeys(safeBackendValues, unescapedMap, Map.of("message", "")));
+		rendered = renderRaw(rendered, safeBackendValues);
 		// Safeguard: backend-resolved values may still leave display placeholders unchanged.
 		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
 		String messageMini = legacyToMini(rawMessage);
@@ -1680,6 +1681,21 @@ public final class VelocityMessengerRouter {
 			output = output.replace("%" + entry.getKey() + "%", value);
 		}
 		return output;
+	}
+
+	private Set<String> rawPlaceholderKeys(Map<String, String>... valueMaps) {
+		Set<String> keys = new HashSet<>();
+		if (valueMaps == null) {
+			return keys;
+		}
+
+		for (Map<String, String> valueMap : valueMaps) {
+			if (valueMap == null || valueMap.isEmpty()) {
+				continue;
+			}
+			keys.addAll(valueMap.keySet());
+		}
+		return keys;
 	}
 
 	private String legacyToMini(String input) {

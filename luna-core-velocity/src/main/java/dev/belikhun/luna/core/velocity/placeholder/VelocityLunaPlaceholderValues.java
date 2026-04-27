@@ -2,6 +2,7 @@ package dev.belikhun.luna.core.velocity.placeholder;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
+import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
@@ -169,6 +170,19 @@ final class VelocityLunaPlaceholderValues {
 
 	String playerDisplay(Player player) {
 		return playerDisplayFormat.format(player);
+	}
+
+	String playerStatus(Player player, String dot) {
+		if (player == null) {
+			return LunaImportedPlaceholderSupport.playerStatusDot(LunaImportedPlaceholderSupport.WorldKind.CUSTOM, dot);
+		}
+
+		String serverName = player.getCurrentServer()
+			.map(connection -> connection.getServerInfo().getName())
+			.orElse("");
+		String color = serverColor(serverName);
+		String safeDot = (dot == null || dot.isBlank()) ? "▋" : dot;
+		return "<c:" + color + ">" + safeDot + "<reset>";
 	}
 
 	String playerDisplay(UUID playerId, String playerName) {

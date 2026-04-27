@@ -10,6 +10,7 @@ import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
+import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.event.LunaEventManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
@@ -55,6 +56,7 @@ public final class LunaPackLoaderPlugin {
 	private final PackDispatchService dispatchService;
 	private final LunaEventManager packReloadEventManager;
 	private final LunaPackApiService packApiService;
+	private DependencyManager dependencyManager;
 	private PluginMessageBus<Object, Object> pluginMessagingBus;
 	private PackLoadStateBroadcastService packLoadBroadcastService;
 
@@ -76,10 +78,11 @@ public final class LunaPackLoaderPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		configService.ensureDefaults();
-		LunaCoreVelocity.services().dependencyManager().registerSingleton(LunaPackApi.class, packApiService);
+		dependencyManager = LunaCoreVelocity.services().dependencyManager();
+		dependencyManager.registerSingleton(LunaPackApi.class, packApiService);
 		PackReloadReport report = reloadCatalog();
 		LoaderConfig config = builtInHttpService.resolve(configService.current());
-		pluginMessagingBus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
+		pluginMessagingBus = dependencyManager.resolve(VelocityPluginMessagingBus.class);
 		packLoadBroadcastService = new PackLoadStateBroadcastService(server, logger, pluginMessagingBus);
 		dispatchService.bindBroadcastService(packLoadBroadcastService);
 
@@ -113,7 +116,10 @@ public final class LunaPackLoaderPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		LunaCoreVelocity.services().dependencyManager().unregister(LunaPackApi.class);
+		if (dependencyManager != null) {
+			dependencyManager.unregister(LunaPackApi.class);
+		}
+
 		packApiService.clearListeners();
 		builtInHttpService.stopIfRunning();
 	}

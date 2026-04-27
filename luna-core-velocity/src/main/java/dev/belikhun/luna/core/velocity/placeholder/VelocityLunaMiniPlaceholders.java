@@ -18,6 +18,7 @@ public final class VelocityLunaMiniPlaceholders {
 	private final LunaLogger logger;
 	private final VelocityLunaPlaceholderValues values;
 	private Expansion expansion;
+	private Expansion legacyExpansion;
 
 	public VelocityLunaMiniPlaceholders(
 		LunaLogger logger,
@@ -31,11 +32,30 @@ public final class VelocityLunaMiniPlaceholders {
 	}
 
 	public void register() {
-		if (expansion != null && expansion.registered()) {
+		if (expansion != null && expansion.registered() && legacyExpansion != null && legacyExpansion.registered()) {
 			return;
 		}
 
-		Expansion.Builder builder = Expansion.builder("lunav")
+		expansion = createExpansion("lunav");
+		expansion.register();
+		legacyExpansion = createExpansion("luna");
+		legacyExpansion.register();
+		logger.success("Đã đăng ký MiniPlaceholders namespace <lunav> và <luna> cho Velocity.");
+	}
+
+	public void unregister() {
+		if (expansion != null && expansion.registered()) {
+			expansion.unregister();
+		}
+		if (legacyExpansion != null && legacyExpansion.registered()) {
+			legacyExpansion.unregister();
+		}
+		expansion = null;
+		legacyExpansion = null;
+	}
+
+	private Expansion createExpansion(String namespace) {
+		Expansion.Builder builder = Expansion.builder(namespace)
 			.author("Belikhun")
 			.version(BuildConstants.VERSION)
 			.globalPlaceholder("online_servers", (queue, context) -> textTag(Integer.toString(values.onlineServers())))
@@ -43,6 +63,8 @@ public final class VelocityLunaMiniPlaceholders {
 			.globalPlaceholder("total_servers", (queue, context) -> textTag(Integer.toString(values.registeredServers())))
 			.globalPlaceholder("total_players", (queue, context) -> textTag(Integer.toString(values.totalPlayers())))
 			.audiencePlaceholder(Player.class, "player_name", (player, queue, context) -> textTag(values.playerName(player)))
+			.audiencePlaceholder(Player.class, "player_status", (player, queue, context) -> textTag(values.playerStatus(player, null)))
+			.audiencePlaceholder(Player.class, "player_status_⏺", (player, queue, context) -> textTag(values.playerStatus(player, "⏺")))
 			.audiencePlaceholder(Player.class, "player_group_name", (player, queue, context) -> textTag(values.playerGroupName(player)))
 			.audiencePlaceholder(Player.class, "player_group_display", (player, queue, context) -> textTag(values.playerGroupDisplay(player)))
 			.audiencePlaceholder(Player.class, "player_prefix", (player, queue, context) -> textTag(values.playerPrefix(player)))
@@ -66,20 +88,7 @@ public final class VelocityLunaMiniPlaceholders {
 				.globalPlaceholder("server_whitelist_" + key, (queue, context) -> textTag(Boolean.toString(values.serverWhitelist(key))));
 		}
 
-		expansion = builder.build();
-		expansion.register();
-		logger.success("Đã đăng ký MiniPlaceholders namespace <lunav> cho Velocity.");
-	}
-
-	public void unregister() {
-		if (expansion == null) {
-			return;
-		}
-
-		if (expansion.registered()) {
-			expansion.unregister();
-		}
-		expansion = null;
+		return builder.build();
 	}
 
 	private Tag textTag(String value) {
