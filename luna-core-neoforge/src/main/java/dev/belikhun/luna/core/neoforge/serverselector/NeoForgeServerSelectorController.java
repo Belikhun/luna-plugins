@@ -232,7 +232,11 @@ public final class NeoForgeServerSelectorController {
 	private MutableComponent renderEntry(SelectorServerEntry entry) {
 		String backendName = entry.backendName();
 		String displayName = visibleName(entry);
-		Component hover = Component.literal("Nhấn để chuyển tới " + displayName).withStyle(ChatFormatting.YELLOW);
+		String serverInfoName = entry.serverInfoName();
+		String hoverText = (serverInfoName == null || serverInfoName.isBlank())
+			? "Nhấn để chuyển tới " + displayName
+			: "Nhấn để chuyển tới " + displayName + " @ " + serverInfoName;
+		Component hover = Component.literal(hoverText).withStyle(ChatFormatting.YELLOW);
 		return Component.literal("▶ " + displayName)
 			.setStyle(Style.EMPTY
 				.withColor(ChatFormatting.AQUA)
@@ -242,6 +246,9 @@ public final class NeoForgeServerSelectorController {
 
 	private List<String> summarizedDescription(SelectorServerEntry entry) {
 		List<String> lines = new ArrayList<>();
+		if (entry.serverInfoName() != null && !entry.serverInfoName().isBlank()) {
+			lines.add("@ " + entry.serverInfoName());
+		}
 		for (String line : entry.description()) {
 			String visible = Formatters.stripFormats(line);
 			if (!visible.isBlank()) {
@@ -313,7 +320,8 @@ public final class NeoForgeServerSelectorController {
 			boolean v5 = "open-v5".equalsIgnoreCase(mode);
 			boolean v6 = "open-v6".equalsIgnoreCase(mode);
 			boolean v7 = "open-v7".equalsIgnoreCase(mode);
-			if (!v3 && !v4 && !v5 && !v6 && !v7) {
+			boolean v8 = "open-v8".equalsIgnoreCase(mode);
+			if (!v3 && !v4 && !v5 && !v6 && !v7 && !v8) {
 				return SelectorPayload.empty();
 			}
 
@@ -322,12 +330,12 @@ public final class NeoForgeServerSelectorController {
 			readLines(reader);
 			reader.readUtf();
 			readLines(reader);
-			if (v7) {
+			if (v7 || v8) {
 				reader.readUtf();
 			}
 			skipTemplateOverrides(reader);
 
-			if (v4 || v5 || v6 || v7) {
+			if (v4 || v5 || v6 || v7 || v8) {
 				int statusCount = Math.max(0, reader.readInt());
 				for (int index = 0; index < statusCount; index++) {
 					reader.readUtf();
@@ -343,10 +351,11 @@ public final class NeoForgeServerSelectorController {
 				String displayName = reader.readUtf();
 				reader.readUtf();
 				String permission = reader.readUtf();
+				String serverInfoName = v8 ? reader.readUtf() : backendName;
 				reader.readInt();
 				reader.readInt();
 
-				if (v5 || v6 || v7) {
+				if (v5 || v6 || v7 || v8) {
 					reader.readUtf();
 					int materialCount = Math.max(0, reader.readInt());
 					for (int materialIndex = 0; materialIndex < materialCount; materialIndex++) {
@@ -365,7 +374,7 @@ public final class NeoForgeServerSelectorController {
 					}
 				}
 
-				if (v6 || v7) {
+				if (v6 || v7 || v8) {
 					int conditionalCount = Math.max(0, reader.readInt());
 					for (int conditionalIndex = 0; conditionalIndex < conditionalCount; conditionalIndex++) {
 						reader.readUtf();
@@ -397,13 +406,13 @@ public final class NeoForgeServerSelectorController {
 					readLines(reader);
 					reader.readUtf();
 					readLines(reader);
-					if (v7) {
+					if (v7 || v8) {
 						reader.readUtf();
 					}
 					skipTemplateOverrides(reader);
 				}
 
-				servers.add(new SelectorServerEntry(backendName, displayName, permission, List.copyOf(description)));
+				servers.add(new SelectorServerEntry(backendName, displayName, permission, serverInfoName, List.copyOf(description)));
 			}
 
 			return new SelectorPayload(guiTitle, List.copyOf(servers));
@@ -466,6 +475,6 @@ public final class NeoForgeServerSelectorController {
 		}
 	}
 
-	private record SelectorServerEntry(String backendName, String displayName, String permission, List<String> description) {
+	private record SelectorServerEntry(String backendName, String displayName, String permission, String serverInfoName, List<String> description) {
 	}
 }

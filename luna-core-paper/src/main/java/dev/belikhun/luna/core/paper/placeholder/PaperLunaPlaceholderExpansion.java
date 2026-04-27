@@ -78,7 +78,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private String resolveCurrent(OfflinePlayer player, String normalized) {
 		String value = switch (normalized) {
 			case "current_server" -> currentServerName();
-			case "server_name" -> currentServerInfoName();
+			case "host_name", "server_name" -> currentServerInfoName();
 			case "status" -> statusText();
 			case "online" -> Integer.toString(Bukkit.getOnlinePlayers().size());
 			case "max" -> Integer.toString(Bukkit.getMaxPlayers());

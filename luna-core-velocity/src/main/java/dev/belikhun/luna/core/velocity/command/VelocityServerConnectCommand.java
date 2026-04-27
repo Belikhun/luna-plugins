@@ -249,6 +249,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 
 		values.put("player_name", player.getUsername());
 		values.put("server_name", backendName);
+		values.put("luna_host_name", serverInfoName);
 		values.put("luna_server_name", serverInfoName);
 		values.put("server_display", display);
 		values.put("server_accent_color", accent);

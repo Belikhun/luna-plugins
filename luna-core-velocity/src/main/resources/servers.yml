@@ -39,7 +39,7 @@ server-selector:
       - ""
       - "<color:#ffa1a5>ℹ Máy chủ đang ngoại tuyến!</color>"
       - ""
-      - "<dark_gray>> %luna_server_name%</dark_gray>"
+      - "<dark_gray>> %luna_host_name%</dark_gray>"
     by-status:
       ONLINE:
         name: "<color:#87ff08>(✔)</color> <b>%server_display%</b> <gray>[⛏ %version%]</gray>"
@@ -49,25 +49,25 @@ server-selector:
           - "<color:#FFD634>⌚ đã chạy %uptime%</color>"
           - "<color:#6DFFD4>🧪 %tps% tps</color>"
           - ""
-          - "<dark_gray>> %luna_server_name%</dark_gray>"
+          - "<dark_gray>> %luna_host_name%</dark_gray>"
       MAINT:
         name: "<color:#FFD634>(⚠)</color> <b>%server_display%</b>"
         footer:
           - ""
           - "<color:#FFD634>ℹ Máy chủ đang bảo trì!</color>"
           - ""
-          - "<dark_gray>> %luna_server_name%</dark_gray>"
+          - "<dark_gray>> %luna_host_name%</dark_gray>"
       NOP:
         name: "<gray>(🔒)</gray> <b>%server_display%</b>"
         footer:
           - ""
           - "<color:#ffa1a5>ℹ Bạn không có quyền truy cập!</color>"
           - ""
-          - "<dark_gray>> %luna_server_name%</dark_gray>"
+          - "<dark_gray>> %luna_host_name%</dark_gray>"
   messages:
     opening: "<yellow>Đang mở danh sách máy chủ...</yellow>"
     player-only: "<red>❌ Lệnh này chỉ dành cho người chơi.</red>"
-    not-found: "<red>❌ Không tìm thấy máy chủ %luna_server_name%.</red>"
+    not-found: "<red>❌ Không tìm thấy máy chủ %luna_host_name%.</red>"
     offline: "<red>❌ %server_display% hiện đang ngoại tuyến.</red>"
     maint: "<yellow>⚠ %server_display% đang bảo trì.</yellow>"
     no-permission: "<red>❌ Bạn không có quyền vào %server_display%.</red>"

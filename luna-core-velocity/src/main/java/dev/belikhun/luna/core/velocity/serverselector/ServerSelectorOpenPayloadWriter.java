@@ -7,7 +7,7 @@ public final class ServerSelectorOpenPayloadWriter {
 	}
 
 	public static void write(PluginMessageWriter writer, VelocityServerSelectorConfig config) {
-		writer.writeUtf("open-v7");
+		writer.writeUtf("open-v8");
 		writer.writeUtf(config.guiTitle());
 		writer.writeUtf(config.template().name());
 		writeLines(writer, config.template().headerLines());
@@ -23,6 +23,7 @@ public final class ServerSelectorOpenPayloadWriter {
 			writer.writeUtf(server.displayName());
 			writer.writeUtf(server.accentColor());
 			writer.writeUtf(server.permission());
+			writer.writeUtf(serverInfoName(config, server.backendName()));
 			writer.writeInt(server.slot() == null ? -1 : server.slot());
 			writer.writeInt(server.page() == null ? -1 : server.page());
 			writer.writeUtf(server.material());
@@ -81,6 +82,14 @@ public final class ServerSelectorOpenPayloadWriter {
 				writeTemplateOverrides(writer, template.byStatus());
 			}
 		}
+	}
+
+	private static String serverInfoName(VelocityServerSelectorConfig config, String backendName) {
+		VelocityServerSelectorConfig.ServerInfo info = config.serverInfo(backendName);
+		if (info != null && info.serverName() != null && !info.serverName().isBlank()) {
+			return info.serverName().trim();
+		}
+		return backendName == null ? "" : backendName;
 	}
 
 	private static void writeLines(PluginMessageWriter writer, java.util.List<String> lines) {

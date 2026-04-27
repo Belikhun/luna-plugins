@@ -682,6 +682,7 @@ public final class PaperServerSelectorController implements Listener {
 		ConditionContext conditionContext = new ConditionContext(
 			statusText,
 			status.serverName(),
+			serverPayload != null && serverPayload.hostName() != null && !serverPayload.hostName().isBlank() ? serverPayload.hostName() : status.serverName(),
 			display,
 			onlinePlayers,
 			maxPlayers,
@@ -705,7 +706,7 @@ public final class PaperServerSelectorController implements Listener {
 		}
 		Material material = resolveMaterial(statusText, serverPayload, conditionalOverride, template);
 
-		Map<String, String> values = placeholderValues(status, display, statusText, statusColor, statusIcon, onlinePlayers, maxPlayers);
+		Map<String, String> values = placeholderValues(status, serverPayload, display, statusText, statusColor, statusIcon, onlinePlayers, maxPlayers);
 		List<Component> lore = new ArrayList<>();
 		for (String headerLine : template.headerLines()) {
 			lore.add(LunaUi.mini(applyTemplate(headerLine == null ? "" : headerLine, values)));
@@ -1024,6 +1025,7 @@ public final class PaperServerSelectorController implements Listener {
 		return switch (key) {
 			case "status", "server_status" -> context.status();
 			case "server_name" -> context.serverName();
+			case "luna_host_name", "luna_server_name" -> context.hostName();
 			case "server_display" -> context.serverDisplay();
 			case "online" -> context.onlinePlayers();
 			case "max" -> context.maxPlayers();
@@ -1057,6 +1059,7 @@ public final class PaperServerSelectorController implements Listener {
 
 	private Map<String, String> placeholderValues(
 		BackendServerStatus status,
+		ServerPayload serverPayload,
 		String display,
 		String statusText,
 		String statusColor,
@@ -1065,7 +1068,12 @@ public final class PaperServerSelectorController implements Listener {
 		int max
 	) {
 		Map<String, String> values = new LinkedHashMap<>();
+		String hostName = serverPayload != null && serverPayload.hostName() != null && !serverPayload.hostName().isBlank()
+			? serverPayload.hostName()
+			: status.serverName();
 		values.put("server_name", status.serverName());
+		values.put("luna_host_name", hostName);
+		values.put("luna_server_name", hostName);
 		values.put("server_display", display);
 		values.put("server_accent_color", status.serverAccentColor() == null ? "" : status.serverAccentColor());
 		values.put("server_status", statusText);
@@ -1108,7 +1116,8 @@ public final class PaperServerSelectorController implements Listener {
 			boolean v5 = "open-v5".equalsIgnoreCase(mode);
 			boolean v6 = "open-v6".equalsIgnoreCase(mode);
 			boolean v7 = "open-v7".equalsIgnoreCase(mode);
-			if (!v3 && !v4 && !v5 && !v6 && !v7) {
+			boolean v8 = "open-v8".equalsIgnoreCase(mode);
+			if (!v3 && !v4 && !v5 && !v6 && !v7 && !v8) {
 				return SelectorPayload.empty();
 			}
 
@@ -1117,13 +1126,13 @@ public final class PaperServerSelectorController implements Listener {
 			List<String> header = List.copyOf(readLines(reader));
 			String bodyLine = reader.readUtf();
 			List<String> footer = List.copyOf(readLines(reader));
-			String templateMaterial = v7 ? reader.readUtf() : "";
+			String templateMaterial = (v7 || v8) ? reader.readUtf() : "";
 			Map<String, TemplateOverridePayload> globalTemplateByStatus = readTemplateOverrides(reader);
 
 			TemplatePayload baseTemplate = new TemplatePayload(name, header, bodyLine, footer, templateMaterial, globalTemplateByStatus);
 			Map<String, String> statusColors = defaultStatusColors();
 			Map<String, String> statusIcons = defaultStatusIcons();
-			if (v4 || v5 || v6 || v7) {
+			if (v4 || v5 || v6 || v7 || v8) {
 				Map<String, String> payloadColors = new LinkedHashMap<>();
 				Map<String, String> payloadIcons = new LinkedHashMap<>();
 				int count = Math.max(0, reader.readInt());
@@ -1147,6 +1156,7 @@ public final class PaperServerSelectorController implements Listener {
 				String display = reader.readUtf();
 				String accent = reader.readUtf();
 				String permission = reader.readUtf();
+				String hostName = v8 ? reader.readUtf() : backendName;
 				int rawSlot = reader.readInt();
 				int rawPage = reader.readInt();
 				Integer slot = rawSlot < 0 ? null : rawSlot;
@@ -1155,7 +1165,7 @@ public final class PaperServerSelectorController implements Listener {
 				Map<String, String> materialByStatus = Map.of();
 				Boolean glint = null;
 				Map<String, Boolean> glintByStatus = Map.of();
-				if (v5 || v6 || v7) {
+				if (v5 || v6 || v7 || v8) {
 					material = reader.readUtf();
 					int materialByStatusCount = Math.max(0, reader.readInt());
 					Map<String, String> materialByStatusPayload = new LinkedHashMap<>();
@@ -1179,7 +1189,7 @@ public final class PaperServerSelectorController implements Listener {
 				}
 
 				List<ConditionalOverridePayload> conditional = List.of();
-				if (v6 || v7) {
+				if (v6 || v7 || v8) {
 					int conditionalCount = Math.max(0, reader.readInt());
 					List<ConditionalOverridePayload> conditionalPayload = new ArrayList<>();
 					for (int index = 0; index < conditionalCount; index++) {
@@ -1231,7 +1241,7 @@ public final class PaperServerSelectorController implements Listener {
 					String serverTemplateBody = reader.readUtf();
 					List<String> serverTemplateFooter = List.copyOf(readLines(reader));
 					String serverTemplateMaterial = "";
-					if (v7) {
+					if (v7 || v8) {
 						serverTemplateMaterial = reader.readUtf();
 					}
 					serverTemplate = new TemplatePayload(
@@ -1249,6 +1259,7 @@ public final class PaperServerSelectorController implements Listener {
 					display,
 					accent,
 					permission,
+					hostName,
 					slot,
 					page,
 					material,
@@ -1412,6 +1423,7 @@ public final class PaperServerSelectorController implements Listener {
 		String displayName,
 		String accentColor,
 		String permission,
+		String hostName,
 		Integer slot,
 		Integer page,
 		String material,
@@ -1513,6 +1525,7 @@ public final class PaperServerSelectorController implements Listener {
 	private record ConditionContext(
 		String status,
 		String serverName,
+		String hostName,
 		String serverDisplay,
 		int onlinePlayers,
 		int maxPlayers,

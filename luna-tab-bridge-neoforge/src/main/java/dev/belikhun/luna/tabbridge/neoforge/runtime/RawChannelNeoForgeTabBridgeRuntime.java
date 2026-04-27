@@ -402,6 +402,10 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	}
 
 	private String resolvePlaceholderValue(ServerPlayer player, String identifier, Map<String, String> placeholderValues) {
+		if (hasSnapshotValue(identifier, placeholderValues)) {
+			return resolveSnapshotValue(identifier, placeholderValues);
+		}
+
 		NeoForgeTabBridgePlaceholderResolver resolver = placeholderResolver;
 		if (resolver != null && player != null) {
 			String resolved = resolver.resolve(player, identifier);
@@ -411,6 +415,19 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		}
 
 		return resolveSnapshotValue(identifier, placeholderValues);
+	}
+
+	private boolean hasSnapshotValue(String identifier, Map<String, String> placeholderValues) {
+		if (identifier == null || identifier.isBlank() || placeholderValues == null || placeholderValues.isEmpty()) {
+			return false;
+		}
+
+		if (placeholderValues.containsKey(identifier)) {
+			return true;
+		}
+
+		String normalizedKey = normalizeSnapshotLookupKey(identifier);
+		return !normalizedKey.isEmpty() && placeholderValues.containsKey(normalizedKey);
 	}
 
 	private void sendRelationalPlaceholderUpdates(ServerPlayer player, String identifier, Map<String, String> valuesByTarget) {

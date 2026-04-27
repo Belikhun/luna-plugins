@@ -17,7 +17,10 @@ import net.minecraft.resources.ResourceLocation;
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.time.DateTimeException;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Collection;
 import java.util.Locale;
@@ -32,10 +35,12 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	private static final int DEFAULT_BAR_WIDTH = 25;
 	private static final int MIN_BAR_WIDTH = 1;
 	private static final int MAX_BAR_WIDTH = 120;
-	private static final long REFRESH_INTERVAL_MILLIS = 500L;
+	private static final long REFRESH_INTERVAL_MILLIS = 50L;
 	private static final String DEFAULT_COLOR = "#F1FF68";
 	private static final String LUNA_PREFIX = "luna_";
 	private static final String SAFE_SUFFIX = "_safe";
+	private static final String SERVER_TIME_PREFIX = "server_time_";
+	private static final String SPARK_TICK_DURATION_10S = "spark_tickduration_10s";
 
 	private final LunaLogger logger;
 	private final MinecraftServer server;
@@ -44,6 +49,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	private final String localServerName;
 	private final Supplier<BackendMetadata> currentBackendMetadataSupplier;
 	private final ScheduledExecutorService refreshExecutor;
+	private volatile SharedSnapshot latestSharedSnapshot;
 	private volatile boolean closed;
 
 	public NeoForgeTabBridgePlaceholderUpdater(LunaLogger logger, MinecraftServer server, NeoForgeTabBridgeRuntime runtime, NeoForgeTabBridgeRelationalPlaceholderSource relationalPlaceholderSource, String localServerName, Supplier<BackendMetadata> currentBackendMetadataSupplier) {
@@ -82,6 +88,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		}
 
 		SharedSnapshot sharedSnapshot = sharedSnapshot();
+		latestSharedSnapshot = sharedSnapshot;
 
 		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			refreshPlayer(player, sharedSnapshot);
@@ -89,7 +96,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 	}
 
 	public void refreshPlayer(ServerPlayer player) {
-		refreshPlayer(player, sharedSnapshot());
+		refreshPlayer(player, cachedSharedSnapshot());
 	}
 
 	public String resolvePlaceholder(ServerPlayer player, String identifier) {
@@ -97,17 +104,14 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			return null;
 		}
 
-		String normalizedIdentifier = normalizeIdentifier(identifier);
-		if (normalizedIdentifier.isBlank()) {
+		String rawIdentifier = unwrapIdentifier(identifier);
+		if (rawIdentifier.isBlank()) {
 			return null;
 		}
 
-		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
-			CurrentSnapshot snapshot = currentSnapshot(player, sharedSnapshot());
-			return resolveRequestedBridgeValue(normalizedIdentifier, snapshot);
-		}
+		String normalizedIdentifier = rawIdentifier.toLowerCase(Locale.ROOT);
 
-		return resolveNativePlaceholder(player, normalizedIdentifier);
+		return resolveRequestedValue(player, identifier, currentSnapshot(player, cachedSharedSnapshot()));
 	}
 
 	private void refreshPlayer(ServerPlayer player, SharedSnapshot sharedSnapshot) {
@@ -136,7 +140,9 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		putCore(values, "process_cpu", formatPercent(sharedSnapshot.processCpuPercent()));
 		putCore(values, "version", safe(server.getServerVersion()));
 		putCore(values, "display", localServerName);
-		putCore(values, "server_name", currentServerInfoName());
+		String currentHostName = currentServerInfoName();
+		putCore(values, "server_name", currentHostName);
+		putLunaAlias(values, "host_name", currentHostName);
 		putCore(values, "color", DEFAULT_COLOR);
 		putCore(values, "whitelist", Boolean.toString(server.isEnforceWhitelist()));
 		putCore(values, "total_entities", Integer.toString(sharedSnapshot.totalEntities()));
@@ -163,13 +169,14 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		putCore(values, "system_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("sys<gray>%</gray>", sharedSnapshot.systemCpuPercent())));
 		putCore(values, "process_cpu_bar_value_only", buildValueOnly(LunaProgressBarPresets.cpu("proc<gray>%</gray>", sharedSnapshot.processCpuPercent())));
 		putCore(values, "ram_bar_value_only", buildValueOnly(LunaProgressBarPresets.ram("ram", sharedSnapshot.ramUsedBytes(), sharedSnapshot.ramMaxBytes())));
-		putRequestedBridgeValues(values, runtime.requestedPlaceholderIdentifiers(player.getUUID()), currentSnapshot(player, sharedSnapshot));
+		putRequestedValues(values, player, runtime.requestedPlaceholderIdentifiers(player.getUUID()), currentSnapshot(player, sharedSnapshot));
 		return Map.copyOf(values);
 	}
 
 	private CurrentSnapshot currentSnapshot(ServerPlayer player, SharedSnapshot sharedSnapshot) {
 		return new CurrentSnapshot(
 			sharedSnapshot.currentTps(),
+			sharedSnapshot.currentTickDurationMillis(),
 			playerPingMillis(player),
 			sharedSnapshot.uptimeMillis(),
 			sharedSnapshot.systemCpuPercent(),
@@ -194,6 +201,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		);
 		return new SharedSnapshot(
 			sparkMetrics.tps(),
+			currentTickDurationMillis(sparkMetrics.tps()),
 			uptimeMillis,
 			sparkMetrics.systemCpuUsagePercent(),
 			sparkMetrics.processCpuUsagePercent(),
@@ -205,40 +213,48 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		);
 	}
 
-	private void putRequestedBridgeValues(Map<String, String> values, Collection<String> requestedIdentifiers, CurrentSnapshot snapshot) {
+	private void putRequestedValues(Map<String, String> values, ServerPlayer player, Collection<String> requestedIdentifiers, CurrentSnapshot snapshot) {
 		if (requestedIdentifiers == null || requestedIdentifiers.isEmpty()) {
 			return;
 		}
 
 		for (String requestedIdentifier : requestedIdentifiers) {
-			String lookupKey = normalizeRequestedLookupKey(requestedIdentifier);
-			if (lookupKey.isBlank() || values.containsKey(lookupKey)) {
+			if (requestedIdentifier == null || requestedIdentifier.isBlank() || values.containsKey(requestedIdentifier)) {
 				continue;
 			}
 
-			String resolvedValue = resolveRequestedBridgeValue(lookupKey, snapshot);
+			String resolvedValue = resolveRequestedValue(player, requestedIdentifier, snapshot);
 			if (resolvedValue != null) {
-				values.put(lookupKey, resolvedValue);
+				values.put(requestedIdentifier, resolvedValue);
 			}
 		}
 	}
 
-	private String normalizeRequestedLookupKey(String identifier) {
-		String inner = normalizeIdentifier(identifier);
-		return inner.startsWith(LUNA_PREFIX) ? inner : "";
-	}
-
-	private String normalizeIdentifier(String identifier) {
+	private String unwrapIdentifier(String identifier) {
 		if (identifier == null) {
 			return "";
 		}
 
-		String normalized = identifier.trim().toLowerCase(Locale.ROOT);
-		if (!normalized.startsWith("%") || !normalized.endsWith("%") || normalized.length() < 3) {
+		String trimmed = identifier.trim();
+		if (!trimmed.startsWith("%") || !trimmed.endsWith("%") || trimmed.length() < 3) {
 			return "";
 		}
 
-		return normalized.substring(1, normalized.length() - 1);
+		return trimmed.substring(1, trimmed.length() - 1);
+	}
+
+	private String resolveRequestedValue(ServerPlayer player, String identifier, CurrentSnapshot snapshot) {
+		String rawIdentifier = unwrapIdentifier(identifier);
+		if (rawIdentifier.isBlank()) {
+			return null;
+		}
+
+		String normalizedIdentifier = rawIdentifier.toLowerCase(Locale.ROOT);
+		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
+			return resolveRequestedBridgeValue(normalizedIdentifier, snapshot);
+		}
+
+		return resolveNativePlaceholder(player, rawIdentifier, normalizedIdentifier, snapshot);
 	}
 
 	private String resolveRequestedBridgeValue(String lookupKey, CurrentSnapshot snapshot) {
@@ -275,7 +291,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			case "process_cpu" -> formatPercent(snapshot.processCpuPercent());
 			case "version" -> safe(server.getServerVersion());
 			case "display" -> localServerName;
-			case "server_name" -> currentServerInfoName();
+			case "host_name", "server_name" -> currentServerInfoName();
 			case "color" -> DEFAULT_COLOR;
 			case "whitelist" -> Boolean.toString(server.isEnforceWhitelist());
 			case "total_entities" -> Integer.toString(snapshot.totalEntities());
@@ -359,8 +375,17 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return resolveExact(key, "ram_bar_value_only", () -> buildValueOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes())));
 	}
 
-	private String resolveNativePlaceholder(ServerPlayer player, String normalizedIdentifier) {
+	private String resolveNativePlaceholder(ServerPlayer player, String rawIdentifier, String normalizedIdentifier, CurrentSnapshot snapshot) {
+		if (normalizedIdentifier.startsWith(SERVER_TIME_PREFIX)) {
+			return formatServerTime(rawIdentifier.substring(SERVER_TIME_PREFIX.length()));
+		}
+
 		return switch (normalizedIdentifier) {
+			case SPARK_TICK_DURATION_10S -> formatDecimal(snapshot.currentTickDurationMillis());
+			case "player_health" -> formatDecimal(Math.max(0D, player.getHealth()));
+			case "player_health_rounded" -> Integer.toString(Math.max(0, Math.round(player.getHealth())));
+			case "player_max_health" -> formatDecimal(Math.max(0D, player.getMaxHealth()));
+			case "player_max_health_rounded" -> Integer.toString(Math.max(0, Math.round((float) player.getMaxHealth())));
 			case "player_x" -> Integer.toString(player.getBlockX());
 			case "player_y" -> Integer.toString(player.getBlockY());
 			case "player_z" -> Integer.toString(player.getBlockZ());
@@ -368,6 +393,20 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			case "server_name" -> currentServerInfoName();
 			default -> null;
 		};
+	}
+
+	private String formatServerTime(String pattern) {
+		if (pattern == null || pattern.isBlank()) {
+			return "";
+		}
+
+		try {
+			DateTimeFormatter formatter = DateTimeFormatter.ofPattern(pattern, Locale.US);
+			return formatter.format(LocalDateTime.now());
+		} catch (IllegalArgumentException | DateTimeException exception) {
+			logger.debug("Bỏ qua server_time pattern không hợp lệ: " + pattern + " (" + exception.getMessage() + ")");
+			return "";
+		}
 	}
 
 	private String currentBiomeName(ServerPlayer player) {
@@ -386,6 +425,17 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 			}
 		}
 		return localServerName;
+	}
+
+	private SharedSnapshot cachedSharedSnapshot() {
+		SharedSnapshot snapshot = latestSharedSnapshot;
+		if (snapshot != null) {
+			return snapshot;
+		}
+
+		snapshot = sharedSnapshot();
+		latestSharedSnapshot = snapshot;
+		return snapshot;
 	}
 
 	private String resolveCurrentBar(String key, String baseKey, java.util.function.IntFunction<String> renderer) {
@@ -433,6 +483,12 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		values.put("luna_" + key + "_safe", escapePlaceholderPercents(normalized));
 	}
 
+	private void putLunaAlias(Map<String, String> values, String key, String value) {
+		String normalized = safe(value);
+		values.put("luna_" + key, normalized);
+		values.put("luna_" + key + "_safe", escapePlaceholderPercents(normalized));
+	}
+
 	private String buildBar(LunaProgressBar bar, int width) {
 		return bar.width(clampWidth(width)).render();
 	}
@@ -447,6 +503,39 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 
 	private int clampWidth(int width) {
 		return Math.max(MIN_BAR_WIDTH, Math.min(MAX_BAR_WIDTH, width));
+	}
+
+	private double currentTickDurationMillis(double currentTps) {
+		for (String methodName : new String[] {"getAverageTickTime", "getCurrentSmoothedTickTime", "getTickTime"}) {
+			Double averageTickTime = invokeDouble(server, methodName);
+			if (averageTickTime != null && averageTickTime > 0D) {
+				return averageTickTime;
+			}
+		}
+
+		Object tickTimes = readField(server, "tickTimes");
+		if (tickTimes instanceof long[] values && values.length > 0) {
+			long total = 0L;
+			int samples = 0;
+			for (long value : values) {
+				if (value <= 0L) {
+					continue;
+				}
+
+				total += value;
+				samples++;
+			}
+
+			if (samples > 0) {
+				return Math.max(0D, (total / (double) samples) / 1_000_000D);
+			}
+		}
+
+		if (currentTps > 0D) {
+			return Math.max(0D, 1000D / currentTps);
+		}
+
+		return 50D;
 	}
 
 	private double currentTps() {
@@ -684,6 +773,14 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 		return String.format(Locale.US, "%.2f", Math.max(0D, value));
 	}
 
+	private String formatDecimal(double value) {
+		String text = String.format(Locale.US, "%.2f", Math.max(0D, value));
+		while (text.contains(".") && (text.endsWith("0") || text.endsWith("."))) {
+			text = text.substring(0, text.length() - 1);
+		}
+		return text;
+	}
+
 	private String escapePlaceholderPercents(String value) {
 		return safe(value).replace("%", "%%");
 	}
@@ -694,6 +791,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 
 	private record CurrentSnapshot(
 		double currentTps,
+		double currentTickDurationMillis,
 		int playerPingMillis,
 		long uptimeMillis,
 		double systemCpuPercent,
@@ -708,6 +806,7 @@ public final class NeoForgeTabBridgePlaceholderUpdater implements AutoCloseable 
 
 	private record SharedSnapshot(
 		double currentTps,
+		double currentTickDurationMillis,
 		long uptimeMillis,
 		double systemCpuPercent,
 		double processCpuPercent,

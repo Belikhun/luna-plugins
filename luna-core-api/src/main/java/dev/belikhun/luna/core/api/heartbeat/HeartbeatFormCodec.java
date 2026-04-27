@@ -240,7 +240,7 @@ public final class HeartbeatFormCodec {
 				longValue(fields, prefix + "lastHeartbeatEpochMillis", 0L),
 				stats
 			);
-			if (self) {
+			if (self && currentBackendMetadata == null) {
 				currentBackendMetadata = status.metadata();
 			}
 			out.put(name.toLowerCase(), status);
