@@ -31,7 +31,7 @@ public final class LunaTabBridgeNeoForgeMod {
 	private NeoForgeTabBridgePlaceholderUpdater placeholderUpdater;
 
 	public LunaTabBridgeNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaTabBridgeNeoForge", true).scope("TabBridgeNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaTabBridge", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 

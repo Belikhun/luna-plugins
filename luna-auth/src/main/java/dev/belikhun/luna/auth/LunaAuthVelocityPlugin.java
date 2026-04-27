@@ -22,7 +22,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
-import dev.belikhun.luna.auth.messaging.AuthChannels;
+import dev.belikhun.luna.core.api.auth.AuthChannels;
 import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
 import dev.belikhun.luna.auth.service.MojangPremiumCheckService;

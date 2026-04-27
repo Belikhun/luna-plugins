@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="lunaauthbackend"
+version="${version}"
+displayName="LunaAuthBackend"
+description='''
+NeoForge auth backend restrictions for Luna.
+'''
+
+[[dependencies.lunaauthbackend]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunaauthbackend]]
+modId="lunacore"
+type="required"
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"
+
+[[dependencies.lunaauthbackend]]
+modId="lunacoremessaging"
+type="required"
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

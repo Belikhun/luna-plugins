@@ -1,8 +1,8 @@
 package dev.belikhun.luna.auth.backend.listener;
 
 import dev.belikhun.luna.auth.backend.api.AuthLobbyItemRegistry;
-import dev.belikhun.luna.auth.backend.service.BackendAuthStateRegistry;
 import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
+import dev.belikhun.luna.core.api.auth.BackendAuthStateRegistry;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;

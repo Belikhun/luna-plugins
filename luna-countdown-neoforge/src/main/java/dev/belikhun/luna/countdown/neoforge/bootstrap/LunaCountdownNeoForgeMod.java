@@ -43,7 +43,7 @@ public final class LunaCountdownNeoForgeMod {
 	private NeoForgeShutdownTimer shutdownTimer;
 
 	public LunaCountdownNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaCountdownNeoForge", true).scope("CountdownNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaCountdown", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 

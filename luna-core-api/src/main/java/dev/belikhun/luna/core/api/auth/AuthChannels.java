@@ -1,4 +1,4 @@
-package dev.belikhun.luna.auth.backend.messaging;
+package dev.belikhun.luna.core.api.auth;
 
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 

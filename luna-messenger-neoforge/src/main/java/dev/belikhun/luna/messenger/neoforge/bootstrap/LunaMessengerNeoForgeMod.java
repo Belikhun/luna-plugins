@@ -36,7 +36,7 @@ public final class LunaMessengerNeoForgeMod {
 	private NeoForgeMessengerRuntime messengerRuntime;
 
 	public LunaMessengerNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaMessengerNeoForge", true).scope("MessengerNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaMessenger", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 

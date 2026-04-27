@@ -1,6 +1,6 @@
 package dev.belikhun.luna.auth.backend.command;
 
-import dev.belikhun.luna.auth.backend.messaging.AuthChannels;
+import dev.belikhun.luna.core.api.auth.AuthChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.ui.LunaPalette;

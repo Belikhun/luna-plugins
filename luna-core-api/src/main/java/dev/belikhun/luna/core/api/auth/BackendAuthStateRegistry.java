@@ -1,4 +1,4 @@
-package dev.belikhun.luna.auth.backend.service;
+package dev.belikhun.luna.core.api.auth;
 
 import java.util.Map;
 import java.util.UUID;

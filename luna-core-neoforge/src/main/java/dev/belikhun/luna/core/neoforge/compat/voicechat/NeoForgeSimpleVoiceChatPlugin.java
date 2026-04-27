@@ -17,7 +17,7 @@ import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
 @ForgeVoicechatPlugin
 public final class NeoForgeSimpleVoiceChatPlugin implements VoicechatPlugin {
 	private static final NeoForgeSimpleVoiceChatProvider PROVIDER = new NeoForgeSimpleVoiceChatProvider();
-	private static final LunaLogger LOGGER = NeoForgeLunaLoggers.create("LunaCoreNeoForge", true).scope("VoiceChat");
+	private static final LunaLogger LOGGER = NeoForgeLunaLoggers.create("LunaCore", true).scope("VoiceChat");
 
 	@Override
 	public String getPluginId() {

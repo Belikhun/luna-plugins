@@ -35,7 +35,7 @@ public final class LunaCoreNeoForgeMod {
 	private NeoForgeServerSelectorController serverSelectorController;
 
 	public LunaCoreNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaCoreNeoForge", true).scope("CoreNeoForge");
+		this.logger = NeoForgeLunaLoggers.create("LunaCore", true);
 		this.dependencyManager = new DependencyManager();
 		this.heartbeatPublisher = null;
 		this.serverSelectorController = null;
@@ -49,10 +49,10 @@ public final class LunaCoreNeoForgeMod {
 		enforceRequiredDependencies();
 		NeoForgeCoreRuntimeConfig runtimeConfig = NeoForgeCoreConfigLoader.loadRuntimeConfig(getClass(), logger);
 		this.logger = NeoForgeLunaLoggers.create(
-			"LunaCoreNeoForge",
+			"LunaCore",
 			runtimeConfig.ansiLoggingEnabled(),
 			runtimeConfig.debugLoggingEnabled()
-		).scope("CoreNeoForge");
+		);
 		if (runtimeConfig.debugLoggingEnabled()) {
 			logger.info("Đang bật debug logging cho Luna Core NeoForge (logging.level=" + runtimeConfig.loggingLevel() + ").");
 		}
