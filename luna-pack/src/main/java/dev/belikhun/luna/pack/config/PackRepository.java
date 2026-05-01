@@ -218,21 +218,16 @@ public final class PackRepository {
 		Set<String> values = new LinkedHashSet<>();
 		if (raw instanceof List<?> list) {
 			for (Object item : list) {
-				String value = String.valueOf(item).trim().toLowerCase(Locale.ROOT);
-				if (!value.isEmpty()) {
+				String value = PackDefinition.normalizeServerRule(String.valueOf(item));
+				if (value != null) {
 					values.add(value);
 				}
 			}
 		} else if (raw != null) {
-			String value = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
-			if (!value.isEmpty()) {
+			String value = PackDefinition.normalizeServerRule(String.valueOf(raw));
+			if (value != null) {
 				values.add(value);
 			}
-		}
-
-		if (values.contains("all")) {
-			values.remove("all");
-			values.add("*");
 		}
 		return List.copyOf(values);
 	}

@@ -174,19 +174,10 @@ public final class PackDynamicRegistry {
 
 		Set<String> output = new LinkedHashSet<>();
 		for (String value : values) {
-			if (value == null) {
-				continue;
+			String normalized = PackDefinition.normalizeServerRule(value);
+			if (normalized != null) {
+				output.add(normalized);
 			}
-
-			String normalized = value.trim().toLowerCase(Locale.ROOT);
-			if (normalized.isBlank()) {
-				continue;
-			}
-
-			if (normalized.equals("all")) {
-				normalized = "*";
-			}
-			output.add(normalized);
 		}
 
 		if (output.isEmpty()) {

@@ -38,11 +38,19 @@ neoForge {
 tasks.named<ShadowJar>("shadowJar") {
 	val coreApiJar = project(":luna-core-api").tasks.named<Jar>("jar")
 	dependsOn(coreApiJar)
+	configurations = project.provider {
+		listOf(
+			embeddedAdventureMiniMessage,
+			embeddedAdventureSerializerLegacy,
+			embeddedAdventureSerializerGson,
+			embeddedSnakeYaml
+		)
+	}
 	from(zipTree(coreApiJar.get().archiveFile.get().asFile))
-	from(embeddedAdventureMiniMessage.files.map { zipTree(it) })
-	from(embeddedAdventureSerializerLegacy.files.map { zipTree(it) })
-	from(embeddedAdventureSerializerGson.files.map { zipTree(it) })
-	from(embeddedSnakeYaml.files.map { zipTree(it) })
+	mergeServiceFiles()
+	relocate("net.kyori.adventure", "dev.belikhun.luna.shadow.net.kyori.adventure")
+	relocate("net.kyori.examination", "dev.belikhun.luna.shadow.net.kyori.examination")
+	relocate("net.kyori.option", "dev.belikhun.luna.shadow.net.kyori.option")
 	relocate("org.yaml.snakeyaml", "dev.belikhun.luna.shadow.snakeyaml")
 	exclude("META-INF/MANIFEST.MF")
 	exclude("com/google/gson/**")
