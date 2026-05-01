@@ -1,14 +1,10 @@
 package dev.belikhun.luna.core.neoforge.placeholder;
 
 import com.sun.management.OperatingSystemMXBean;
-import dev.belikhun.luna.core.api.compat.SimpleVoiceChatCompat;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
-import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
-import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeSparkMetrics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
@@ -22,7 +18,6 @@ import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.DateTimeException;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -37,7 +32,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class BuiltInNeoForgePlaceholderService implements NeoForgePlaceholderService {

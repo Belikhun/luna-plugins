@@ -36,6 +36,7 @@ import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
+import dev.belikhun.luna.core.velocity.dashboard.VelocityDashboardHttpEndpoints;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
@@ -169,6 +170,12 @@ public final class LunaCoreVelocityPlugin {
 			amqpMessagingConfig,
 			forwardingSecret,
 			heartbeatTransportLogsEnabled
+		).register(nextHttpServerManager.router());
+
+		new VelocityDashboardHttpEndpoints(
+			logger,
+			nextBackendStatusRegistry,
+			nextSelectorConfig
 		).register(nextHttpServerManager.router());
 
 		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
