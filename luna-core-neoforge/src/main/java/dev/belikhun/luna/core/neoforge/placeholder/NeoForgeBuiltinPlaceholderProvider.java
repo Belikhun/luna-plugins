@@ -6,8 +6,14 @@ import net.minecraft.server.level.ServerPlayer;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 
 final class NeoForgeBuiltinPlaceholderProvider implements NeoForgePlaceholderProvider {
+	@Override
+	public Set<String> namespaces() {
+		return Set.of("", "luna");
+	}
+
 	@Override
 	public void contributeSnapshot(
 		BuiltInNeoForgePlaceholderService support,
@@ -64,7 +70,21 @@ final class NeoForgeBuiltinPlaceholderProvider implements NeoForgePlaceholderPro
 	}
 
 	@Override
-	public String resolveLunaValue(
+	public String resolve(
+		BuiltInNeoForgePlaceholderService support,
+		ServerPlayer player,
+		String rawNamespace,
+		String normalizedNamespace,
+		String rawParams,
+		String normalizedParams,
+		NeoForgePlaceholderSnapshot snapshot
+	) {
+		return "luna".equals(normalizedNamespace)
+			? resolveLunaValue(support, player, rawParams, normalizedParams, snapshot)
+			: resolveNativeValue(support, player, rawParams, normalizedParams, snapshot);
+	}
+
+	private String resolveLunaValue(
 		BuiltInNeoForgePlaceholderService support,
 		ServerPlayer player,
 		String rawKey,
@@ -170,8 +190,7 @@ final class NeoForgeBuiltinPlaceholderProvider implements NeoForgePlaceholderPro
 		return support.resolveExact(normalizedKey, "ram_bar_value_only", () -> support.buildValueOnly(LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes())));
 	}
 
-	@Override
-	public String resolveNativeValue(
+	private String resolveNativeValue(
 		BuiltInNeoForgePlaceholderService support,
 		ServerPlayer player,
 		String rawIdentifier,

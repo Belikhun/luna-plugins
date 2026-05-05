@@ -4,7 +4,7 @@ import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Map;
 
-interface NeoForgePlaceholderProvider {
+interface NeoForgePlaceholderProvider extends NeoForgePlaceholderNamespaceProvider {
 	default void contributeSnapshot(
 		BuiltInNeoForgePlaceholderService support,
 		ServerPlayer player,
@@ -13,21 +13,13 @@ interface NeoForgePlaceholderProvider {
 	) {
 	}
 
-	default String resolveLunaValue(
+	default String resolve(
 		BuiltInNeoForgePlaceholderService support,
 		ServerPlayer player,
-		String rawKey,
-		String normalizedKey,
-		NeoForgePlaceholderSnapshot snapshot
-	) {
-		return null;
-	}
-
-	default String resolveNativeValue(
-		BuiltInNeoForgePlaceholderService support,
-		ServerPlayer player,
-		String rawIdentifier,
-		String normalizedIdentifier,
+		String rawNamespace,
+		String normalizedNamespace,
+		String rawParams,
+		String normalizedParams,
 		NeoForgePlaceholderSnapshot snapshot
 	) {
 		return null;

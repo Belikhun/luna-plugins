@@ -57,7 +57,9 @@ Compatibility notes:
 
 - These placeholders replace the old `%bh_*%` namespace in production configs.
 - `%luna_voicechat_*%` degrades safely when Simple Voice Chat is not installed or not active.
+- Flexible Luna arguments keep the raw suffix, so `%luna_player_status_⏺%`, `%luna_player_status_★%`, and similar variants are valid.
 - `%luna_stripcolor_*%` and `%luna_mm2l_*%` preserve the old embedded-brace input style such as `%luna_mm2l_{luckperms_prefix}%`.
+- NeoForge resolves namespaced placeholders through provider namespaces before the legacy fallback path, matching PlaceholderAPI-style `%namespace_params%` parsing for namespaces such as `luna`, `luckperms`, `vault`, and `spark`.
 - The same imported `luna_*` keys are also resolved by the NeoForge TAB bridge when requested there.
 
 Current server bar placeholders:

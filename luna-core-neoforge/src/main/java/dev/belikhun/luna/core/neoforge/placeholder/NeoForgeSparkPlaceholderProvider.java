@@ -2,29 +2,42 @@ package dev.belikhun.luna.core.neoforge.placeholder;
 
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeSparkMetrics;
 
+import java.util.Set;
+
 final class NeoForgeSparkPlaceholderProvider implements NeoForgePlaceholderProvider {
 	@Override
-	public String resolveNativeValue(
+	public Set<String> namespaces() {
+		return Set.of("spark", "server");
+	}
+
+	@Override
+	public String resolve(
 		BuiltInNeoForgePlaceholderService support,
 		net.minecraft.server.level.ServerPlayer player,
-		String rawIdentifier,
-		String normalizedIdentifier,
+		String rawNamespace,
+		String normalizedNamespace,
+		String rawParams,
+		String normalizedParams,
 		NeoForgePlaceholderSnapshot snapshot
 	) {
-		if (normalizedIdentifier.startsWith(BuiltInNeoForgePlaceholderService.SERVER_TIME_PREFIX)) {
-			return support.formatServerTime(rawIdentifier.substring(BuiltInNeoForgePlaceholderService.SERVER_TIME_PREFIX.length()));
+		if ("server".equals(normalizedNamespace) && normalizedParams.startsWith("time_")) {
+			return support.formatServerTime(rawParams.substring("time_".length()));
 		}
 
-		if (normalizedIdentifier.startsWith(BuiltInNeoForgePlaceholderService.SPARK_PREFIX)) {
+		if (!"spark".equals(normalizedNamespace)) {
+			return null;
+		}
+
+		if (normalizedParams != null && !normalizedParams.isBlank()) {
 			String sparkValue = NeoForgeSparkMetrics.resolveLegacyPlaceholder(
-				normalizedIdentifier.substring(BuiltInNeoForgePlaceholderService.SPARK_PREFIX.length())
+				normalizedParams
 			);
 			if (!sparkValue.isBlank()) {
 				return sparkValue;
 			}
 		}
 
-		return BuiltInNeoForgePlaceholderService.SPARK_TICK_DURATION_10S.equals(normalizedIdentifier)
+		return "tickduration_10s".equals(normalizedParams)
 			? support.formatSparkTickDuration(snapshot)
 			: null;
 	}

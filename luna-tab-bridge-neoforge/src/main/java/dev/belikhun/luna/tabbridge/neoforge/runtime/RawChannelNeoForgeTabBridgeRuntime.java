@@ -27,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap;
 final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRuntime {
 	private static final PluginMessageChannel TAB_BRIDGE_CHANNEL = PluginMessageChannel.of("tab:bridge-6");
 	private static final long INITIAL_PLACEHOLDER_WARMUP_MILLIS = 10_000L;
+	private static final int LARGE_PLACEHOLDER_IDENTIFIER_LENGTH = 256;
+	private static final int LARGE_PLACEHOLDER_VALUE_LENGTH = 512;
+	private static final int PLACEHOLDER_PREVIEW_LENGTH = 160;
 	private static final byte UPDATE_GAME_MODE_ID = 1;
 	private static final byte HAS_PERMISSION_ID = 2;
 	private static final byte INVISIBLE_ID = 3;
@@ -262,7 +265,7 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	private void handlePlayerJoin(ServerPlayer player, DataInputStream input) throws IOException {
 		input.readInt();
 		boolean forwardGroup = input.readBoolean();
-		Map<String, RequestedPlaceholderState> requestedPlaceholders = readPlaceholderRegistrations(input);
+		Map<String, RequestedPlaceholderState> requestedPlaceholders = readPlaceholderRegistrations(player, input);
 		readReplacementRules(input);
 		if (input.available() > 0) {
 			input.readBoolean();
@@ -279,6 +282,7 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 
 	private void handlePlaceholderRegistration(ServerPlayer player, DataInputStream input) throws IOException {
 		String identifier = input.readUTF();
+		warnIfSuspiciousRequestedPlaceholder(player, "Placeholder", identifier);
 		int refreshMillis = 50;
 		if (input.available() >= Integer.BYTES) {
 			refreshMillis = input.readInt();
@@ -312,6 +316,7 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 	private void handleExpansionUpdate(ServerPlayer player, DataInputStream input) throws IOException {
 		String identifier = input.readUTF();
 		String value = input.readUTF();
+		warnIfSuspiciousExpansionUpdate(player, identifier, value);
 		if (identifier == null || identifier.isBlank()) {
 			return;
 		}
@@ -350,11 +355,12 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 		return merged == null ? Map.of() : merged;
 	}
 
-	private Map<String, RequestedPlaceholderState> readPlaceholderRegistrations(DataInputStream input) throws IOException {
+	private Map<String, RequestedPlaceholderState> readPlaceholderRegistrations(ServerPlayer player, DataInputStream input) throws IOException {
 		int placeholderCount = input.readInt();
 		Map<String, RequestedPlaceholderState> placeholders = new LinkedHashMap<>();
 		for (int index = 0; index < placeholderCount; index++) {
 			String identifier = input.readUTF();
+			warnIfSuspiciousRequestedPlaceholder(player, "PlayerJoin", identifier);
 			int refreshMillis = input.readInt();
 			if (!isSupportedRequestedPlaceholderIdentifier(identifier)) {
 				continue;
@@ -555,7 +561,110 @@ final class RawChannelNeoForgeTabBridgeRuntime implements NeoForgeTabBridgeRunti
 			return "";
 		}
 
-		return value;
+		if (!requiresSafePercentEscaping(identifier)) {
+			return value;
+		}
+
+		return escapePlaceholderPercentsOnce(value);
+	}
+
+	private void warnIfSuspiciousRequestedPlaceholder(ServerPlayer player, String action, String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return;
+		}
+
+		String playerName = player == null ? "<unknown>" : player.getGameProfile().getName();
+		if (identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
+			logger.warn("TAB bridge request quá dài từ proxy tại backend: action=" + action
+				+ " player=" + playerName
+				+ " length=" + identifier.length()
+				+ " placeholder=" + previewPlaceholder(identifier));
+		}
+
+		if (isUnsafeCpuPlaceholder(identifier)) {
+			logger.warn("TAB bridge request dùng CPU placeholder không có hậu tố _safe: action=" + action
+				+ " player=" + playerName
+				+ " placeholder=" + previewPlaceholder(identifier));
+		}
+	}
+
+	private void warnIfSuspiciousExpansionUpdate(ServerPlayer player, String identifier, String value) {
+		if ((identifier == null || identifier.isBlank()) && (value == null || value.isBlank())) {
+			return;
+		}
+
+		String playerName = player == null ? "<unknown>" : player.getGameProfile().getName();
+		if (identifier != null && identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
+			logger.warn("TAB bridge Expansion gửi identifier quá dài về backend: player=" + playerName
+				+ " length=" + identifier.length()
+				+ " identifier=" + previewPlaceholder(identifier));
+		}
+
+		if (value != null && value.length() >= LARGE_PLACEHOLDER_VALUE_LENGTH) {
+			logger.warn("TAB bridge Expansion gửi value quá dài về backend: player=" + playerName
+				+ " length=" + value.length()
+				+ " identifier=" + previewPlaceholder(identifier)
+				+ " value=" + previewPlaceholder(value));
+		}
+	}
+
+	private boolean requiresSafePercentEscaping(String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return false;
+		}
+
+		return normalizeSnapshotLookupKey(identifier).endsWith("_safe");
+	}
+
+	private boolean isUnsafeCpuPlaceholder(String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return false;
+		}
+
+		String normalized = normalizeSnapshotLookupKey(identifier);
+		if (normalized.isBlank() || normalized.endsWith("_safe")) {
+			return false;
+		}
+
+		return normalized.startsWith("luna_") && (normalized.contains("system_cpu") || normalized.contains("process_cpu"));
+	}
+
+	private String escapePlaceholderPercentsOnce(String value) {
+		if (value == null || value.indexOf('%') < 0) {
+			return value == null ? "" : value;
+		}
+
+		StringBuilder escaped = new StringBuilder(value.length() + 8);
+		for (int index = 0; index < value.length(); index++) {
+			char character = value.charAt(index);
+			if (character != '%') {
+				escaped.append(character);
+				continue;
+			}
+
+			if (index + 1 < value.length() && value.charAt(index + 1) == '%') {
+				escaped.append("%%");
+				index++;
+				continue;
+			}
+
+			escaped.append("%%");
+		}
+
+		return escaped.toString();
+	}
+
+	private String previewPlaceholder(String value) {
+		if (value == null) {
+			return "<null>";
+		}
+
+		String sanitized = value.replace("\r", "\\r").replace("\n", "\\n");
+		if (sanitized.length() <= PLACEHOLDER_PREVIEW_LENGTH) {
+			return sanitized;
+		}
+
+		return sanitized.substring(0, PLACEHOLDER_PREVIEW_LENGTH) + "...";
 	}
 
 	private boolean hasSnapshotValue(String identifier, Map<String, String> placeholderValues) {

@@ -6,11 +6,29 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 
 final class NeoForgeImportedPlaceholderProvider implements NeoForgePlaceholderProvider {
 	@Override
-	public String resolveLunaValue(
+	public Set<String> namespaces() {
+		return Set.of("luna");
+	}
+
+	@Override
+	public String resolve(
+		BuiltInNeoForgePlaceholderService support,
+		ServerPlayer player,
+		String rawNamespace,
+		String normalizedNamespace,
+		String rawParams,
+		String normalizedParams,
+		NeoForgePlaceholderSnapshot snapshot
+	) {
+		return resolveLunaParams(support, player, rawParams, normalizedParams, snapshot);
+	}
+
+	private String resolveLunaParams(
 		BuiltInNeoForgePlaceholderService support,
 		ServerPlayer player,
 		String rawKey,
@@ -74,7 +92,7 @@ final class NeoForgeImportedPlaceholderProvider implements NeoForgePlaceholderPr
 			return LunaImportedPlaceholderSupport.miniMessageToLegacy(mm2lMatcher.group(1));
 		}
 
-		return rawKey.equals(expandedKey) ? null : resolveLunaValue(support, player, expandedKey, expandedKey.toLowerCase(Locale.ROOT), snapshot);
+		return rawKey.equals(expandedKey) ? null : resolveLunaParams(support, player, expandedKey, expandedKey.toLowerCase(Locale.ROOT), snapshot);
 	}
 
 	private String replaceInnerPlaceholders(

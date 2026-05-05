@@ -263,7 +263,11 @@ public final class StandardPluginMessenger<OWNER, SOURCE> implements PluginMesse
 		PluginMessageChannel safeChannel = requireChannel(channel);
 		Objects.requireNonNull(payload, "payload");
 
-		Set<PluginMessageListenerRegistration<OWNER, SOURCE>> registrations = getIncomingChannelRegistrations(safeChannel);
+		Set<PluginMessageListenerRegistration<OWNER, SOURCE>> registrations;
+		synchronized (incomingLock) {
+			Set<PluginMessageListenerRegistration<OWNER, SOURCE>> registered = incomingByChannel.get(safeChannel);
+			registrations = registered == null ? Set.of() : new LinkedHashSet<>(registered);
+		}
 		if (registrations.isEmpty()) {
 			return PluginMessageDispatchResult.PASS_THROUGH;
 		}

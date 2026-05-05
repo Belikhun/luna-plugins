@@ -21,13 +21,16 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.IntFunction;
@@ -56,6 +59,7 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	private final String localServerName;
 	private final Supplier<BackendMetadata> currentBackendMetadataSupplier;
 	private final List<NeoForgePlaceholderProvider> placeholderProviders;
+	private final Map<String, List<NeoForgePlaceholderProvider>> placeholderProvidersByNamespace;
 	private final ConcurrentMap<ReflectionMemberKey, Optional<Method>> zeroArgMethodCache = new ConcurrentHashMap<>();
 	private final ConcurrentMap<ReflectionMemberKey, Optional<Field>> fieldCache = new ConcurrentHashMap<>();
 	private volatile SharedSnapshot latestSharedSnapshot;
@@ -72,6 +76,7 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 		this.localServerName = localServerName == null || localServerName.isBlank() ? "backend" : localServerName;
 		this.currentBackendMetadataSupplier = currentBackendMetadataSupplier == null ? () -> null : currentBackendMetadataSupplier;
 		this.placeholderProviders = List.copyOf(Objects.requireNonNull(placeholderProviders, "placeholderProviders"));
+		this.placeholderProvidersByNamespace = NeoForgePlaceholderRouting.indexProvidersByNamespace(this.placeholderProviders);
 	}
 
 	@Override
@@ -196,48 +201,23 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	}
 
 	String resolveRequestedValue(ServerPlayer player, String identifier, NeoForgePlaceholderSnapshot snapshot) {
-		String rawIdentifier = unwrapIdentifier(identifier);
-		if (rawIdentifier.isBlank()) {
+		NeoForgePlaceholderRoute<NeoForgePlaceholderProvider> route = NeoForgePlaceholderRouting.resolve(identifier, placeholderProvidersByNamespace);
+		if (route == null) {
 			return null;
 		}
 
-		String normalizedIdentifier = rawIdentifier.toLowerCase(Locale.ROOT);
-		if (normalizedIdentifier.startsWith(LUNA_PREFIX)) {
-			return resolveRequestedBridgeValue(player, rawIdentifier, normalizedIdentifier, snapshot);
-		}
-
-		return resolveNativePlaceholder(player, rawIdentifier, normalizedIdentifier, snapshot);
-	}
-
-	private String resolveRequestedBridgeValue(ServerPlayer player, String rawLookupKey, String normalizedLookupKey, NeoForgePlaceholderSnapshot snapshot) {
-		boolean safeVariant = normalizedLookupKey.endsWith(SAFE_SUFFIX) && normalizedLookupKey.length() > SAFE_SUFFIX.length();
-		String rawKey = safeVariant
-			? rawLookupKey.substring(0, rawLookupKey.length() - SAFE_SUFFIX.length())
-			: rawLookupKey;
-		String normalizedKey = safeVariant
-			? normalizedLookupKey.substring(0, normalizedLookupKey.length() - SAFE_SUFFIX.length())
-			: normalizedLookupKey;
-		if (!normalizedKey.startsWith(LUNA_PREFIX)) {
-			return null;
-		}
-
-		String rawKeyWithoutPrefix = rawKey.substring(LUNA_PREFIX.length());
-		String normalizedKeyWithoutPrefix = normalizedKey.substring(LUNA_PREFIX.length());
-		for (NeoForgePlaceholderProvider provider : placeholderProviders) {
-			String value = provider.resolveLunaValue(this, player, rawKeyWithoutPrefix, normalizedKeyWithoutPrefix, snapshot);
+		for (NeoForgePlaceholderProvider provider : route.providers()) {
+			String value = provider.resolve(
+				this,
+				player,
+				route.rawNamespace(),
+				route.normalizedNamespace(),
+				route.rawParams(),
+				route.normalizedParams(),
+				snapshot
+			);
 			if (value != null) {
-				return safeVariant ? escapePlaceholderPercents(value) : value;
-			}
-		}
-
-		return null;
-	}
-
-	private String resolveNativePlaceholder(ServerPlayer player, String rawIdentifier, String normalizedIdentifier, NeoForgePlaceholderSnapshot snapshot) {
-		for (NeoForgePlaceholderProvider provider : placeholderProviders) {
-			String value = provider.resolveNativeValue(this, player, rawIdentifier, normalizedIdentifier, snapshot);
-			if (value != null) {
-				return value;
+				return route.safeVariant() ? escapePlaceholderPercents(value) : value;
 			}
 		}
 
@@ -656,6 +636,7 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	private record ReflectionMemberKey(Class<?> ownerType, String name) {
 	}
 
+
 	private long currentUptimeMillis() {
 		try {
 			return Math.max(0L, ManagementFactory.getRuntimeMXBean().getUptime());
@@ -793,7 +774,7 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	}
 
 	String escapePlaceholderPercents(String value) {
-		return safe(value).replace("%", "%%");
+		return NeoForgePlaceholderEscaping.escapePercents(safe(value));
 	}
 
 	String safe(String value) {

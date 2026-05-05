@@ -65,7 +65,8 @@ public final class VelocityMessengerRouter {
 	private final Map<UUID, UUID> lastReplyByPlayer;
 	private final Map<UUID, MuteRecord> mutedPlayers;
 	private final Map<UUID, SpySubscription> spySubscriptions;
-	private final Map<UUID, RateLimitState> rateLimitStates;
+	private final Map<UUID, Long> rateLimitLastMessageAt;
+	private final Map<UUID, ArrayDeque<Long>> rateLimitWindows;
 	private final Map<PokeStreakKey, PokeStreakState> pokeStreaks;
 	private final Map<UUID, String> lastKnownServerByPlayer;
 	private final Map<UUID, Long> playerSessionStartedAt;
@@ -98,7 +99,8 @@ public final class VelocityMessengerRouter {
 		this.lastReplyByPlayer = new ConcurrentHashMap<>();
 		this.mutedPlayers = new ConcurrentHashMap<>();
 		this.spySubscriptions = new ConcurrentHashMap<>();
-		this.rateLimitStates = new ConcurrentHashMap<>();
+		this.rateLimitLastMessageAt = new ConcurrentHashMap<>();
+		this.rateLimitWindows = new ConcurrentHashMap<>();
 		this.pokeStreaks = new ConcurrentHashMap<>();
 		this.lastKnownServerByPlayer = new ConcurrentHashMap<>();
 		this.playerSessionStartedAt = new ConcurrentHashMap<>();
@@ -127,7 +129,8 @@ public final class VelocityMessengerRouter {
 		lastReplyByPlayer.clear();
 		mutedPlayers.clear();
 		spySubscriptions.clear();
-		rateLimitStates.clear();
+		rateLimitLastMessageAt.clear();
+		rateLimitWindows.clear();
 		pokeStreaks.clear();
 		lastKnownServerByPlayer.clear();
 		playerSessionStartedAt.clear();
@@ -526,13 +529,14 @@ public final class VelocityMessengerRouter {
 			"player_avatar_url", avatarUrl,
 			"server_color", serverColor
 		);
-		String rendered = renderPlayerMessage(profile.networkFormat(), mention.renderedMessage(), internalValues, resolvedValues, sender, Map.of(
+		Map<String, String> latePlaceholders = withLegacyLunaAudienceValues(sender, Map.of(
 			"server_display", serverDisplay,
 			"player_prefix", senderPrefix,
 			"player_display", senderDisplay,
 			"sender_display", senderDisplay,
 			"receiver_display", ""
 		));
+		String rendered = renderPlayerMessage(profile.networkFormat(), mention.renderedMessage(), internalValues, resolvedValues, sender, latePlaceholders);
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, correlationId);
 			notifyMentionTarget(sender, player, mention.mentionedById());
@@ -581,6 +585,13 @@ public final class VelocityMessengerRouter {
 		}
 
 		MentionProcessing mention = processMentions(sender, message, recipients);
+		Map<String, String> latePlaceholders = withLegacyLunaAudienceValues(sender, Map.of(
+			"server_display", serverDisplay,
+			"player_prefix", senderPrefix,
+			"player_display", senderDisplay,
+			"sender_display", senderDisplay,
+			"receiver_display", ""
+		));
 		String rendered = renderPlayerMessage(profile.serverFormat(), mention.renderedMessage(), Map.of(
 			"sender_name", sender.getUsername(),
 			"server_name", serverName,
@@ -588,13 +599,7 @@ public final class VelocityMessengerRouter {
 			"channel_name", "server",
 			"player_avatar_url", resolveAvatarUrl(sender, resolvedValues),
 			"server_color", serverColor
-		), resolvedValues, sender, Map.of(
-			"server_display", serverDisplay,
-			"player_prefix", senderPrefix,
-			"player_display", senderDisplay,
-			"sender_display", senderDisplay,
-			"receiver_display", ""
-		));
+		), resolvedValues, sender, latePlaceholders);
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.SERVER_CHAT, rendered, correlationId);
 			notifyMentionTarget(sender, player, mention.mentionedById());
@@ -766,8 +771,16 @@ public final class VelocityMessengerRouter {
 		String presenceMessage = firstJoin
 			? player.getUsername() + " đã vào mạng lần đầu"
 			: player.getUsername() + " đã vào mạng";
+		Map<String, String> latePlaceholders = withLegacyLunaAudienceValues(player, Map.of(
+			"player_prefix", playerPrefix,
+			"server_display", serverDisplay,
+			"message", presenceMessage,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
+		));
 		String joinTemplate = firstJoin ? profile.firstJoinNetworkFormat() : profile.joinNetworkFormat();
-		String joinRendered = renderWithStack(
+		String joinRendered = renderWithLatePlaceholders(
 			joinTemplate,
 			Map.ofEntries(
 				Map.entry("sender_name", player.getUsername()),
@@ -781,16 +794,9 @@ public final class VelocityMessengerRouter {
 				Map.entry("presence_type", firstJoin ? "FIRST_JOIN" : "JOIN")
 			),
 			Map.of(),
-			player
+			player,
+			latePlaceholders
 		);
-		joinRendered = injectUnescapedPlaceholders(joinRendered, Map.of(
-			"player_prefix", playerPrefix,
-			"server_display", serverDisplay,
-			"message", presenceMessage,
-			"player_display", playerDisplay,
-			"sender_display", playerDisplay,
-			"receiver_display", ""
-		));
 		boolean senderHandled = false;
 		for (Player online : proxyServer.getAllPlayers()) {
 			if (!canReceiveBroadcastPresence(player, online)) {
@@ -837,7 +843,8 @@ public final class VelocityMessengerRouter {
 	public void handlePlayerLeave(Player player, String previousServerName) {
 		UUID leavingId = player.getUniqueId();
 		lastReplyByPlayer.remove(leavingId);
-		rateLimitStates.remove(leavingId);
+		rateLimitLastMessageAt.remove(leavingId);
+		rateLimitWindows.remove(leavingId);
 		recentPresenceFingerprints.remove(leavingId);
 		pendingSelfPresenceByPlayer.remove(leavingId);
 		long now = System.currentTimeMillis();
@@ -866,7 +873,16 @@ public final class VelocityMessengerRouter {
 		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
 		String serverDisplay = serverDisplay(serverName);
 		String presenceMessage = player.getUsername() + " đã rời mạng";
-		String leaveRendered = renderWithStack(
+		Map<String, String> latePlaceholders = withLegacyLunaAudienceValues(player, Map.of(
+			"player_prefix", playerPrefix,
+			"server_display", serverDisplay,
+			"message", presenceMessage,
+			"player_playtime", playtime,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
+		));
+		String leaveRendered = renderWithLatePlaceholders(
 			profile.leaveNetworkFormat(),
 			Map.ofEntries(
 				Map.entry("sender_name", player.getUsername()),
@@ -881,17 +897,9 @@ public final class VelocityMessengerRouter {
 				Map.entry("presence_type", "LEAVE")
 			),
 			Map.of(),
-			player
+			player,
+			latePlaceholders
 		);
-		leaveRendered = injectUnescapedPlaceholders(leaveRendered, Map.of(
-			"player_prefix", playerPrefix,
-			"server_display", serverDisplay,
-			"message", presenceMessage,
-			"player_playtime", playtime,
-			"player_display", playerDisplay,
-			"sender_display", playerDisplay,
-			"receiver_display", ""
-		));
 		for (Player online : proxyServer.getAllPlayers()) {
 			if (!canReceiveBroadcastPresence(player, online)) {
 				continue;
@@ -954,12 +962,21 @@ public final class VelocityMessengerRouter {
 		String toServerColor = serverColor(toServerName);
 		String playerPrefix = resolvePresencePlayerPrefix(player);
 		String playerDisplay = resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of());
+		Map<String, String> latePlaceholders = withLegacyLunaAudienceValues(player, Map.of(
+			"player_prefix", playerPrefix,
+			"from_display", fromDisplay,
+			"to_display", toDisplay,
+			"server_display", toDisplay,
+			"player_display", playerDisplay,
+			"sender_display", playerDisplay,
+			"receiver_display", ""
+		));
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(toServerName);
 		if (!profile.serverSwitchEnabled()) {
 			return;
 		}
 
-		String rendered = renderWithStack(profile.serverSwitchFormat(), Map.ofEntries(
+		String rendered = renderWithLatePlaceholders(profile.serverSwitchFormat(), Map.ofEntries(
 			Map.entry("sender_name", player.getUsername()),
 			Map.entry("displayname", player.getUsername()),
 			Map.entry("from_server", previousServerName),
@@ -972,16 +989,7 @@ public final class VelocityMessengerRouter {
 			Map.entry("presence_type", "SWAP"),
 			Map.entry("server_name", toServerName),
 			Map.entry("server_color", toServerColor)
-		), Map.of(), player);
-		rendered = injectUnescapedPlaceholders(rendered, Map.of(
-			"player_prefix", playerPrefix,
-			"from_display", fromDisplay,
-			"to_display", toDisplay,
-			"server_display", toDisplay,
-			"player_display", playerDisplay,
-			"sender_display", playerDisplay,
-			"receiver_display", ""
-		));
+		), Map.of(), player, latePlaceholders);
 		boolean senderHandled = false;
 
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -1188,7 +1196,7 @@ public final class VelocityMessengerRouter {
 
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer("proxy");
 		String serverColor = serverColor("");
-		String rendered = renderWithStack(
+		String rendered = renderWithLatePlaceholders(
 			profile.broadcastFormat(),
 			Map.of(
 				"sender_name", actor == null || actor.isBlank() ? "Console" : actor,
@@ -1198,14 +1206,14 @@ public final class VelocityMessengerRouter {
 				"server_color", serverColor
 			),
 			Map.of(),
-			null
+			null,
+			Map.of(
+				"message", message,
+				"player_display", actor == null || actor.isBlank() ? "Console" : actor,
+				"sender_display", actor == null || actor.isBlank() ? "Console" : actor,
+				"receiver_display", ""
+			)
 		);
-		rendered = injectUnescapedPlaceholders(rendered, Map.of("message", message));
-		rendered = injectUnescapedPlaceholders(rendered, Map.of(
-			"player_display", actor == null || actor.isBlank() ? "Console" : actor,
-			"sender_display", actor == null || actor.isBlank() ? "Console" : actor,
-			"receiver_display", ""
-		));
 
 		int sent = 0;
 		for (Player online : proxyServer.getAllPlayers()) {
@@ -1418,6 +1426,23 @@ public final class VelocityMessengerRouter {
 		return renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
 	}
 
+	private String renderWithLatePlaceholders(
+		String template,
+		Map<String, String> internalValues,
+		Map<String, String> backendValues,
+		Player player,
+		Map<String, String> latePlaceholders
+	) {
+		Map<String, String> safeInternalValues = internalValues == null ? Map.of() : internalValues;
+		Map<String, String> safeBackendValues = backendValues == null ? Map.of() : backendValues;
+		Map<String, String> safeLatePlaceholders = latePlaceholders == null ? Map.of() : latePlaceholders;
+		String rendered = render(template, safeInternalValues);
+		rendered = injectUnescapedPlaceholders(rendered, safeLatePlaceholders);
+		rendered = miniPlaceholderResolver.resolve(player, rendered, rawPlaceholderKeys(safeBackendValues, safeLatePlaceholders));
+		rendered = renderRaw(rendered, safeBackendValues);
+		return injectUnescapedPlaceholders(rendered, safeLatePlaceholders);
+	}
+
 	private void publishDiscord(
 		VelocityMessengerConfig.MessageRouteConfig route,
 		Map<String, String> internalValues,
@@ -1599,6 +1624,27 @@ public final class VelocityMessengerRouter {
 
 	private String resolvePlayerDisplay(Player player, String playerPrefix, String fallbackDisplayName, Map<String, String> backendValues) {
 		return playerDisplayFormat.format(player, fallbackDisplayName, backendValues);
+	}
+
+	private Map<String, String> withLegacyLunaAudienceValues(Player player, Map<String, String> values) {
+		Map<String, String> output = new HashMap<>();
+		if (values != null && !values.isEmpty()) {
+			output.putAll(values);
+		}
+
+		if (player == null) {
+			return output;
+		}
+
+		String playerPrefix = output.getOrDefault("player_prefix", resolvePresencePlayerPrefix(player));
+		String playerDisplay = output.getOrDefault("player_display", resolvePlayerDisplay(player, playerPrefix, player.getUsername(), Map.of()));
+		output.putIfAbsent("luna_player_name", player.getUsername());
+		output.putIfAbsent("luna_player_prefix", playerPrefix);
+		output.putIfAbsent("luna_player_suffix", playerDisplayFormat.playerSuffix(player));
+		output.putIfAbsent("luna_player_group_name", playerDisplayFormat.playerGroupName(player));
+		output.putIfAbsent("luna_player_group_display", playerDisplayFormat.playerGroupDisplay(player));
+		output.putIfAbsent("luna_player_display", playerDisplay);
+		return output;
 	}
 
 	private String resolveAvatarUrl(Player player, Map<String, String> resolvedValues) {
@@ -1851,10 +1897,12 @@ public final class VelocityMessengerRouter {
 		int windowMs = Math.max(1000, rateLimit.windowMs() == null ? 5000 : rateLimit.windowMs());
 		int maxMessages = Math.max(1, rateLimit.maxMessages() == null ? 6 : rateLimit.maxMessages());
 
-		RateLimitState state = rateLimitStates.computeIfAbsent(sender.getUniqueId(), ignored -> new RateLimitState());
-		synchronized (state) {
-			if (cooldownMs > 0 && state.lastMessageAt > 0) {
-				long diff = now - state.lastMessageAt;
+		UUID playerId = sender.getUniqueId();
+		ArrayDeque<Long> window = rateLimitWindows.computeIfAbsent(playerId, ignored -> new ArrayDeque<>());
+		synchronized (window) {
+			long lastMessageAt = rateLimitLastMessageAt.getOrDefault(playerId, 0L);
+			if (cooldownMs > 0 && lastMessageAt > 0) {
+				long diff = now - lastMessageAt;
 				if (diff < cooldownMs) {
 					sendError(sender,
 						"<red>❌ Bạn gửi chat quá nhanh. Hãy chờ <white>" + Formatters.compactDuration(Duration.ofMillis(Math.max(0L, cooldownMs - diff))) + "</white>.</red>",
@@ -1864,10 +1912,10 @@ public final class VelocityMessengerRouter {
 				}
 			}
 
-			while (!state.window.isEmpty() && now - state.window.peekFirst() > windowMs) {
-				state.window.removeFirst();
+			while (!window.isEmpty() && now - window.peekFirst() > windowMs) {
+				window.removeFirst();
 			}
-			if (state.window.size() >= maxMessages) {
+			if (window.size() >= maxMessages) {
 				sendError(sender,
 					"<red>❌ Bạn đang chat quá nhiều trong thời gian ngắn. Vui lòng chậm lại.</red>",
 					correlationId
@@ -1875,8 +1923,8 @@ public final class VelocityMessengerRouter {
 				return true;
 			}
 
-			state.window.addLast(now);
-			state.lastMessageAt = now;
+			window.addLast(now);
+			rateLimitLastMessageAt.put(playerId, now);
 		}
 		return false;
 	}
@@ -1911,16 +1959,6 @@ public final class VelocityMessengerRouter {
 
 		private PresenceFingerprint withTimestamp(long atMillis) {
 			return new PresenceFingerprint(type, fromServer, toServer, atMillis);
-		}
-	}
-
-	private static final class RateLimitState {
-		private long lastMessageAt;
-		private final ArrayDeque<Long> window;
-
-		private RateLimitState() {
-			this.lastMessageAt = 0L;
-			this.window = new ArrayDeque<>();
 		}
 	}
 

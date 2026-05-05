@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 final class CoreBackedNeoForgePlaceholderResolver implements BackendPlaceholderResolver {
 	private static final int MAX_DISCOVERY_ROUNDS = 5;
 	private static final int MAX_NESTED_RESOLVE_PASSES = 5;
-	private static final Pattern TOKEN_PATTERN = Pattern.compile("%([a-zA-Z0-9_:.\\-]+)%");
+	private static final Pattern TOKEN_PATTERN = Pattern.compile("%([^%\\s]+)%");
 	private static final List<String> DEFAULT_EXPORT_KEYS = List.of(
 		"luckperms_prefix",
 		"luckperms_suffix",

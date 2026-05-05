@@ -15,6 +15,9 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageContext;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageHandler;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +25,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 final class VelocityBungeePluginMessagingBus {
 	private static final HexFormat HEX_FORMAT = HexFormat.of();
+	private static final String TAB_BRIDGE_PREFIX = "tab:bridge-";
+	private static final int LARGE_TAB_BRIDGE_PAYLOAD_BYTES = 4096;
+	private static final int LARGE_PLACEHOLDER_IDENTIFIER_LENGTH = 256;
+	private static final int LARGE_PLACEHOLDER_VALUE_LENGTH = 512;
+	private static final int PLACEHOLDER_PREVIEW_LENGTH = 160;
 
 	private final ProxyServer proxyServer;
 	private final Object plugin;
@@ -179,6 +187,7 @@ final class VelocityBungeePluginMessagingBus {
 	}
 
 	private boolean sendToServerConnection(ChannelIdentifier identifier, byte[] payload, ServerConnection serverConnection) {
+		inspectTabBridgeOutboundPayload(identifier.getId(), payload, serverConnection);
 		if (loggingEnabled) {
 			logger.audit("[TX:CUSTOM_PAYLOAD] proxy->backend channel=" + identifier.getId()
 				+ " target=" + serverConnection.getServerInfo().getName() + "/" + serverConnection.getPlayer().getUsername()
@@ -215,7 +224,117 @@ final class VelocityBungeePluginMessagingBus {
 			return false;
 		}
 
-		return channelId == null || !channelId.startsWith("tab:bridge-");
+		return channelId == null || !channelId.startsWith(TAB_BRIDGE_PREFIX);
+	}
+
+	private void inspectTabBridgeOutboundPayload(String channelId, byte[] payload, ServerConnection serverConnection) {
+		if (channelId == null || !channelId.startsWith(TAB_BRIDGE_PREFIX) || payload == null) {
+			return;
+		}
+
+		String target = serverConnection.getServerInfo().getName() + "/" + serverConnection.getPlayer().getUsername();
+		if (payload.length >= LARGE_TAB_BRIDGE_PAYLOAD_BYTES) {
+			logger.warn("TAB bridge payload proxy->backend lớn bất thường: channel=" + channelId
+				+ " target=" + target
+				+ " bytes=" + payload.length);
+		}
+
+		try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
+			String action = input.readUTF();
+			switch (action) {
+				case "Placeholder" -> warnIfSuspiciousTabBridgePlaceholder(target, action, input.readUTF());
+				case "PlayerJoin" -> inspectTabBridgePlayerJoin(target, input);
+				case "Expansion" -> inspectTabBridgeExpansion(target, input);
+				default -> {
+				}
+			}
+		} catch (IOException exception) {
+			if (payload.length >= LARGE_TAB_BRIDGE_PAYLOAD_BYTES) {
+				logger.warn("Không thể giải mã TAB bridge payload lớn tại proxy: channel=" + channelId
+					+ " target=" + target
+					+ " error=" + exception.getMessage());
+			}
+		}
+	}
+
+	private void inspectTabBridgePlayerJoin(String target, DataInputStream input) throws IOException {
+		input.readInt();
+		input.readBoolean();
+		int placeholderCount = input.readInt();
+		for (int index = 0; index < placeholderCount; index++) {
+			warnIfSuspiciousTabBridgePlaceholder(target, "PlayerJoin", input.readUTF());
+			input.readInt();
+		}
+	}
+
+	private void inspectTabBridgeExpansion(String target, DataInputStream input) throws IOException {
+		String identifier = input.readUTF();
+		String value = input.readUTF();
+		warnIfSuspiciousTabBridgePlaceholder(target, "Expansion", identifier);
+		if (value != null && value.length() >= LARGE_PLACEHOLDER_VALUE_LENGTH) {
+			logger.warn("TAB bridge Expansion gửi value quá dài từ proxy xuống backend: target=" + target
+				+ " length=" + value.length()
+				+ " identifier=" + previewPlaceholder(identifier)
+				+ " value=" + previewPlaceholder(value));
+		}
+	}
+
+	private void warnIfSuspiciousTabBridgePlaceholder(String target, String action, String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return;
+		}
+
+		if (identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
+			logger.warn("TAB bridge request quá dài từ proxy xuống backend: action=" + action
+				+ " target=" + target
+				+ " length=" + identifier.length()
+				+ " placeholder=" + previewPlaceholder(identifier));
+		}
+
+		if (isUnsafeCpuPlaceholder(identifier)) {
+			logger.warn("TAB bridge request dùng CPU placeholder không có hậu tố _safe: action=" + action
+				+ " target=" + target
+				+ " placeholder=" + previewPlaceholder(identifier));
+		}
+	}
+
+	private boolean isUnsafeCpuPlaceholder(String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return false;
+		}
+
+		String normalized = normalizeTabBridgePlaceholder(identifier);
+		if (normalized.isBlank() || normalized.endsWith("_safe")) {
+			return false;
+		}
+
+		return normalized.startsWith("luna_") && (normalized.contains("system_cpu") || normalized.contains("process_cpu"));
+	}
+
+	private String normalizeTabBridgePlaceholder(String identifier) {
+		if (identifier == null) {
+			return "";
+		}
+
+		String normalized = identifier.trim().toLowerCase();
+		if (normalized.length() >= 2 && normalized.startsWith("%") && normalized.endsWith("%")) {
+			return normalized.substring(1, normalized.length() - 1);
+		}
+
+		return normalized;
+	}
+
+	private String previewPlaceholder(String value) {
+		if (value == null) {
+			return "<null>";
+		}
+
+		String sanitized = value.replace("\r", "\\r").replace("\n", "\\n");
+		if (sanitized.length() <= PLACEHOLDER_PREVIEW_LENGTH) {
+			return sanitized;
+		}
+
+		return sanitized.substring(0, PLACEHOLDER_PREVIEW_LENGTH) + "...";
 	}
 
 	private String payloadHex(byte[] payload) {
