@@ -84,14 +84,14 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		String normalizedLookupKey = safeVariant
 			? normalized.substring(0, normalized.length() - SAFE_SUFFIX.length())
 			: normalized;
-		String value = resolveCurrent(player, rawLookupKey, normalizedLookupKey);
+		String value = resolveCurrent(player, rawLookupKey, normalizedLookupKey, safeVariant);
 		if (safeVariant && value != null) {
 			value = escapePlaceholderPercents(value);
 		}
 		return value == null ? "" : value;
 	}
 
-	private String resolveCurrent(OfflinePlayer player, String rawKey, String normalized) {
+	private String resolveCurrent(OfflinePlayer player, String rawKey, String normalized, boolean safeVariant) {
 		String importedValue = resolveImportedPlaceholder(player, rawKey, normalized);
 		if (importedValue != null) {
 			return importedValue;
@@ -440,25 +440,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (value == null || value.indexOf('%') < 0) {
 			return value == null ? "" : value;
 		}
-
-		StringBuilder escaped = new StringBuilder(value.length() + 8);
-		for (int index = 0; index < value.length(); index++) {
-			char character = value.charAt(index);
-			if (character != '%') {
-				escaped.append(character);
-				continue;
-			}
-
-			if (index + 1 < value.length() && value.charAt(index + 1) == '%') {
-				escaped.append("%%");
-				index++;
-				continue;
-			}
-
-			escaped.append("%%");
-		}
-
-		return escaped.toString();
+		return value.replace("%", ":percent:");
 	}
 
 	private int clampWidth(int width) {

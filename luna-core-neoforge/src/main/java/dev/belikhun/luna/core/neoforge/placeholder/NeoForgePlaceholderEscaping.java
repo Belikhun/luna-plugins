@@ -5,6 +5,6 @@ final class NeoForgePlaceholderEscaping {
 	}
 
 	static String escapePercents(String value) {
-		return value == null ? "" : value.replace("%", "%%");
+		return value == null ? "" : value.replace("%", ":percent:");
 	}
 }

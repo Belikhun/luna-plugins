@@ -110,8 +110,8 @@ final class NeoForgePlaceholderRoutingTest {
 
 	@Test
 	void escapesPercentSignsForSafePlaceholderValues() {
-		assertEquals("50%%", NeoForgePlaceholderEscaping.escapePercents("50%"));
-		assertEquals("CPU 12.5%%%%", NeoForgePlaceholderEscaping.escapePercents("CPU 12.5%%"));
+		assertEquals("50:percent:", NeoForgePlaceholderEscaping.escapePercents("50%"));
+		assertEquals("CPU 12.5:percent::percent:", NeoForgePlaceholderEscaping.escapePercents("CPU 12.5%%"));
 		assertEquals("", NeoForgePlaceholderEscaping.escapePercents(null));
 		assertEquals("plain text", NeoForgePlaceholderEscaping.escapePercents("plain text"));
 	}
