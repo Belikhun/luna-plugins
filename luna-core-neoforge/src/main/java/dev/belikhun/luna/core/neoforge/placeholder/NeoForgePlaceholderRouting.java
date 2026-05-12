@@ -16,7 +16,6 @@ final class NeoForgePlaceholderRouting {
 
 	static <T extends NeoForgePlaceholderNamespaceProvider> Map<String, List<T>> indexProvidersByNamespace(List<T> providers) {
 		Map<String, List<T>> indexed = new LinkedHashMap<>();
-		Set<String> seenExplicitNamespaces = new LinkedHashSet<>();
 		for (T provider : providers) {
 			Set<String> namespaces = provider == null ? Set.of() : provider.namespaces();
 			if (namespaces == null || namespaces.isEmpty()) {
@@ -24,10 +23,11 @@ final class NeoForgePlaceholderRouting {
 				continue;
 			}
 
+			Set<String> normalizedNamespaces = new LinkedHashSet<>();
 			for (String namespace : namespaces) {
 				String normalizedNamespace = normalizeNamespace(namespace);
-				if (!normalizedNamespace.isEmpty() && !seenExplicitNamespaces.add(normalizedNamespace)) {
-					throw new IllegalArgumentException("NeoForge placeholder namespace bị trùng: " + normalizedNamespace);
+				if (!normalizedNamespaces.add(normalizedNamespace)) {
+					continue;
 				}
 				indexed.computeIfAbsent(normalizedNamespace, ignored -> new ArrayList<>()).add(provider);
 			}

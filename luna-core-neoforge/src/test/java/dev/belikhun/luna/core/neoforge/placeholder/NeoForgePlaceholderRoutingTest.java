@@ -10,8 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class NeoForgePlaceholderRoutingTest {
 	@Test
@@ -117,11 +117,16 @@ final class NeoForgePlaceholderRoutingTest {
 	}
 
 	@Test
-	void rejectsDuplicateExplicitNamespaces() {
-		assertThrows(IllegalArgumentException.class, () -> NeoForgePlaceholderRouting.indexProvidersByNamespace(List.of(
-			new TestNamespaceProvider(Set.of("dup")),
-			new TestNamespaceProvider(Set.of("dup"))
-		)));
+	void acceptsMultipleExplicitProvidersForSameNamespace() {
+		TestNamespaceProvider imported = new TestNamespaceProvider(Set.of("luna"));
+		TestNamespaceProvider builtin = new TestNamespaceProvider(Set.of("LUNA"));
+
+		Map<String, List<TestNamespaceProvider>> providersByNamespace = NeoForgePlaceholderRouting.indexProvidersByNamespace(List.of(
+			imported,
+			builtin
+		));
+
+		assertEquals(List.of(imported, builtin), providersByNamespace.get("luna"));
 	}
 
 	@Test
