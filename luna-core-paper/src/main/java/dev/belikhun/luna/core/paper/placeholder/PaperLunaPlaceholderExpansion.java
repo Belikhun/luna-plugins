@@ -437,7 +437,28 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	}
 
 	private String escapePlaceholderPercents(String value) {
-		return value.indexOf('%') >= 0 ? value.replace("%", "%%") : value;
+		if (value == null || value.indexOf('%') < 0) {
+			return value == null ? "" : value;
+		}
+
+		StringBuilder escaped = new StringBuilder(value.length() + 8);
+		for (int index = 0; index < value.length(); index++) {
+			char character = value.charAt(index);
+			if (character != '%') {
+				escaped.append(character);
+				continue;
+			}
+
+			if (index + 1 < value.length() && value.charAt(index + 1) == '%') {
+				escaped.append("%%");
+				index++;
+				continue;
+			}
+
+			escaped.append("%%");
+		}
+
+		return escaped.toString();
 	}
 
 	private int clampWidth(int width) {
