@@ -16,7 +16,8 @@ import dev.belikhun.luna.core.api.serverselector.ServerSelectorEngine.ServerSele
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
 import dev.belikhun.luna.core.api.ui.LunaUi;
-import dev.belikhun.luna.core.paper.heartbeat.PaperBackendStatusView;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
+import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPublisher;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -24,7 +25,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class PaperServerSelectorController implements Listener {
 	private static final int GUI_SIZE = 54;
@@ -49,58 +50,80 @@ public final class PaperServerSelectorController implements Listener {
 	private static final int SLOT_CLOSE = 49;
 	private static final int SLOT_NEXT_PAGE = 53;
 
+	/** How long changes are allowed to pile up before open menus are redrawn. */
+	private static final long REFRESH_COALESCE_TICKS = 10L;
+
+	/** What a viewer currently has open, in one object. */
+	private static final class SelectorSession {
+		private final GuiView view;
+		private boolean dashboard;
+		private int page;
+
+		private SelectorSession(GuiView view, boolean dashboard, int page) {
+			this.view = view;
+			this.dashboard = dashboard;
+			this.page = page;
+		}
+
+		/** Whether this session is still the inventory the player is looking at. */
+		private boolean isCurrent(Player player) {
+			return player.getOpenInventory() != null
+				&& player.getOpenInventory().getTopInventory() != null
+				&& view.getInventory().equals(player.getOpenInventory().getTopInventory());
+		}
+	}
+
 	private final JavaPlugin plugin;
-	private final PaperBackendStatusView statusView;
+	private final BackendStatusStore statusStore;
+	private final PaperHeartbeatPublisher heartbeatPublisher;
 	private final PluginMessageBus<Player, Player> messaging;
 	private final LunaLogger logger;
 	private final boolean diagnosticsEnabled;
 	private final long refreshWarnThresholdMs;
 	private final GuiManager guiManager;
-	private final Map<UUID, Integer> openPages;
-	private final Map<UUID, Integer> openDashboardReturnPages;
-	private final Map<UUID, ServerSelectorPayload> payloadByPlayer;
-	private final Map<UUID, Inventory> selectorInventoryByPlayer;
-	private final Map<UUID, GuiView> selectorViewByPlayer;
+	/**
+	 * One entry per viewer. This used to be four parallel maps, and any moment
+	 * where they disagreed — another plugin briefly swapping the open inventory,
+	 * a close event racing an update — unregistered the viewer for good, so their
+	 * menu simply stopped updating until they reopened it.
+	 */
+	private final Map<UUID, SelectorSession> sessions;
 	private final Set<UUID> suppressCloseCleanup;
+	private final AtomicBoolean refreshScheduled;
 	private volatile ServerSelectorPayload syncedPayload;
 
 	public PaperServerSelectorController(
 		JavaPlugin plugin,
-		PaperBackendStatusView statusView,
+		BackendStatusStore statusStore,
+		PaperHeartbeatPublisher heartbeatPublisher,
 		PluginMessageBus<Player, Player> messaging,
 		LunaLogger logger,
 		boolean diagnosticsEnabled,
 		long refreshWarnThresholdMs
 	) {
 		this.plugin = plugin;
-		this.statusView = statusView;
+		this.statusStore = statusStore;
+		this.heartbeatPublisher = heartbeatPublisher;
 		this.messaging = messaging;
 		this.logger = logger.scope("ServerSelector");
 		this.diagnosticsEnabled = diagnosticsEnabled;
 		this.refreshWarnThresholdMs = Math.max(1L, refreshWarnThresholdMs);
 		this.guiManager = new GuiManager();
-		this.openPages = new ConcurrentHashMap<>();
-		this.openDashboardReturnPages = new ConcurrentHashMap<>();
-		this.payloadByPlayer = new ConcurrentHashMap<>();
-		this.selectorInventoryByPlayer = new ConcurrentHashMap<>();
-		this.selectorViewByPlayer = new ConcurrentHashMap<>();
+		this.sessions = new ConcurrentHashMap<>();
 		this.suppressCloseCleanup = ConcurrentHashMap.newKeySet();
+		this.refreshScheduled = new AtomicBoolean(false);
 		this.syncedPayload = ServerSelectorPayload.empty();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
-		statusView.addUpdateListener(() -> plugin.getServer().getScheduler().runTask(plugin, this::refreshOpenMenus));
+		statusStore.addUpdateListener(this::scheduleRefresh);
 
 		messaging.registerOutgoing(CoreServerSelectorMessageChannels.CONNECT_REQUEST);
 		messaging.registerIncoming(CoreServerSelectorMessageChannels.OPEN_MENU, context -> {
 			Player player = context.source();
-			if (context.payload() != null && context.payload().length > 0) {
-				PluginMessageReader reader = PluginMessageReader.of(context.payload());
-				ServerSelectorPayload payload = parsePayload(reader);
-				payloadByPlayer.put(player.getUniqueId(), payload);
-				debug("received OPEN_MENU payload for " + player.getName() + ", servers=" + payload.servers().size() + ", title=" + payload.guiTitle());
-			}
-			plugin.getServer().getScheduler().runTask(plugin, () -> open(player, openPages.getOrDefault(player.getUniqueId(), 0)));
+			SelectorSession session = sessions.get(player.getUniqueId());
+			int page = session == null ? 0 : session.page;
+			plugin.getServer().getScheduler().runTask(plugin, () -> open(player, page));
 			return dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult.HANDLED;
 		});
 	}
@@ -113,16 +136,16 @@ public final class PaperServerSelectorController implements Listener {
 		ServerSelectorPayload payload = parsePayload(PluginMessageReader.of(payloadBytes));
 		syncedPayload = payload;
 		debug("synced selector payload updated: servers=" + payload.servers().size() + ", title=" + payload.guiTitle());
+
+		// a layout change is as visible as a status change, so menus that are open
+		// when the proxy reloads must redraw rather than wait for the next status
+		scheduleRefresh();
 	}
 
 	@EventHandler
 	public void onQuit(PlayerQuitEvent event) {
 		UUID playerId = event.getPlayer().getUniqueId();
-		openPages.remove(playerId);
-		openDashboardReturnPages.remove(playerId);
-		payloadByPlayer.remove(playerId);
-		selectorInventoryByPlayer.remove(playerId);
-		selectorViewByPlayer.remove(playerId);
+		sessions.remove(playerId);
 		suppressCloseCleanup.remove(playerId);
 	}
 
@@ -137,45 +160,43 @@ public final class PaperServerSelectorController implements Listener {
 			return;
 		}
 
-		Inventory trackedInventory = selectorInventoryByPlayer.get(playerId);
-		if (trackedInventory != null && trackedInventory.equals(event.getInventory())) {
-			openPages.remove(playerId);
-			openDashboardReturnPages.remove(playerId);
-			selectorInventoryByPlayer.remove(playerId);
-			selectorViewByPlayer.remove(playerId);
+		SelectorSession session = sessions.get(playerId);
+		if (session != null && session.view.getInventory().equals(event.getInventory())) {
+			sessions.remove(playerId);
 		}
 	}
 
 	public void open(Player player, int page) {
 		UUID playerId = player.getUniqueId();
-		openDashboardReturnPages.remove(playerId);
-		ServerSelectorPayload payload = payloadByPlayer.getOrDefault(player.getUniqueId(), syncedPayload);
+
+		// with the stream down this mirror is only as fresh as the last poll. The
+		// menu still opens from what we have — the round trip is asynchronous — but
+		// the result lands within a moment and redraws it.
+		if (!heartbeatPublisher.registryClient().streamLive()) {
+			heartbeatPublisher.publishNow();
+		}
+
+		ServerSelectorPayload payload = syncedPayload;
 		debug("open selector for " + player.getName() + ", requestedPage=" + page + ", payloadServers=" + payload.servers().size());
 		Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 		int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
 		int currentPage = Math.max(0, Math.min(page, maxPage));
-		openPages.put(playerId, currentPage);
 
-		GuiView view = selectorViewByPlayer.get(playerId);
-		boolean canUpdateInPlace = view != null
-			&& player.getOpenInventory() != null
-			&& player.getOpenInventory().getTopInventory() != null
-			&& view.getInventory().equals(player.getOpenInventory().getTopInventory());
-		if (canUpdateInPlace && view != null) {
-			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
-			selectorInventoryByPlayer.put(playerId, view.getInventory());
+		SelectorSession session = sessions.get(playerId);
+		if (session != null && !session.dashboard && session.isCurrent(player)) {
+			session.page = currentPage;
+			renderSelectorPage(player, session.view, payload, layoutByPage, currentPage, maxPage);
 			return;
 		}
 
 		String title = payload == null ? "Danh Sách Máy Chủ" : payload.guiTitle();
-		view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
+		GuiView view = new GuiView(GUI_SIZE, LunaUi.guiTitle(applyTemplate(title, Map.of("player_name", player.getName()))));
 		guiManager.track(view);
 		renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
-		selectorViewByPlayer.put(playerId, view);
+		sessions.put(playerId, new SelectorSession(view, false, currentPage));
 
 		suppressCloseCleanup.add(playerId);
 		player.openInventory(view.getInventory());
-		selectorInventoryByPlayer.put(playerId, view.getInventory());
 		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
 	}
 
@@ -265,18 +286,15 @@ public final class PaperServerSelectorController implements Listener {
 		renderDashboardPage(player, view, returnPage);
 		debug("open dashboard for " + player.getName() + ", returnPage=" + returnPage);
 
-		openPages.remove(playerId);
-		openDashboardReturnPages.put(playerId, returnPage);
-		selectorViewByPlayer.put(playerId, view);
+		sessions.put(playerId, new SelectorSession(view, true, returnPage));
 
 		suppressCloseCleanup.add(playerId);
 		player.openInventory(view.getInventory());
-		selectorInventoryByPlayer.put(playerId, view.getInventory());
 		plugin.getServer().getScheduler().runTask(plugin, () -> suppressCloseCleanup.remove(playerId));
 	}
 
 	private void renderDashboardPage(Player player, GuiView view, int returnPage) {
-		DashboardStats stats = ServerSelectorEngine.dashboardStats(statusView.snapshot());
+		DashboardStats stats = ServerSelectorEngine.dashboardStats(statusStore.snapshot());
 		debug("render dashboard for " + player.getName() + ": online=" + stats.onlineServersOnly().size() + "/" + stats.allServers().size() + ", avgTps=" + String.format(Locale.US, "%.2f", stats.averageTps()) + ", avgCpu=" + String.format(Locale.US, "%.1f", stats.averageCpu()) + ", avgLatency=" + String.format(Locale.US, "%.0f", stats.averageLatency()));
 
 		fillDashboardBackground(view);
@@ -381,101 +399,54 @@ public final class PaperServerSelectorController implements Listener {
 		return Math.max(0L, bytes / 1024L / 1024L);
 	}
 
+	/**
+	 * Ask for a redraw of every open menu.
+	 *
+	 * Rows now arrive as they change rather than once per heartbeat, so a busy
+	 * cluster can produce several updates a second. Coalescing them keeps the
+	 * redraw — which rebuilds 54 items per viewer on the main thread — bounded,
+	 * while still landing well inside what a player perceives as immediate.
+	 */
+	private void scheduleRefresh() {
+		if (sessions.isEmpty() || !refreshScheduled.compareAndSet(false, true)) {
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+			refreshScheduled.set(false);
+			refreshOpenMenus();
+		}, REFRESH_COALESCE_TICKS);
+	}
+
 	private void refreshOpenMenus() {
 		long startedAt = System.currentTimeMillis();
 		int refreshed = 0;
-		int openCount = openPages.size() + openDashboardReturnPages.size();
-		for (Map.Entry<UUID, Integer> entry : new LinkedHashMap<>(openPages).entrySet()) {
-			Player player = plugin.getServer().getPlayer(entry.getKey());
-			if (player == null || !player.isOnline()) {
-				openPages.remove(entry.getKey());
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
+		int openCount = sessions.size();
+
+		for (Map.Entry<UUID, SelectorSession> entry : new LinkedHashMap<>(sessions).entrySet()) {
+			UUID playerId = entry.getKey();
+			SelectorSession session = entry.getValue();
+			Player player = plugin.getServer().getPlayer(playerId);
+
+			// the only two reasons to forget a viewer: they left, or what they are
+			// looking at is no longer the menu we drew
+			if (player == null || !player.isOnline() || !session.isCurrent(player)) {
+				sessions.remove(playerId, session);
 				continue;
 			}
 
-			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
-			if (trackedInventory == null) {
-				openPages.remove(entry.getKey());
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
+			if (session.dashboard) {
+				renderDashboardPage(player, session.view, session.page);
+				refreshed++;
 				continue;
 			}
 
-			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
-				openPages.remove(entry.getKey());
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
-				openPages.remove(entry.getKey());
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			GuiView view = selectorViewByPlayer.get(entry.getKey());
-			if (view == null || !view.getInventory().equals(trackedInventory)) {
-				openPages.remove(entry.getKey());
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			ServerSelectorPayload payload = payloadByPlayer.getOrDefault(entry.getKey(), syncedPayload);
+			ServerSelectorPayload payload = syncedPayload;
 			Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage = layoutByPage(payload);
 			int maxPage = layoutByPage.isEmpty() ? 0 : layoutByPage.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
-			int currentPage = Math.max(0, Math.min(entry.getValue(), maxPage));
-			openPages.put(entry.getKey(), currentPage);
-			renderSelectorPage(player, view, payload, layoutByPage, currentPage, maxPage);
-			refreshed++;
-		}
-
-		for (Map.Entry<UUID, Integer> entry : new LinkedHashMap<>(openDashboardReturnPages).entrySet()) {
-			Player player = plugin.getServer().getPlayer(entry.getKey());
-			if (player == null || !player.isOnline()) {
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			Inventory trackedInventory = selectorInventoryByPlayer.get(entry.getKey());
-			if (trackedInventory == null) {
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			if (player.getOpenInventory() == null || player.getOpenInventory().getTopInventory() == null) {
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			if (!trackedInventory.equals(player.getOpenInventory().getTopInventory())) {
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			GuiView view = selectorViewByPlayer.get(entry.getKey());
-			if (view == null || !view.getInventory().equals(trackedInventory)) {
-				openDashboardReturnPages.remove(entry.getKey());
-				selectorInventoryByPlayer.remove(entry.getKey());
-				selectorViewByPlayer.remove(entry.getKey());
-				continue;
-			}
-
-			renderDashboardPage(player, view, entry.getValue());
+			int currentPage = Math.max(0, Math.min(session.page, maxPage));
+			session.page = currentPage;
+			renderSelectorPage(player, session.view, payload, layoutByPage, currentPage, maxPage);
 			refreshed++;
 		}
 
@@ -489,7 +460,7 @@ public final class PaperServerSelectorController implements Listener {
 	}
 
 	private Map<Integer, Map<Integer, ServerRenderEntry>> layoutByPage(ServerSelectorPayload payload) {
-		return ServerSelectorEngine.layoutByPage(payload, statusView.snapshot(), this::debug);
+		return ServerSelectorEngine.layoutByPage(payload, statusStore.snapshot(), this::debug);
 	}
 
 	private org.bukkit.inventory.ItemStack buildServerItem(

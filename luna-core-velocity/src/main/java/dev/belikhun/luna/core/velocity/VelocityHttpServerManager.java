@@ -7,6 +7,7 @@ import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.http.HttpRequest;
 import dev.belikhun.luna.core.api.http.HttpResponse;
 import dev.belikhun.luna.core.api.http.Router;
+import dev.belikhun.luna.core.api.http.SseStream;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
 import java.io.IOException;
@@ -20,8 +21,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 
 public final class VelocityHttpServerManager {
+	/** Concurrent exchanges served. Handlers are short-lived; streams do not hold one. */
+	private static final int HANDLER_THREADS = 4;
+
 	private final LunaLogger logger;
 	private final Router router;
 	private HttpServer server;
@@ -54,7 +59,14 @@ public final class VelocityHttpServerManager {
 		try {
 			server = HttpServer.create(new InetSocketAddress(host, port), 0);
 			server.createContext(pathPrefix, this::handle);
-			server.setExecutor(null);
+			// A null executor serves every exchange on the acceptor thread, so one slow
+			// handler stalls all backend heartbeats. Streaming routes need at least a
+			// second thread available while a stream is being opened.
+			server.setExecutor(Executors.newFixedThreadPool(HANDLER_THREADS, task -> {
+				Thread thread = new Thread(task, "luna-http-" + port);
+				thread.setDaemon(true);
+				return thread;
+			}));
 			server.start();
 			logger.success("HTTP server đã chạy tại " + host + ":" + port + pathPrefix);
 		} catch (IOException exception) {
@@ -96,6 +108,15 @@ public final class VelocityHttpServerManager {
 		for (Map.Entry<String, String> header : response.headers().entrySet()) {
 			exchange.getResponseHeaders().set(header.getKey(), header.getValue());
 		}
+
+		if (response.streamer() != null) {
+			// Length 0 means "chunked, no fixed length"; the exchange stays open after
+			// this handler returns and is closed by the stream itself.
+			exchange.sendResponseHeaders(response.status(), 0);
+			response.streamer().open(new SseStream(exchange.getResponseBody(), exchange::close));
+			return;
+		}
+
 		byte[] payload = response.body();
 		exchange.sendResponseHeaders(response.status(), payload.length);
 		try (OutputStream outputStream = exchange.getResponseBody()) {

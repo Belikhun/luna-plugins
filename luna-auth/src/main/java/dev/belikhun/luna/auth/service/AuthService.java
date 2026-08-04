@@ -3,7 +3,9 @@ package dev.belikhun.luna.auth.service;
 import dev.belikhun.luna.auth.model.AuthAccount;
 import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.string.Formatters;
 
+import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -11,6 +13,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class AuthService {
+	/** Lifetime of a temporary password when the caller does not name one. */
+	public static final long DEFAULT_TEMPORARY_PASSWORD_MILLIS = 24L * 60L * 60L * 1000L;
+
 	private final LunaLogger logger;
 	private final AuthRepository repository;
 	private final Pbkdf2PasswordHasher passwordHasher;
@@ -34,6 +39,13 @@ public final class AuthService {
 	public JoinDecision handleJoin(UUID playerUuid, String username, String ipAddress, QuickAuthTrustDecision quickAuthTrustDecision) {
 		long now = System.currentTimeMillis();
 		Optional<AuthAccount> accountOptional = repository.find(playerUuid);
+
+		// an expired temporary password leaves the account with no password at
+		// all, so the join is handled as if the player had never registered
+		if (accountOptional.isPresent() && expireTemporaryPasswordIfDue(accountOptional.get(), username, ipAddress, now)) {
+			accountOptional = Optional.empty();
+		}
+
 		if (accountOptional.isEmpty() || !accountOptional.get().hasPassword()) {
 			runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
 			if (quickAuthTrustDecision.trusted()) {
@@ -94,7 +106,7 @@ public final class AuthService {
 			return AuthResult.failed("❌ Mật khẩu nhập lại không khớp.");
 		}
 
-		AuthAccount current = repository.find(playerUuid).orElse(new AuthAccount(playerUuid, username, "", ipAddress, 0, 0L, 0L, now, now));
+		AuthAccount current = repository.find(playerUuid).orElse(new AuthAccount(playerUuid, username, "", ipAddress, 0, 0L, 0L, now, now, 0L));
 		if (current.hasPassword()) {
 			return AuthResult.failed("❌ Tài khoản đã đăng ký. Hãy dùng /login.");
 		}
@@ -109,7 +121,8 @@ public final class AuthService {
 			0L,
 			now,
 			current.createdAtEpochMillis(),
-			now
+			now,
+			0L
 		);
 		repository.upsert(next);
 		recordAudit(playerUuid, ipAddress, "REGISTER_SUCCESS", "SUCCESS", "Đăng ký thành công", username, now);
@@ -127,6 +140,9 @@ public final class AuthService {
 			repository.recordAttemptLegacy(playerUuid, username, ipAddress, false, "LOGIN_NOT_REGISTERED", now);
 			repository.recordSessionEvent(playerUuid, username, ipAddress, "LOGIN_NOT_REGISTERED", "Chưa có mật khẩu", now);
 			return AuthResult.failed("❌ Tài khoản chưa đăng ký. Hãy dùng /register.");
+		}
+		if (expireTemporaryPasswordIfDue(account, username, ipAddress, now)) {
+			return AuthResult.failed("❌ Mật khẩu tạm thời đã hết hạn. Hãy dùng /register để đặt mật khẩu mới.");
 		}
 		if (account.isLocked(now)) {
 			long remainingSeconds = Math.max(1L, (account.lockoutUntilEpochMillis() - now) / 1000L);
@@ -149,7 +165,8 @@ public final class AuthService {
 				lockoutUntil,
 				account.lastLoginAtEpochMillis(),
 				account.createdAtEpochMillis(),
-				now
+				now,
+				account.temporaryPasswordUntilEpochMillis()
 			));
 			recordAudit(playerUuid, ipAddress, "LOGIN_WRONG_PASSWORD", "FAILED", "Sai mật khẩu", username, now);
 			repository.recordAttemptLegacy(playerUuid, username, ipAddress, false, "LOGIN_WRONG_PASSWORD", now);
@@ -171,12 +188,21 @@ public final class AuthService {
 			0L,
 			now,
 			account.createdAtEpochMillis(),
-			now
+			now,
+			account.temporaryPasswordUntilEpochMillis()
 		));
 		recordAudit(playerUuid, ipAddress, "LOGIN_SUCCESS", "SUCCESS", "Xác thực mật khẩu thành công", username, now);
 		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "LOGIN_SUCCESS", now);
 		authenticateRuntime(playerUuid, ipAddress);
 		repository.recordSessionEvent(playerUuid, username, ipAddress, "LOGIN_SUCCESS", "Xác thực mật khẩu thành công", now);
+
+		// a temporary password works like any other until it expires — the player
+		// is told how long is left so the expiry is never a surprise
+		if (account.hasTemporaryPassword()) {
+			String remaining = Formatters.duration(Duration.ofMillis(Math.max(1000L, account.temporaryPasswordUntilEpochMillis() - now)));
+			return AuthResult.success("✔ Đăng nhập thành công. ⚠ Đây là mật khẩu tạm thời, hết hạn sau " + remaining + ".");
+		}
+
 		return AuthResult.success("✔ Đăng nhập thành công.");
 	}
 
@@ -198,6 +224,15 @@ public final class AuthService {
 
 	public Optional<AuthAccount> account(UUID playerUuid) {
 		return repository.find(playerUuid);
+	}
+
+	/** Look an account up by name — the console names players, not UUIDs. */
+	public Optional<AuthAccount> accountByUsername(String username) {
+		if (username == null || username.isBlank()) {
+			return Optional.empty();
+		}
+
+		return repository.findByUsername(username.trim());
 	}
 
 	public AuthResult adminResetPassword(UUID playerUuid, String username, String ipAddress, String actor) {
@@ -239,7 +274,8 @@ public final class AuthService {
 			0L,
 			account.lastLoginAtEpochMillis(),
 			account.createdAtEpochMillis(),
-			now
+			now,
+			account.temporaryPasswordUntilEpochMillis()
 		));
 		recordAudit(playerUuid, ipAddress, "ADMIN_UNLOCK", "SUCCESS", "Quản trị viên mở khóa", actor, now);
 		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "ADMIN_UNLOCK", now);
@@ -301,6 +337,7 @@ public final class AuthService {
 		}
 
 		String hash = passwordHasher.hash(newPassword);
+		// an admin-set permanent password clears any temporary marker it replaces
 		repository.upsert(new AuthAccount(
 			account.playerUuid(),
 			username,
@@ -310,7 +347,8 @@ public final class AuthService {
 			0L,
 			account.lastLoginAtEpochMillis(),
 			account.createdAtEpochMillis(),
-			now
+			now,
+			0L
 		));
 		invalidateSession(playerUuid, username, ipAddress, "ADMIN_CHANGE_PASSWORD");
 		runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
@@ -318,6 +356,84 @@ public final class AuthService {
 		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "ADMIN_CHANGE_PASSWORD", now);
 		repository.recordSessionEvent(playerUuid, username, ipAddress, "ADMIN_CHANGE_PASSWORD", "Quản trị viên đổi mật khẩu", now);
 		return AuthResult.success("✔ Đã đổi mật khẩu và hủy session hiện tại của người chơi.");
+	}
+
+	/**
+	 * Issue a password that stops working on its own.
+	 *
+	 * This is the "player lost their password" tool: the administrator hands out
+	 * a credential the player can log in with right now, and it lapses without
+	 * anyone having to remember to take it away. When it lapses the account is
+	 * left exactly as a reset leaves it — no password — so the player registers
+	 * a new one of their own choosing.
+	 *
+	 * An account row is created when the player has none, which is what lets an
+	 * administrator provision access for someone who never managed to register.
+	 *
+	 * @param ttlMillis how long the password stays valid; the default is used when not positive
+	 */
+	public AuthResult adminSetTemporaryPassword(UUID playerUuid, String username, String ipAddress, String newPassword, long ttlMillis, String actor) {
+		long now = System.currentTimeMillis();
+		if (newPassword == null || newPassword.length() < 6) {
+			return AuthResult.failed("❌ Mật khẩu tạm thời phải có ít nhất 6 ký tự.");
+		}
+		if (username == null || username.isBlank()) {
+			return AuthResult.failed("❌ Không xác định được tên người chơi.");
+		}
+
+		long lifetime = ttlMillis > 0L ? ttlMillis : DEFAULT_TEMPORARY_PASSWORD_MILLIS;
+		long expiresAt = now + lifetime;
+		AuthAccount current = repository.find(playerUuid)
+			.orElse(new AuthAccount(playerUuid, username, "", ipAddress, 0, 0L, 0L, now, now, 0L));
+
+		String hash = passwordHasher.hash(newPassword);
+		repository.upsert(new AuthAccount(
+			playerUuid,
+			username,
+			hash,
+			current.lastIp() == null || current.lastIp().isBlank() ? ipAddress : current.lastIp(),
+			0,
+			0L,
+			current.lastLoginAtEpochMillis(),
+			current.createdAtEpochMillis(),
+			now,
+			expiresAt
+		));
+
+		invalidateSession(playerUuid, username, ipAddress, "ADMIN_TEMPORARY_PASSWORD");
+		runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
+
+		String window = Formatters.duration(Duration.ofMillis(lifetime));
+		recordAudit(playerUuid, ipAddress, "ADMIN_TEMPORARY_PASSWORD", "SUCCESS", "Quản trị viên cấp mật khẩu tạm thời (" + window + ")", actor, now);
+		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "ADMIN_TEMPORARY_PASSWORD", now);
+		repository.recordSessionEvent(playerUuid, username, ipAddress, "ADMIN_TEMPORARY_PASSWORD", "Cấp mật khẩu tạm thời (" + window + ")", now);
+		return AuthResult.success("✔ Đã cấp mật khẩu tạm thời, hết hạn sau " + window + ".");
+	}
+
+	/**
+	 * Drop a temporary password that has run out, lazily.
+	 *
+	 * Nothing sweeps the table on a timer: the expiry is enforced by whoever
+	 * next looks at the account, which is either the join check or a login
+	 * attempt. Both paths ask before trusting the stored hash.
+	 *
+	 * @return whether the password was expired and has now been cleared
+	 */
+	private boolean expireTemporaryPasswordIfDue(AuthAccount account, String username, String ipAddress, long now) {
+		if (!account.temporaryPasswordExpired(now)) {
+			return false;
+		}
+
+		UUID playerUuid = account.playerUuid();
+		String effectiveUsername = username == null || username.isBlank() ? account.username() : username;
+
+		repository.deletePassword(playerUuid, ipAddress, effectiveUsername, now);
+		invalidateSession(playerUuid, effectiveUsername, ipAddress, "TEMPORARY_PASSWORD_EXPIRED");
+		runtimeStates.put(playerUuid, new RuntimeState(false, ipAddress));
+		recordAudit(playerUuid, ipAddress, "TEMPORARY_PASSWORD_EXPIRED", "FAILED", "Mật khẩu tạm thời đã hết hạn", "SYSTEM", now);
+		repository.recordSessionEvent(playerUuid, effectiveUsername, ipAddress, "TEMPORARY_PASSWORD_EXPIRED", "Mật khẩu tạm thời đã hết hạn", now);
+		logger.audit("Mật khẩu tạm thời của " + effectiveUsername + " đã hết hạn và bị xóa.");
+		return true;
 	}
 
 	public SessionSnapshot snapshot(UUID playerUuid) {

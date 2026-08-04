@@ -12,11 +12,15 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.event.LunaEventManager;
+import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.pack.api.LunaPackApi;
+import dev.belikhun.luna.pack.http.PackHttpEndpoints;
 import dev.belikhun.luna.pack.command.PackAdminCommand;
 import dev.belikhun.luna.pack.config.LoaderConfig;
 import dev.belikhun.luna.pack.config.LoaderConfigService;
@@ -87,6 +91,7 @@ public final class LunaPackLoaderPlugin {
 		dispatchService.bindBroadcastService(packLoadBroadcastService);
 
 		registerCommand();
+		registerHttpEndpoints();
 		server.getEventManager().register(this, new PlayerConnectionListener(logger, sessionStore, catalogService, dispatchService, packLoadBroadcastService));
 		server.getEventManager().register(this, new PlayerPackStatusListener(server, logger, sessionStore, catalogService, packLoadBroadcastService));
 
@@ -102,6 +107,35 @@ public final class LunaPackLoaderPlugin {
 		PackReloadReport report = catalogService.reload(config);
 		packApiService.emitReload(previousSnapshot, catalogService.snapshot(), report);
 		return report;
+	}
+
+	/**
+	 * Publish the read-only pack views on LunaCore's HTTP server, so the control
+	 * console can show what the proxy resolved and who is holding which pack.
+	 *
+	 * The token is Velocity's forwarding secret, resolved the same way LunaCore
+	 * resolves it — the authorizer itself is not a shared singleton, and building
+	 * a second one from the same file is cheaper than making it one.
+	 */
+	private void registerHttpEndpoints() {
+		VelocityHttpServerManager httpServerManager = LunaCoreVelocity.services().httpServerManager();
+
+		if (httpServerManager == null) {
+			logger.warn("LunaCore không có HTTP server — bỏ qua endpoint pack.");
+			return;
+		}
+
+		String secret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger);
+		RequestAuthorizer authorizer = new RequestAuthorizer(secret);
+
+		if (!authorizer.configured()) {
+			logger.warn("Chưa có forwarding secret — endpoint pack sẽ trả về 401.");
+		}
+
+		new PackHttpEndpoints(logger, server, catalogService, sessionStore, authorizer)
+			.register(httpServerManager.router());
+
+		logger.audit("Đã đăng ký endpoint /packs/catalog và /packs/sessions.");
 	}
 
 	private void registerCommand() {

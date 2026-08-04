@@ -146,6 +146,14 @@ public final class AuthAdminCommand implements SimpleCommand {
 			} else {
 				source.sendRichMessage(muted("- Khóa tạm thời: ") + success("KHÔNG"));
 			}
+			// a password issued by an admin expires on its own — say so, or the
+			// "ĐÃ ĐĂNG KÝ" line above reads as a password the player chose
+			if (account.isPresent() && account.get().hasTemporaryPassword()) {
+				long remainingMillis = account.get().temporaryPasswordUntilEpochMillis() - now;
+				source.sendRichMessage(muted("- Mật khẩu tạm thời: ") + (remainingMillis > 0L
+					? accent("CÒN HIỆU LỰC (" + Formatters.duration(Duration.ofMillis(remainingMillis)) + ")")
+					: error("ĐÃ HẾT HẠN")));
+			}
 			return;
 		}
 		if (sub.equals("changepassword")) {

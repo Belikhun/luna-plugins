@@ -4,8 +4,10 @@ import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusRow;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.api.http.HttpResponse;
+import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
@@ -16,21 +18,21 @@ import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConf
 
 import java.nio.charset.StandardCharsets;
 import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class VelocityHeartbeatHttpEndpoints {
-	private static final String TOKEN_HEADER = "X-Luna-Forwarding-Secret";
-
 	private final LunaLogger logger;
 	private final VelocityBackendStatusRegistry statusRegistry;
 	private final VelocityBackendNameResolver nameResolver;
 	private final VelocityServerSelectorConfig selectorConfig;
 	private final AmqpMessagingConfig amqpMessagingConfig;
-	private final String forwardingSecret;
+	private final RequestAuthorizer authorizer;
 	private final boolean transportLoggingEnabled;
 	private final Map<String, String> resolvedNameByAlias;
 
@@ -40,7 +42,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 		VelocityBackendNameResolver nameResolver,
 		VelocityServerSelectorConfig selectorConfig,
 		AmqpMessagingConfig amqpMessagingConfig,
-		String forwardingSecret,
+		RequestAuthorizer authorizer,
 		boolean transportLoggingEnabled
 	) {
 		this.logger = logger.scope("HeartbeatHttp");
@@ -48,16 +50,16 @@ public final class VelocityHeartbeatHttpEndpoints {
 		this.nameResolver = nameResolver;
 		this.selectorConfig = selectorConfig;
 		this.amqpMessagingConfig = amqpMessagingConfig == null ? AmqpMessagingConfig.disabled() : amqpMessagingConfig.sanitize();
-		this.forwardingSecret = forwardingSecret == null ? "" : forwardingSecret;
+		this.authorizer = authorizer;
 		this.transportLoggingEnabled = transportLoggingEnabled;
 		this.resolvedNameByAlias = new ConcurrentHashMap<>();
 	}
 
 	public void register(Router router) {
 		router.post("/heartbeat/{server}", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối heartbeat do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 
 			String serverName = request.pathParam("server", "").trim();
@@ -79,6 +81,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 			VelocityServerSelectorConfig.ServerDefinition definition = selectorConfig.server(resolvedServerName);
 			BackendMetadata backendMetadata = resolvedBackendMetadata(resolveBackendMetadata(resolvedServerName, payload, definition), resolvedServerName);
 			long sinceRevision = parseSinceRevision(request.queryParam("since", "-1"));
+			String sinceEpoch = request.queryParam("epoch", "").trim();
 			BackendServerStatus status = online
 				? statusRegistry.upsert(backendMetadata, stats, System.currentTimeMillis())
 				: statusRegistry.markOffline(backendMetadata, stats, System.currentTimeMillis());
@@ -89,33 +92,56 @@ public final class VelocityHeartbeatHttpEndpoints {
 				+ " latency=" + latencyMs + "ms"
 				+ " port=" + stats.serverPort());
 
-			Map<String, BackendServerStatus> responseRows = sinceRevision < 0
+			// a cursor from a previous proxy process counts for nothing: the
+			// revisions it refers to were minted by a registry that is gone
+			boolean staleEpoch = !sinceEpoch.isEmpty() && !sinceEpoch.equals(statusRegistry.epoch());
+			boolean fullSync = sinceRevision < 0 || staleEpoch;
+			if (staleEpoch) {
+				logger.debug("Backend " + resolvedServerName + " gửi epoch cũ (" + sinceEpoch + "), trả full sync.");
+			}
+
+			// read the revision first: a row written between collecting the rows and
+			// reading the counter would otherwise be behind the cursor we hand back,
+			// and the backend would never ask for it again
+			long responseRevision = statusRegistry.currentRevision();
+			List<BackendStatusRow> responseRows = fullSync
 				? buildInitialFullRows()
-				: Map.of();
-			boolean fullSync = sinceRevision < 0;
-			byte[] body = fullSync
-				? HeartbeatFormCodec.encodeSnapshot(responseRows, statusRegistry.currentRevision(), resolvedServerName, true, backendMetadata)
-				: HeartbeatFormCodec.encodeDelta(markSelf(statusRegistry.deltaFieldsSince(sinceRevision), resolvedServerName), statusRegistry.currentRevision(), resolvedServerName, backendMetadata);
+				: statusRegistry.rowsSince(sinceRevision);
+			byte[] body = HeartbeatFormCodec.encodeRows(
+				responseRows,
+				responseRevision,
+				statusRegistry.epoch(),
+				fullSync,
+				resolvedServerName,
+				backendMetadata
+			);
 			transportLog("[TX] POST /heartbeat/" + serverName + " status=200 raw=" + formatFormBody(body));
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
 
 		router.get("/heartbeat/servers", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối truy vấn /heartbeat/servers do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 			logger.debug("Yêu cầu snapshot toàn bộ backend statuses.");
 
-			byte[] body = HeartbeatFormCodec.encodeSnapshot(statusRegistry.snapshot(), statusRegistry.currentRevision(), null, true);
+			byte[] body = HeartbeatFormCodec.encodeRows(
+				statusRegistry.allRows(),
+				statusRegistry.currentRevision(),
+				statusRegistry.epoch(),
+				true,
+				null,
+				null
+			);
 			transportLog("[TX] GET /heartbeat/servers status=200 raw=" + formatFormBody(body));
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
 
 		router.get("/heartbeat/servers/{server}", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối truy vấn /heartbeat/servers/{server} do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 
 			String serverName = request.pathParam("server", "").trim();
@@ -125,17 +151,23 @@ public final class VelocityHeartbeatHttpEndpoints {
 			}
 			logger.debug("Yêu cầu status cho backend=" + serverName);
 
-			Map<String, BackendServerStatus> single = new LinkedHashMap<>();
-			statusRegistry.status(serverName).ifPresent(status -> single.put(serverName.toLowerCase(), status));
-			byte[] body = HeartbeatFormCodec.encodeSnapshot(single, statusRegistry.currentRevision(), serverName, true);
+			BackendStatusRow row = statusRegistry.row(serverName);
+			byte[] body = HeartbeatFormCodec.encodeRows(
+				row == null ? List.of() : List.of(row),
+				statusRegistry.currentRevision(),
+				statusRegistry.epoch(),
+				true,
+				serverName,
+				null
+			);
 			transportLog("[TX] GET /heartbeat/servers/" + serverName + " status=200 raw=" + formatFormBody(body));
 			return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
 		});
 
 		router.get("/server-selector-config", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối truy vấn /server-selector-config do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 
 			PluginMessageWriter writer = PluginMessageWriter.create();
@@ -146,9 +178,9 @@ public final class VelocityHeartbeatHttpEndpoints {
 		});
 
 		router.get("/messaging-config", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối truy vấn /messaging-config do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 
 			byte[] body = AmqpMessagingConfigCodec.encode(amqpMessagingConfig);
@@ -157,9 +189,9 @@ public final class VelocityHeartbeatHttpEndpoints {
 		});
 
 		router.get("/messaging-config/{server}", request -> {
-			if (!isAuthorized(request.headers())) {
+			if (!authorizer.authorized(request)) {
 				logger.warn("Từ chối truy vấn /messaging-config/{server} do sai token hoặc thiếu token.");
-				return unauthorized();
+				return authorizer.unauthorized();
 			}
 
 			String requestedServer = request.pathParam("server", "").trim();
@@ -205,26 +237,6 @@ public final class VelocityHeartbeatHttpEndpoints {
 
 		String host = nameResolver.serverHost(backendName);
 		return new BackendMetadata(sanitized.name(), sanitized.displayName(), sanitized.accentColor(), host).sanitize();
-	}
-
-	private Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> markSelf(
-		Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> delta,
-		String selfServerName
-	) {
-		if (delta == null || delta.isEmpty()) {
-			return Map.of();
-		}
-
-		Map<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> tagged = new LinkedHashMap<>();
-		String normalizedSelf = normalize(selfServerName);
-		for (Map.Entry<String, dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta> entry : delta.entrySet()) {
-			dev.belikhun.luna.core.api.heartbeat.BackendServerStatusDelta value = entry.getValue();
-			if (value == null) {
-				continue;
-			}
-			tagged.put(entry.getKey(), value.withSelf(normalizedSelf.equals(normalize(value.serverName()))));
-		}
-		return tagged;
 	}
 
 	private void rememberResolvedName(String sourceName, String resolvedServerName) {
@@ -277,42 +289,49 @@ public final class VelocityHeartbeatHttpEndpoints {
 		}
 	}
 
-	private Map<String, BackendServerStatus> buildInitialFullRows() {
-		Map<String, BackendServerStatus> merged = new LinkedHashMap<>();
-		Map<String, BackendServerStatus> current = statusRegistry.snapshot();
+	/**
+	 * The body of a full sync: every configured server, whether or not it has ever
+	 * checked in, so a backend can draw the whole selector before the rest of the
+	 * cluster has reported. Servers that never heartbeat are synthesised as
+	 * offline rows at revision 0 — they are not written into the registry, which
+	 * only ever holds what a backend actually said.
+	 */
+	private List<BackendStatusRow> buildInitialFullRows() {
+		Map<String, BackendStatusRow> merged = new LinkedHashMap<>();
 
 		for (VelocityServerSelectorConfig.ServerDefinition definition : selectorConfig.servers().values()) {
 			String key = normalize(definition.backendName());
-			BackendServerStatus currentStatus = current.get(key);
+			BackendStatusRow currentRow = statusRegistry.row(definition.backendName());
 			BackendMetadata definitionMetadata = resolvedBackendMetadata(selectorConfig.backendMetadata(definition.backendName()), definition.backendName());
-			if (currentStatus == null) {
-				merged.put(key, new BackendServerStatus(
+			if (currentRow == null) {
+				merged.put(key, new BackendStatusRow(new BackendServerStatus(
 					definitionMetadata.name(),
 					definitionMetadata.displayName(),
 					definitionMetadata.accentColor(),
 					false,
 					0L,
 					emptyStats()
-				));
+				), 0L));
 				continue;
 			}
 
+			BackendServerStatus currentStatus = currentRow.status();
 			BackendMetadata currentMetadata = currentStatus.metadata();
-			merged.put(key, new BackendServerStatus(
+			merged.put(key, new BackendStatusRow(new BackendServerStatus(
 				currentMetadata.name(),
 				definitionMetadata.displayName(),
 				definitionMetadata.accentColor().isBlank() ? currentMetadata.accentColor() : definitionMetadata.accentColor(),
 				currentStatus.online(),
 				currentStatus.lastHeartbeatEpochMillis(),
 				currentStatus.stats()
-			));
+			), currentRow.revision()));
 		}
 
-		for (Map.Entry<String, BackendServerStatus> entry : current.entrySet()) {
-			merged.putIfAbsent(entry.getKey(), entry.getValue());
+		for (BackendStatusRow row : statusRegistry.allRows()) {
+			merged.putIfAbsent(normalize(row.serverName()), row);
 		}
 
-		return merged;
+		return new ArrayList<>(merged.values());
 	}
 
 	private BackendHeartbeatStats emptyStats() {
@@ -362,33 +381,6 @@ public final class VelocityHeartbeatHttpEndpoints {
 		return value.trim().toLowerCase(Locale.ROOT);
 	}
 
-	private boolean isAuthorized(Map<String, java.util.List<String>> headers) {
-		if (forwardingSecret.isBlank()) {
-			return false;
-		}
-
-		if (headers == null || headers.isEmpty()) {
-			return false;
-		}
-
-		for (Map.Entry<String, java.util.List<String>> entry : headers.entrySet()) {
-			if (!TOKEN_HEADER.equalsIgnoreCase(entry.getKey())) {
-				continue;
-			}
-
-			for (String value : entry.getValue()) {
-				if (forwardingSecret.equals(value)) {
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	private HttpResponse unauthorized() {
-		return HttpResponse.bytes(401, "unauthorized".getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
-	}
 
 	private void transportLog(String message) {
 		if (!transportLoggingEnabled) {

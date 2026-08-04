@@ -8,6 +8,7 @@ import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
+import dev.belikhun.luna.core.api.serverselector.SelectorStatusResolver;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
@@ -169,21 +170,14 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 		player.createConnectionRequest(target).fireAndForget();
 	}
 
+	/**
+	 * The gate a GUI click passes through. It shares its predicate with the item
+	 * the player clicked, so an item drawn as clickable is one the proxy accepts.
+	 */
 	private ServerSelectorStatus resolveStatus(Player player, String backendName, String permission) {
-		if (permission != null && !permission.isBlank() && !player.hasPermission(permission)) {
-			return ServerSelectorStatus.NOP;
-		}
-
+		boolean noPermission = permission != null && !permission.isBlank() && !player.hasPermission(permission);
 		BackendServerStatus status = statusRegistry.status(backendName).orElse(null);
-		if (status == null || !status.online()) {
-			return ServerSelectorStatus.OFFLINE;
-		}
-
-		if (status.stats() != null && status.stats().whitelistEnabled()) {
-			return ServerSelectorStatus.MAINT;
-		}
-
-		return ServerSelectorStatus.ONLINE;
+		return ServerSelectorStatus.valueOf(SelectorStatusResolver.resolve(status, noPermission));
 	}
 
 	private String messageForStatus(ServerSelectorStatus status, Map<String, String> values) {

@@ -9,6 +9,7 @@ import dev.belikhun.luna.core.api.database.DatabaseManager;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.paper.help.HelpBasicCommand;
 import dev.belikhun.luna.core.paper.help.HelpCommandListener;
@@ -19,14 +20,10 @@ import dev.belikhun.luna.core.api.logging.LogColor;
 import dev.belikhun.luna.core.api.logging.LogLevel;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
-import dev.belikhun.luna.core.api.messaging.CoreHeartbeatMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
-import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
-import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.migration.MigrationManager;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.api.string.MessageFormatter;
-import dev.belikhun.luna.core.paper.heartbeat.PaperBackendStatusView;
 import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPublisher;
 import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPlayerListener;
 import dev.belikhun.luna.core.paper.migration.CoreConfigMigrations;
@@ -80,31 +77,25 @@ public final class LunaCorePlugin extends JavaPlugin {
 		HttpServerManager httpServerManager = new HttpServerManager(this, configStore, messageFormatter, logger);
 		httpServerManager.startIfEnabled();
 		coreLogger.audit("HTTP manager đã sẵn sàng.");
-		PaperBackendStatusView backendStatusView = new PaperBackendStatusView();
-		PaperHeartbeatPublisher heartbeatPublisher = new PaperHeartbeatPublisher(this, configStore, logger, backendStatusView);
+		// listeners re-render open inventories, so they run on the main thread
+		BackendStatusStore backendStatusStore = new BackendStatusStore(logger, task -> getServer().getScheduler().runTask(this, task));
+		PaperHeartbeatPublisher heartbeatPublisher = new PaperHeartbeatPublisher(this, configStore, logger, backendStatusStore);
 		boolean pluginMessagingLogsEnabled = configStore.get("logging.pluginMessaging.enabled").asBoolean(false);
 		PaperPluginMessagingBus pluginMessaging = new PaperPluginMessagingBus(
 			this,
 			logger,
 			pluginMessagingLogsEnabled,
-			() -> backendStatusView.currentBackendMetadata()
+			() -> backendStatusStore.currentBackendMetadata()
 				.orElseGet(() -> new BackendMetadata(PaperHeartbeatPublisher.resolveServerName(this, configStore), "", "").sanitize())
 		);
-		pluginMessaging.registerIncoming(CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH, context -> {
-			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			String reason = reader.readUtf();
-			String backendName = reader.readUtf();
-			coreLogger.debug("Nhận yêu cầu heartbeat publish ngay từ proxy. reason=" + reason + ", backend=" + backendName);
-			heartbeatPublisher.publishNow();
-			return PluginMessageDispatchResult.HANDLED;
-		});
 		ToastService toastService = new AdvancementToastService(this);
 		coreLogger.audit("Plugin messaging bus đã sẵn sàng.");
 		boolean selectorDiagnosticsEnabled = configStore.get("diagnostics.selector.enabled").asBoolean(true);
 		long selectorRefreshWarnThresholdMs = Math.max(1L, configStore.get("diagnostics.selector.refreshWarnThresholdMs").asLong(200L));
 		PaperServerSelectorController selectorController = new PaperServerSelectorController(
 			this,
-			backendStatusView,
+			backendStatusStore,
+			heartbeatPublisher,
 			pluginMessaging,
 			logger,
 			selectorDiagnosticsEnabled,
@@ -130,8 +121,8 @@ public final class LunaCorePlugin extends JavaPlugin {
 		dependencyManager.registerSingleton(ToastService.class, toastService);
 		dependencyManager.registerSingleton(Router.class, httpServerManager.router());
 		dependencyManager.registerSingleton(UserProfileRepository.class, userProfileRepository);
-		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusView);
-		dependencyManager.registerSingleton(PaperBackendStatusView.class, backendStatusView);
+		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusStore);
+		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(PaperHeartbeatPublisher.class, heartbeatPublisher);
 		dependencyManager.registerSingleton(PaperServerSelectorController.class, selectorController);
 		dependencyManager.registerSingleton(MigrationManager.class, migrationManager);
@@ -151,7 +142,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 			userProfileRepository,
 			pluginMessaging,
 			toastService,
-			backendStatusView,
+			backendStatusStore,
 			heartbeatPublisher
 		);
 
@@ -160,7 +151,7 @@ public final class LunaCorePlugin extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
 		Bukkit.getPluginManager().registerEvents(new PaperHeartbeatPlayerListener(heartbeatPublisher), this);
 		registerSimpleVoiceChatCompat(coreLogger);
-		registerPlaceholderExpansion(coreLogger, backendStatusView);
+		registerPlaceholderExpansion(coreLogger, backendStatusStore);
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
 				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));

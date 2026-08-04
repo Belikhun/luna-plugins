@@ -10,7 +10,7 @@ import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
 import dev.belikhun.luna.core.neoforge.LunaCoreNeoForgeServices;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreConfigLoader;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreRuntimeConfig;
-import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeBackendStatusView;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeHeartbeatPublisher;
 import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
 import dev.belikhun.luna.core.neoforge.placeholder.BuiltInNeoForgePlaceholderService;
@@ -68,8 +68,9 @@ public final class LunaCoreNeoForgeMod {
 			localServerName = "backend";
 		}
 		PermissionService permissionService = new LuckPermsService();
-		NeoForgeBackendStatusView backendStatusView = new NeoForgeBackendStatusView();
-		heartbeatPublisher = new NeoForgeHeartbeatPublisher(server, logger, runtimeConfig.heartbeatConfig(), amqpMessagingConfig, backendStatusView);
+		// listeners re-render open menus, so they run on the server thread
+		BackendStatusStore backendStatusStore = new BackendStatusStore(logger, server::execute);
+		heartbeatPublisher = new NeoForgeHeartbeatPublisher(server, logger, runtimeConfig.heartbeatConfig(), amqpMessagingConfig, backendStatusStore);
 		placeholderService = new BuiltInNeoForgePlaceholderService(
 			logger,
 			server,
@@ -84,8 +85,8 @@ public final class LunaCoreNeoForgeMod {
 		dependencyManager.registerSingleton(NeoForgeCoreRuntimeConfig.class, runtimeConfig);
 		dependencyManager.registerSingleton(AmqpMessagingConfig.class, amqpMessagingConfig);
 		dependencyManager.registerSingleton(PermissionService.class, permissionService);
-		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusView);
-		dependencyManager.registerSingleton(NeoForgeBackendStatusView.class, backendStatusView);
+		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusStore);
+		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(NeoForgeHeartbeatPublisher.class, heartbeatPublisher);
 		dependencyManager.registerSingleton(NeoForgePlaceholderService.class, placeholderService);
 		dependencyManager.registerSingleton(NeoForgeServerSelectorController.class, serverSelectorController);

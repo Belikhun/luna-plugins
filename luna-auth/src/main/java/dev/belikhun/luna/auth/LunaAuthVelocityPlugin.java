@@ -22,6 +22,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
+import dev.belikhun.luna.auth.http.AuthHttpEndpoints;
 import dev.belikhun.luna.core.api.auth.AuthChannels;
 import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
@@ -36,7 +37,10 @@ import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
+import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import net.kyori.adventure.text.Component;
 
@@ -248,6 +252,7 @@ public final class LunaAuthVelocityPlugin {
 		this.authService.cleanupHistoryRetention(retentionDays);
 
 		registerCommands();
+		registerHttpEndpoints();
 		this.initialized = true;
 		logger.success("LunaAuth Velocity đã khởi động thành công.");
 		if (mixedModeQuickLoginEnabled && !proxyServer.getConfiguration().isOnlineMode()) {
@@ -623,6 +628,33 @@ public final class LunaAuthVelocityPlugin {
 		manager.register(manager.metaBuilder("logout").aliases("lo").build(), new LogoutCommand(authService, this::syncAuthState));
 		CommandMeta authMeta = manager.metaBuilder("auth").aliases("lauth").build();
 		manager.register(authMeta, new AuthAdminCommand(proxyServer, authService, this::syncAuthState, this::sendSetSpawnRequest, this::setModePreferenceByCommand, premiumUuidEnabled, uuidOverrideMap.size()));
+	}
+
+	/**
+	 * Expose account administration on LunaCore's HTTP server.
+	 *
+	 * The console needs to act on players who cannot get in, which the in-game
+	 * /auth command cannot do — it only ever addresses connected players.
+	 */
+	private void registerHttpEndpoints() {
+		VelocityHttpServerManager httpServerManager = LunaCoreVelocity.services().httpServerManager();
+
+		if (httpServerManager == null) {
+			logger.warn("LunaCore không có HTTP server — bỏ qua endpoint auth.");
+			return;
+		}
+
+		String secret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger);
+		RequestAuthorizer authorizer = new RequestAuthorizer(secret);
+
+		if (!authorizer.configured()) {
+			logger.warn("Chưa có forwarding secret — endpoint auth sẽ trả về 401.");
+		}
+
+		new AuthHttpEndpoints(logger, proxyServer, authService, this::syncAuthState, authorizer)
+			.register(httpServerManager.router());
+
+		logger.audit("Đã đăng ký endpoint /auth/accounts/{player}.");
 	}
 
 	private void sendSetSpawnRequest(Player target, String actorName) {

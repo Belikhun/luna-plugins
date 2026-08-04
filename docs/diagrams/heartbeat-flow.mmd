@@ -1,11 +1,29 @@
 sequenceDiagram
-    participant Paper as LunaCore Paper
-    participant Http as Velocity HTTP Endpoint
-    participant Registry as Backend Status Registry
-    participant Velocity as LunaCore Velocity
+    participant Backend as LunaCore backend (Paper / NeoForge)
+    participant Http as Velocity HTTP endpoint
+    participant Registry as Backend status registry
+    participant Stream as Registry stream (SSE)
 
-    Paper->>Http: POST /api/heartbeat/{server}
-    Http->>Registry: upsert backend status
-    Registry-->>Velocity: emit status update / revision change
-    Http-->>Paper: selector payload + messaging config delta
-    Paper->>Paper: refresh synced selector and AMQP config
+    Note over Backend,Stream: on start — the mirror is empty, so the cursor asks for everything
+    Backend->>Http: GET /api/heartbeat/stream
+    Stream-->>Backend: event: snapshot (every row + epoch)
+    Backend->>Http: GET /api/server-selector-config
+    Http-->>Backend: selector layout (open-v8)
+
+    loop every heartbeat.intervalSeconds
+        Backend->>Http: POST /api/heartbeat/{server}?since=R&epoch=E
+        Http->>Registry: upsert own status (new revision)
+        Registry-->>Http: whole rows with revision > R
+        Http-->>Backend: rows + epoch + registry revision
+        Note right of Backend: the cursor advances only here — a stream event<br/>says nothing about rows still owed
+        Backend->>Http: GET /server-selector-config (checksum-guarded)
+    end
+
+    Note over Registry,Backend: any change — another backend's heartbeat, a timeout sweep
+    Registry-->>Stream: status changed
+    Stream-->>Backend: event: row (whole row)
+    Backend->>Backend: merge row, redraw open selector menus
+
+    Note over Backend,Http: proxy restarted — the epoch no longer matches the cursor
+    Backend->>Http: POST /api/heartbeat/{server}?since=R&epoch=(old)
+    Http-->>Backend: fullSync=true, every row, new epoch

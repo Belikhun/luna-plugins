@@ -28,8 +28,15 @@ public final class AuthRepository {
 				+ "lockout_until BIGINT NOT NULL, "
 				+ "last_login_at BIGINT NOT NULL, "
 				+ "created_at BIGINT NOT NULL, "
-				+ "updated_at BIGINT NOT NULL"
+				+ "updated_at BIGINT NOT NULL, "
+				+ "temp_password_until BIGINT NOT NULL DEFAULT 0"
 				+ ")",
+			List.of()
+		);
+		// existing installs predate the temporary-password column; MariaDB's
+		// IF NOT EXISTS makes this a no-op once it has been added
+		database.update(
+			"ALTER TABLE luna_auth_accounts ADD COLUMN IF NOT EXISTS temp_password_until BIGINT NOT NULL DEFAULT 0",
 			List.of()
 		);
 		database.update(
@@ -113,7 +120,7 @@ public final class AuthRepository {
 
 	public Optional<AuthAccount> find(UUID playerUuid) {
 		return database.first(
-			"SELECT player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at "
+			"SELECT player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at, temp_password_until "
 				+ "FROM luna_auth_accounts WHERE player_uuid = ?",
 			List.of(playerUuid.toString())
 		).map(this::mapAccount);
@@ -121,7 +128,7 @@ public final class AuthRepository {
 
 	public Optional<AuthAccount> findByUsername(String username) {
 		return database.first(
-			"SELECT player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at "
+			"SELECT player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at, temp_password_until "
 				+ "FROM luna_auth_accounts WHERE LOWER(username) = ?",
 			List.of(username.toLowerCase())
 		).map(this::mapAccount);
@@ -129,7 +136,7 @@ public final class AuthRepository {
 
 	public void upsert(AuthAccount account) {
 		int updated = database.update(
-			"UPDATE luna_auth_accounts SET username = ?, password_hash = ?, last_ip = ?, failed_attempts = ?, lockout_until = ?, last_login_at = ?, updated_at = ? WHERE player_uuid = ?",
+			"UPDATE luna_auth_accounts SET username = ?, password_hash = ?, last_ip = ?, failed_attempts = ?, lockout_until = ?, last_login_at = ?, updated_at = ?, temp_password_until = ? WHERE player_uuid = ?",
 			List.of(
 				account.username(),
 				account.passwordHash(),
@@ -138,6 +145,7 @@ public final class AuthRepository {
 				account.lockoutUntilEpochMillis(),
 				account.lastLoginAtEpochMillis(),
 				account.updatedAtEpochMillis(),
+				account.temporaryPasswordUntilEpochMillis(),
 				account.playerUuid().toString()
 			)
 		);
@@ -146,7 +154,7 @@ public final class AuthRepository {
 		}
 
 		database.update(
-			"INSERT INTO luna_auth_accounts (player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			"INSERT INTO luna_auth_accounts (player_uuid, username, password_hash, last_ip, failed_attempts, lockout_until, last_login_at, created_at, updated_at, temp_password_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			List.of(
 				account.playerUuid().toString(),
 				account.username(),
@@ -156,13 +164,15 @@ public final class AuthRepository {
 				account.lockoutUntilEpochMillis(),
 				account.lastLoginAtEpochMillis(),
 				account.createdAtEpochMillis(),
-				account.updatedAtEpochMillis()
+				account.updatedAtEpochMillis(),
+				account.temporaryPasswordUntilEpochMillis()
 			)
 		);
 	}
 
 	public void deletePassword(UUID playerUuid, String fallbackIp, String fallbackUsername, long now) {
-		AuthAccount current = find(playerUuid).orElse(new AuthAccount(playerUuid, fallbackUsername, "", fallbackIp, 0, 0L, 0L, now, now));
+		AuthAccount current = find(playerUuid).orElse(new AuthAccount(playerUuid, fallbackUsername, "", fallbackIp, 0, 0L, 0L, now, now, 0L));
+		// the temporary marker goes with the password it described
 		upsert(new AuthAccount(
 			current.playerUuid(),
 			current.username(),
@@ -172,7 +182,8 @@ public final class AuthRepository {
 			0L,
 			current.lastLoginAtEpochMillis(),
 			current.createdAtEpochMillis(),
-			now
+			now,
+			0L
 		));
 	}
 
@@ -282,7 +293,8 @@ public final class AuthRepository {
 			DatabaseValues.longValue(row.get("lockout_until"), 0L),
 			DatabaseValues.longValue(row.get("last_login_at"), 0L),
 			DatabaseValues.longValue(row.get("created_at"), 0L),
-			DatabaseValues.longValue(row.get("updated_at"), 0L)
+			DatabaseValues.longValue(row.get("updated_at"), 0L),
+			DatabaseValues.longValue(row.get("temp_password_until"), 0L)
 		);
 	}
 

@@ -2,9 +2,10 @@ package dev.belikhun.luna.core.neoforge.heartbeat;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
+import dev.belikhun.luna.core.api.heartbeat.BackendRegistryClient;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
-import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeCoreRuntimeConfig;
 import dev.belikhun.luna.core.neoforge.config.NeoForgeForwardingSecretResolver;
 import net.minecraft.SharedConstants;
@@ -13,50 +14,44 @@ import net.minecraft.server.players.PlayerList;
 
 import java.lang.management.ManagementFactory;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.function.Consumer;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * NeoForge's adapter around {@link BackendRegistryClient}. It collects this
+ * server's stats on the server thread and owns the publish schedule; the
+ * conversation with the proxy is the shared client's, identical to Paper's.
+ */
 public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 	private final MinecraftServer server;
 	private final LunaLogger logger;
 	private final NeoForgeCoreRuntimeConfig.HeartbeatConfig config;
 	private final AmqpMessagingConfig amqpMessagingConfig;
-	private final NeoForgeBackendStatusView statusView;
+	private final BackendStatusStore statusStore;
+	private final BackendRegistryClient registryClient;
 	private final ScheduledExecutorService executor;
 	private final long bootEpochMillis;
 
 	private volatile ScheduledFuture<?> task;
-	private volatile HttpClient client;
-	private volatile URI heartbeatUri;
-	private volatile String heartbeatSecret;
-	private volatile int heartbeatReadTimeoutMillis;
-	private volatile boolean transportLoggingEnabled;
-	private volatile Consumer<byte[]> selectorPayloadConsumer;
-	private volatile long selectorPayloadChecksum;
-	private volatile long lastSnapshotRevision;
+	private volatile int readTimeoutMillis;
 
 	public NeoForgeHeartbeatPublisher(
 		MinecraftServer server,
 		LunaLogger logger,
 		NeoForgeCoreRuntimeConfig.HeartbeatConfig config,
 		AmqpMessagingConfig amqpMessagingConfig,
-		NeoForgeBackendStatusView statusView
+		BackendStatusStore statusStore
 	) {
 		this.server = server;
 		this.logger = logger.scope("Heartbeat");
 		this.config = config == null ? NeoForgeCoreRuntimeConfig.HeartbeatConfig.defaults() : config.sanitize();
 		this.amqpMessagingConfig = amqpMessagingConfig == null ? AmqpMessagingConfig.disabled() : amqpMessagingConfig.sanitize();
-		this.statusView = statusView == null ? new NeoForgeBackendStatusView() : statusView;
+		this.statusStore = statusStore == null ? new BackendStatusStore(logger, server::execute) : statusStore;
+		this.registryClient = new BackendRegistryClient(logger, this.statusStore);
 		this.executor = Executors.newSingleThreadScheduledExecutor(task -> {
 			Thread thread = new Thread(task, "luna-neoforge-heartbeat");
 			thread.setDaemon(true);
@@ -64,18 +59,15 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		});
 		this.bootEpochMillis = System.currentTimeMillis();
 		this.task = null;
-		this.client = null;
-		this.heartbeatUri = null;
-		this.heartbeatSecret = "";
-		this.heartbeatReadTimeoutMillis = this.config.readTimeoutMillis();
-		this.transportLoggingEnabled = this.config.transportLoggingEnabled();
-		this.selectorPayloadConsumer = null;
-		this.selectorPayloadChecksum = 0L;
-		this.lastSnapshotRevision = -1L;
+		this.readTimeoutMillis = this.config.readTimeoutMillis();
+	}
+
+	public BackendRegistryClient registryClient() {
+		return registryClient;
 	}
 
 	public BackendMetadata currentBackendMetadata() {
-		return statusView.currentBackendMetadata().orElse(null);
+		return statusStore.currentBackendMetadata().orElse(null);
 	}
 
 	public void start() {
@@ -101,16 +93,19 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 			return;
 		}
 
-		client = HttpClient.newBuilder()
-			.connectTimeout(Duration.ofMillis(config.connectTimeoutMillis()))
-			.build();
-		heartbeatUri = uri;
-		heartbeatSecret = secret;
-		heartbeatReadTimeoutMillis = config.readTimeoutMillis();
-		transportLoggingEnabled = config.transportLoggingEnabled();
-		lastSnapshotRevision = -1L;
+		readTimeoutMillis = config.readTimeoutMillis();
+		registryClient.start(
+			uri,
+			secret,
+			config.connectTimeoutMillis(),
+			readTimeoutMillis,
+			true,
+			config.transportLoggingEnabled(),
+			this::collectStatsQuietly
+		);
+
 		task = executor.scheduleAtFixedRate(
-			() -> postHeartbeat(true),
+			this::publishTick,
 			1L,
 			Math.max(1L, config.intervalSeconds()),
 			TimeUnit.SECONDS
@@ -123,15 +118,15 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		if (task == null) {
 			return;
 		}
-		executor.execute(() -> postHeartbeat(true));
+		executor.execute(() -> registryClient.publish(true));
 	}
 
 	public void setSelectorPayloadConsumer(Consumer<byte[]> selectorPayloadConsumer) {
-		this.selectorPayloadConsumer = selectorPayloadConsumer;
+		registryClient.setSelectorPayloadConsumer(selectorPayloadConsumer);
 	}
 
 	public void syncServerSelectorConfigNow() {
-		executor.execute(() -> fetchServerSelectorConfig(heartbeatUri, heartbeatSecret, heartbeatReadTimeoutMillis));
+		executor.execute(registryClient::syncSelectorConfigNow);
 	}
 
 	public void stop() {
@@ -156,90 +151,29 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		}
 
 		if (sendOfflineMarker) {
-			postHeartbeat(false);
+			registryClient.publish(false);
 		}
+
+		registryClient.stop();
 	}
 
-	private void postHeartbeat(boolean online) {
-		URI uri = heartbeatUri;
-		String secret = heartbeatSecret;
-		HttpClient currentClient = client;
-		if (uri == null || secret == null || secret.isBlank() || currentClient == null) {
-			return;
-		}
+	private void publishTick() {
+		registryClient.publish(true);
 
-		try {
-			long startedAt = System.currentTimeMillis();
-			URI requestUri = withSinceQuery(uri, lastSnapshotRevision);
-			BackendHeartbeatStats stats = collectStats(online);
-			Map<String, String> bodyFields = HeartbeatFormCodec.encodeStats(stats);
-			bodyFields.put("online", String.valueOf(online));
-			bodyFields.put("clientSentEpochMillis", String.valueOf(startedAt));
-			String body = HeartbeatFormCodec.encodeToString(bodyFields);
-			transportLog("[TX] POST " + requestUri + " online=" + online + " since=" + lastSnapshotRevision + " body=" + body);
-
-			HttpRequest request = HttpRequest.newBuilder(requestUri)
-				.header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
-				.header("X-Luna-Forwarding-Secret", secret)
-				.timeout(Duration.ofMillis(heartbeatReadTimeoutMillis))
-				.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-				.build();
-
-			HttpResponse<byte[]> response = currentClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-			transportLog("[RX] POST " + requestUri + " status=" + response.statusCode() + " body=" + formatFormBody(response.body()));
-			if (response.statusCode() != 200) {
-				logger.warn("Heartbeat NeoForge nhận statusCode=" + response.statusCode() + " online=" + online);
-				return;
-			}
-
-			HeartbeatFormCodec.HeartbeatSnapshotPayload payload = HeartbeatFormCodec.decodeSnapshotPayload(response.body());
-			if (payload.fullSync()) {
-				statusView.updateSnapshot(payload);
-			} else {
-				statusView.applyDelta(payload);
-			}
-			lastSnapshotRevision = Math.max(lastSnapshotRevision, payload.revision());
-
-			fetchServerSelectorConfig(uri, secret, heartbeatReadTimeoutMillis);
-		} catch (Exception exception) {
-			logger.debug("Heartbeat NeoForge lỗi online=" + online + ": " + exception.getMessage());
-		}
+		// same fallback as Paper: an unchanged layout costs one checksum compare
+		registryClient.syncSelectorConfigNow();
 	}
 
-	private void fetchServerSelectorConfig(URI heartbeatRequestUri, String secret, int readTimeoutMillis) {
-		Consumer<byte[]> consumer = selectorPayloadConsumer;
-		if (consumer == null || heartbeatRequestUri == null || secret == null || secret.isBlank()) {
-			return;
-		}
-
+	/**
+	 * Stats collection hops to the server thread, and the shared client wants a
+	 * plain supplier — a failure there means one skipped beat, not a broken one.
+	 */
+	private BackendHeartbeatStats collectStatsQuietly() {
 		try {
-			URI selectorUri = siblingConfigUri(heartbeatRequestUri, "/server-selector-config");
-			if (selectorUri == null) {
-				return;
-			}
-			transportLog("[TX] GET " + selectorUri + " kind=server-selector-config");
-
-			HttpRequest request = HttpRequest.newBuilder(selectorUri)
-				.header("X-Luna-Forwarding-Secret", secret)
-				.timeout(Duration.ofMillis(readTimeoutMillis))
-				.GET()
-				.build();
-
-			HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
-			transportLog("[RX] GET " + selectorUri + " status=" + response.statusCode() + " kind=server-selector-config body=" + formatBinaryBody(response.body()));
-			if (response.statusCode() != 200 || response.body() == null || response.body().length == 0) {
-				return;
-			}
-
-			long checksum = checksum(response.body());
-			if (checksum == selectorPayloadChecksum) {
-				return;
-			}
-
-			selectorPayloadChecksum = checksum;
-			consumer.accept(response.body());
+			return collectStats(true);
 		} catch (Exception exception) {
-			logger.debug("Heartbeat selector sync NeoForge lỗi: " + exception.getMessage());
+			logger.debug("Không thu thập được stats NeoForge: " + exception.getMessage());
+			return collectStatsOnServer(false);
 		}
 	}
 
@@ -257,7 +191,7 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 			}
 		});
 
-		return future.get(Math.max(1000L, heartbeatReadTimeoutMillis), TimeUnit.MILLISECONDS);
+		return future.get(Math.max(1000L, readTimeoutMillis), TimeUnit.MILLISECONDS);
 	}
 
 	private boolean isServerThread() {
@@ -486,63 +420,4 @@ public final class NeoForgeHeartbeatPublisher implements AutoCloseable {
 		return out.toString();
 	}
 
-	private URI withSinceQuery(URI baseUri, long sinceRevision) {
-		if (baseUri == null) {
-			return null;
-		}
-
-		String separator = baseUri.toString().contains("?") ? "&" : "?";
-		return URI.create(baseUri + separator + "since=" + sinceRevision);
-	}
-
-	private void transportLog(String message) {
-		if (!transportLoggingEnabled) {
-			return;
-		}
-		logger.audit("Heartbeat transport: " + message);
-	}
-
-	private String formatFormBody(byte[] body) {
-		if (body == null || body.length == 0) {
-			return "<empty>";
-		}
-		return new String(body, StandardCharsets.UTF_8);
-	}
-
-	private URI siblingConfigUri(URI heartbeatRequestUri, String endpointSuffix) {
-		if (heartbeatRequestUri == null) {
-			return null;
-		}
-
-		String path = heartbeatRequestUri.getPath();
-		if (path == null || path.isBlank()) {
-			return null;
-		}
-
-		int heartbeatMarker = path.indexOf("/heartbeat/");
-		String siblingPath;
-		if (heartbeatMarker >= 0) {
-			String prefix = path.substring(0, heartbeatMarker);
-			siblingPath = (prefix.isBlank() ? "" : prefix) + endpointSuffix;
-		} else {
-			siblingPath = endpointSuffix;
-		}
-
-		return URI.create(heartbeatRequestUri.getScheme() + "://" + heartbeatRequestUri.getAuthority() + siblingPath);
-	}
-
-	private long checksum(byte[] body) {
-		long result = 1125899906842597L;
-		for (byte value : body) {
-			result = 31L * result + value;
-		}
-		return result;
-	}
-
-	private String formatBinaryBody(byte[] body) {
-		if (body == null || body.length == 0) {
-			return "<empty>";
-		}
-		return "<" + body.length + " bytes>";
-	}
 }

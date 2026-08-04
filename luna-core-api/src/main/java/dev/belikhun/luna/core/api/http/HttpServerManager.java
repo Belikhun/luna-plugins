@@ -17,8 +17,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 
 public final class HttpServerManager {
+	/** Concurrent exchanges served. Handlers are short-lived; streams do not hold one. */
+	private static final int HANDLER_THREADS = 4;
+
 	@SuppressWarnings("unused")
 	private final Plugin plugin;
 	private final ConfigStore configStore;
@@ -67,7 +71,14 @@ public final class HttpServerManager {
 		try {
 			server = HttpServer.create(new InetSocketAddress(host, port), 0);
 			server.createContext(pathPrefix, this::handle);
-			server.setExecutor(null);
+			// A null executor serves every exchange on the acceptor thread, so one slow
+			// handler stalls the rest. Streaming routes need a thread free while a
+			// stream is being opened.
+			server.setExecutor(Executors.newFixedThreadPool(HANDLER_THREADS, task -> {
+				Thread thread = new Thread(task, "luna-http-" + port);
+				thread.setDaemon(true);
+				return thread;
+			}));
 			server.start();
 			logger.success("HTTP server đã chạy tại " + host + ":" + port + pathPrefix);
 		} catch (IOException exception) {
@@ -105,6 +116,15 @@ public final class HttpServerManager {
 		for (Map.Entry<String, String> header : response.headers().entrySet()) {
 			exchange.getResponseHeaders().set(header.getKey(), header.getValue());
 		}
+
+		if (response.streamer() != null) {
+			// Length 0 means "chunked, no fixed length"; the exchange stays open after
+			// this handler returns and is closed by the stream itself.
+			exchange.sendResponseHeaders(response.status(), 0);
+			response.streamer().open(new SseStream(exchange.getResponseBody(), exchange::close));
+			return;
+		}
+
 		byte[] payload = response.body();
 		exchange.sendResponseHeaders(response.status(), payload.length);
 		try (OutputStream outputStream = exchange.getResponseBody()) {

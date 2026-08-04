@@ -1,10 +1,14 @@
 package dev.belikhun.luna.core.velocity.dashboard;
 
+import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEvent;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.http.HttpResponse;
+import dev.belikhun.luna.core.api.http.LunaJson;
+import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.api.http.Router;
+import dev.belikhun.luna.core.api.http.SseBroadcaster;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.serverselector.ServerSelectorEngine;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
@@ -18,51 +22,127 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+/**
+ * Read-only network telemetry for the control console.
+ *
+ * Every route is token-gated like the heartbeat endpoints: the payload exposes
+ * player counts, MOTDs and host names, which is not public information even on a
+ * LAN. `/dashboard/stream` is the push counterpart of `/dashboard/backends` —
+ * subscribers get a full snapshot on connect and then one event per heartbeat, so
+ * the console never has to poll.
+ */
 public final class VelocityDashboardHttpEndpoints {
 	private final LunaLogger logger;
 	private final VelocityBackendStatusRegistry statusRegistry;
 	private final VelocityServerSelectorConfig selectorConfig;
+	private final RequestAuthorizer authorizer;
+	private final SseBroadcaster broadcaster;
 
 	public VelocityDashboardHttpEndpoints(
 		LunaLogger logger,
 		VelocityBackendStatusRegistry statusRegistry,
-		VelocityServerSelectorConfig selectorConfig
+		VelocityServerSelectorConfig selectorConfig,
+		RequestAuthorizer authorizer,
+		SseBroadcaster broadcaster
 	) {
 		this.logger = logger.scope("DashboardHttp");
 		this.statusRegistry = statusRegistry;
 		this.selectorConfig = selectorConfig;
+		this.authorizer = authorizer;
+		this.broadcaster = broadcaster;
 	}
 
 	public void register(Router router) {
 		router.get("/dashboard/backends", request -> {
+			if (!authorizer.authorized(request)) {
+				logger.warn("Từ chối truy vấn /dashboard/backends do sai token hoặc thiếu token.");
+				return authorizer.unauthorized();
+			}
+
 			long startedAt = System.nanoTime();
-			Map<String, BackendServerStatus> statuses = resolvedStatuses();
-			ServerSelectorEngine.DashboardStats dashboardStats = ServerSelectorEngine.dashboardStats(statuses);
-			Map<String, Object> payload = new LinkedHashMap<>();
-			payload.put("generatedAtEpochMillis", System.currentTimeMillis());
-			payload.put("overallHealth", overallHealth(statuses, dashboardStats));
-			payload.put("counts", buildCounts(statuses));
-			payload.put("summary", buildSummary(dashboardStats));
-			payload.put("backends", buildBackendCards(statuses));
-			return jsonResponse(200, payload, startedAt);
+			return LunaJson.envelope(200, buildSnapshot(), startedAt);
 		});
 
 		router.get("/dashboard/backends/{server}", request -> {
+			if (!authorizer.authorized(request)) {
+				logger.warn("Từ chối truy vấn /dashboard/backends/{server} do sai token hoặc thiếu token.");
+				return authorizer.unauthorized();
+			}
+
 			long startedAt = System.nanoTime();
 			String serverName = normalize(request.pathParam("server", ""));
 			if (serverName.isBlank()) {
-				return jsonResponse(400, Map.of("error", "server name is required"), startedAt);
+				return LunaJson.error(400, "server name is required");
 			}
 
 			Map<String, BackendServerStatus> statuses = resolvedStatuses();
 			BackendServerStatus status = statuses.get(serverName);
 			if (status == null) {
 				logger.debug("Không tìm thấy backend dashboard cho " + serverName);
-				return jsonResponse(404, Map.of("error", "backend not found", "server", serverName), startedAt);
+				return LunaJson.error(404, "backend not found: " + serverName);
 			}
 
-			return jsonResponse(200, buildBackendDetail(status), startedAt);
+			return LunaJson.envelope(200, buildBackendDetail(status), startedAt);
 		});
+
+		router.get("/dashboard/stream", request -> {
+			if (!authorizer.authorized(request)) {
+				logger.warn("Từ chối truy vấn /dashboard/stream do sai token hoặc thiếu token.");
+				return authorizer.unauthorized();
+			}
+
+			logger.debug("Console mở stream telemetry.");
+			return broadcaster.subscribe(stream -> stream.event("snapshot", LunaJson.write(buildSnapshot())));
+		});
+	}
+
+	/**
+	 * Push one backend's card to every console stream. Registered as a heartbeat
+	 * listener, so this runs on the HTTP handler thread that accepted the heartbeat —
+	 * it therefore does no work at all while nobody is subscribed.
+	 */
+	public void onHeartbeatEvent(BackendHeartbeatEvent event) {
+		if (event == null || event.current() == null || broadcaster.size() == 0) {
+			return;
+		}
+
+		Map<String, BackendServerStatus> statuses = resolvedStatuses();
+		BackendServerStatus current = statuses.getOrDefault(
+			normalize(event.current().serverName()),
+			event.current()
+		);
+		ServerSelectorEngine.DashboardStats dashboardStats = ServerSelectorEngine.dashboardStats(statuses);
+
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("generatedAtEpochMillis", System.currentTimeMillis());
+		payload.put("overallHealth", overallHealth(statuses, dashboardStats));
+		payload.put("counts", buildCounts(statuses));
+		payload.put("summary", buildSummary(dashboardStats));
+		payload.put("backend", buildBackendCard(current));
+
+		broadcaster.broadcast(eventName(event), LunaJson.write(payload));
+	}
+
+	private String eventName(BackendHeartbeatEvent event) {
+		return switch (event.type()) {
+			case SERVER_ONLINE -> "backend-online";
+			case SERVER_OFFLINE -> "backend-offline";
+			default -> "backend";
+		};
+	}
+
+	/** The full network snapshot, shared by the polled route and the stream's first event. */
+	private Map<String, Object> buildSnapshot() {
+		Map<String, BackendServerStatus> statuses = resolvedStatuses();
+		ServerSelectorEngine.DashboardStats dashboardStats = ServerSelectorEngine.dashboardStats(statuses);
+
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("generatedAtEpochMillis", System.currentTimeMillis());
+		payload.put("overallHealth", overallHealth(statuses, dashboardStats));
+		payload.put("counts", buildCounts(statuses));
+		payload.put("summary", buildSummary(dashboardStats));
+		payload.put("backends", buildBackendCards(statuses));
+		return payload;
 	}
 
 	private Map<String, BackendServerStatus> resolvedStatuses() {
@@ -137,9 +217,9 @@ public final class VelocityDashboardHttpEndpoints {
 		Map<String, Object> summary = new LinkedHashMap<>();
 		summary.put("onlinePlayers", dashboardStats.totalOnlinePlayers());
 		summary.put("onlineServerCount", dashboardStats.onlineServerCount());
-		summary.put("averageTps", round(dashboardStats.averageTps()));
-		summary.put("averageCpu", round(dashboardStats.averageCpu()));
-		summary.put("averageLatencyMillis", round(dashboardStats.averageLatency()));
+		summary.put("averageTps", LunaJson.round(dashboardStats.averageTps()));
+		summary.put("averageCpu", LunaJson.round(dashboardStats.averageCpu()));
+		summary.put("averageLatencyMillis", LunaJson.round(dashboardStats.averageLatency()));
 		summary.put("totalRamUsedBytes", dashboardStats.totalRamUsedBytes());
 		summary.put("totalRamMaxBytes", dashboardStats.totalRamMaxBytes());
 		summary.put("longestUptimeMillis", dashboardStats.maxUptimeMillis());
@@ -180,23 +260,7 @@ public final class VelocityDashboardHttpEndpoints {
 
 	private Map<String, Object> buildBackendDetail(BackendServerStatus status) {
 		BackendHeartbeatStats stats = status.stats();
-		VelocityServerSelectorConfig.ServerDefinition definition = selectorConfig.server(status.serverName());
-		String statusText = resolvedStatus(status);
-
-		Map<String, Object> detail = new LinkedHashMap<>();
-		detail.put("generatedAtEpochMillis", System.currentTimeMillis());
-		detail.put("id", normalize(status.serverName()));
-		detail.put("name", status.serverName());
-		detail.put("displayName", status.serverDisplay());
-		detail.put("accentColor", safe(status.serverAccentColor()));
-		detail.put("hostName", hostName(status.serverName()));
-		detail.put("status", statusText);
-		detail.put("statusIcon", selectorConfig.icon(serverSelectorStatus(statusText)));
-		detail.put("statusColor", selectorConfig.color(serverSelectorStatus(statusText)));
-		detail.put("online", status.online());
-		detail.put("lastHeartbeatEpochMillis", status.lastHeartbeatEpochMillis());
-		detail.put("description", description(definition, statusText));
-		detail.put("metrics", buildMetrics(stats));
+		Map<String, Object> detail = new LinkedHashMap<>(buildBackendCard(status));
 		detail.put("stats", buildStats(stats));
 		return detail;
 	}
@@ -205,15 +269,15 @@ public final class VelocityDashboardHttpEndpoints {
 		Map<String, Object> metrics = new LinkedHashMap<>();
 		metrics.put("onlinePlayers", stats == null ? 0 : Math.max(0, stats.onlinePlayers()));
 		metrics.put("maxPlayers", stats == null ? 0 : Math.max(0, stats.maxPlayers()));
-		metrics.put("playerUsagePercent", stats == null ? 0D : round(percent(stats.onlinePlayers(), stats.maxPlayers())));
-		metrics.put("tps", stats == null ? 0D : round(stats.tps()));
-		metrics.put("systemCpuUsagePercent", stats == null ? 0D : round(stats.systemCpuUsagePercent()));
-		metrics.put("processCpuUsagePercent", stats == null ? 0D : round(stats.processCpuUsagePercent()));
+		metrics.put("playerUsagePercent", stats == null ? 0D : LunaJson.round(percent(stats.onlinePlayers(), stats.maxPlayers())));
+		metrics.put("tps", stats == null ? 0D : LunaJson.round(stats.tps()));
+		metrics.put("systemCpuUsagePercent", stats == null ? 0D : LunaJson.round(stats.systemCpuUsagePercent()));
+		metrics.put("processCpuUsagePercent", stats == null ? 0D : LunaJson.round(stats.processCpuUsagePercent()));
 		metrics.put("heartbeatLatencyMillis", stats == null ? 0L : Math.max(0L, stats.heartbeatLatencyMillis()));
 		metrics.put("ramUsedBytes", stats == null ? 0L : Math.max(0L, stats.ramUsedBytes()));
 		metrics.put("ramFreeBytes", stats == null ? 0L : Math.max(0L, stats.ramFreeBytes()));
 		metrics.put("ramMaxBytes", stats == null ? 0L : Math.max(0L, stats.ramMaxBytes()));
-		metrics.put("ramUsagePercent", stats == null ? 0D : round(percent(stats.ramUsedBytes(), stats.ramMaxBytes())));
+		metrics.put("ramUsagePercent", stats == null ? 0D : LunaJson.round(percent(stats.ramUsedBytes(), stats.ramMaxBytes())));
 		metrics.put("uptimeMillis", stats == null ? 0L : Math.max(0L, stats.uptimeMillis()));
 		metrics.put("whitelistEnabled", stats != null && stats.whitelistEnabled());
 		return metrics;
@@ -244,30 +308,18 @@ public final class VelocityDashboardHttpEndpoints {
 		payload.put("version", safe(stats.version()));
 		payload.put("serverPort", stats.serverPort());
 		payload.put("uptimeMillis", Math.max(0L, stats.uptimeMillis()));
-		payload.put("tps", round(stats.tps()));
+		payload.put("tps", LunaJson.round(stats.tps()));
 		payload.put("onlinePlayers", Math.max(0, stats.onlinePlayers()));
 		payload.put("maxPlayers", Math.max(0, stats.maxPlayers()));
 		payload.put("motd", safe(stats.motd()));
 		payload.put("whitelistEnabled", stats.whitelistEnabled());
-		payload.put("systemCpuUsagePercent", round(stats.systemCpuUsagePercent()));
-		payload.put("processCpuUsagePercent", round(stats.processCpuUsagePercent()));
+		payload.put("systemCpuUsagePercent", LunaJson.round(stats.systemCpuUsagePercent()));
+		payload.put("processCpuUsagePercent", LunaJson.round(stats.processCpuUsagePercent()));
 		payload.put("ramUsedBytes", Math.max(0L, stats.ramUsedBytes()));
 		payload.put("ramFreeBytes", Math.max(0L, stats.ramFreeBytes()));
 		payload.put("ramMaxBytes", Math.max(0L, stats.ramMaxBytes()));
 		payload.put("heartbeatLatencyMillis", Math.max(0L, stats.heartbeatLatencyMillis()));
 		return payload;
-	}
-
-	private HttpResponse jsonResponse(int statusCode, Map<String, Object> payload, long startedAt) {
-		Map<String, Object> envelope = new LinkedHashMap<>();
-		envelope.put("success", statusCode < 400);
-		envelope.put("runtimeMillis", round((System.nanoTime() - startedAt) / 1_000_000D));
-		if (statusCode < 400) {
-			envelope.put("data", payload);
-		} else {
-			envelope.putAll(payload);
-		}
-		return HttpResponse.json(statusCode, toJson(envelope));
 	}
 
 	private String overallHealth(Map<String, BackendServerStatus> statuses, ServerSelectorEngine.DashboardStats dashboardStats) {
@@ -330,99 +382,6 @@ public final class VelocityDashboardHttpEndpoints {
 			return 0D;
 		}
 		return Math.min(100D, Math.max(0D, (value * 100D) / max));
-	}
-
-	private double round(double value) {
-		if (Double.isNaN(value) || Double.isInfinite(value)) {
-			return 0D;
-		}
-		return Math.round(value * 100D) / 100D;
-	}
-
-	private String toJson(Object value) {
-		if (value == null) {
-			return "null";
-		}
-
-		if (value instanceof String stringValue) {
-			return '"' + escapeJson(stringValue) + '"';
-		}
-
-		if (value instanceof Character characterValue) {
-			return '"' + escapeJson(String.valueOf(characterValue)) + '"';
-		}
-
-		if (value instanceof Number numberValue) {
-			double doubleValue = numberValue.doubleValue();
-			if (Double.isNaN(doubleValue) || Double.isInfinite(doubleValue)) {
-				return "null";
-			}
-			return String.valueOf(numberValue);
-		}
-
-		if (value instanceof Boolean booleanValue) {
-			return String.valueOf(booleanValue);
-		}
-
-		if (value instanceof Enum<?> enumValue) {
-			return '"' + escapeJson(enumValue.name()) + '"';
-		}
-
-		if (value instanceof Map<?, ?> mapValue) {
-			StringBuilder out = new StringBuilder();
-			out.append('{');
-			boolean first = true;
-			for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
-				if (!first) {
-					out.append(',');
-				}
-				first = false;
-				out.append('"').append(escapeJson(String.valueOf(entry.getKey()))).append('"').append(':').append(toJson(entry.getValue()));
-			}
-			out.append('}');
-			return out.toString();
-		}
-
-		if (value instanceof Iterable<?> iterableValue) {
-			StringBuilder out = new StringBuilder();
-			out.append('[');
-			boolean first = true;
-			for (Object item : iterableValue) {
-				if (!first) {
-					out.append(',');
-				}
-				first = false;
-				out.append(toJson(item));
-			}
-			out.append(']');
-			return out.toString();
-		}
-
-		return '"' + escapeJson(String.valueOf(value)) + '"';
-	}
-
-	private String escapeJson(String value) {
-		StringBuilder out = new StringBuilder();
-		for (int index = 0; index < value.length(); index++) {
-			char character = value.charAt(index);
-			switch (character) {
-				case '\\' -> out.append("\\\\");
-				case '"' -> out.append("\\\"");
-				case '\b' -> out.append("\\b");
-				case '\f' -> out.append("\\f");
-				case '\n' -> out.append("\\n");
-				case '\r' -> out.append("\\r");
-				case '\t' -> out.append("\\t");
-				default -> {
-					if (character < 0x20) {
-						out.append(String.format(Locale.ROOT, "\\u%04x", (int) character));
-					} else {
-						out.append(character);
-					}
-				}
-			}
-		}
-		return out.toString();
 	}
 
 	private String firstNonBlank(String... values) {

@@ -12,11 +12,10 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import dev.belikhun.luna.core.api.messaging.CoreServerSelectorMessageChannels;
-import dev.belikhun.luna.core.api.messaging.CoreHeartbeatMessageChannels;
 import dev.belikhun.luna.core.api.messaging.CorePlayerMessageChannels;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
-import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventType;
+import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatListener;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
@@ -25,8 +24,11 @@ import dev.belikhun.luna.core.api.database.DatabaseConfig;
 import dev.belikhun.luna.core.api.database.DatabaseType;
 import dev.belikhun.luna.core.api.database.JdbcDatabase;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
+import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
+import dev.belikhun.luna.core.api.http.RequestAuthorizer;
+import dev.belikhun.luna.core.api.http.SseBroadcaster;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfig;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
@@ -36,12 +38,21 @@ import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
+import dev.belikhun.luna.core.velocity.admin.VelocityAdminHttpEndpoints;
 import dev.belikhun.luna.core.velocity.dashboard.VelocityDashboardHttpEndpoints;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityHeartbeatHttpEndpoints;
+import dev.belikhun.luna.core.velocity.heartbeat.VelocityRegistryStream;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
+import dev.belikhun.luna.core.velocity.permissions.VelocityPermissionHttpEndpoints;
+import dev.belikhun.luna.core.velocity.skins.VelocitySkinHttpEndpoints;
+import dev.belikhun.luna.core.velocity.players.PlayerDatabaseMigrations;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerDirectoryHttpEndpoints;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerHttpEndpoints;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerSessionRegistry;
 import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaMiniPlaceholders;
 import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaTabPlaceholders;
 import dev.belikhun.luna.core.velocity.serverselector.VelocitySelectorServerDisplayResolver;
@@ -63,6 +74,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -72,13 +84,15 @@ import java.util.logging.Logger;
 	description = "Luna core utilities for Velocity",
 	dependencies = {
 		@Dependency(id = "miniplaceholders", optional = true),
-		@Dependency(id = "tab", optional = true)
+		@Dependency(id = "tab", optional = true),
+		@Dependency(id = "skinsrestorer", optional = true)
 	},
 	authors = {"Belikhun"}
 )
 public final class LunaCoreVelocityPlugin {
 	private static final int CURRENT_CONFIG_VERSION = 4;
 	private static final long CONNECT_REQUEST_DEBOUNCE_MS = 600L;
+	private static final int CONNECT_REQUEST_CACHE_LIMIT = 256;
 
 	private final LunaLogger logger;
 	private final Path dataDirectory;
@@ -86,13 +100,26 @@ public final class LunaCoreVelocityPlugin {
 	private final ProxyServer proxyServer;
 	private final DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
-	private VelocityBackendStatusRegistry backendStatusRegistry;
+	/**
+	 * Outlives a config reload, and deliberately so: its revisions and epoch are
+	 * the cursor every backend holds. Rebuilding it per reload reset the counter
+	 * under backends that kept counting, and their sync went silent until they
+	 * were themselves restarted.
+	 */
+	private final VelocityBackendStatusRegistry backendStatusRegistry;
+	private final ScheduledExecutorService heartbeatSweepExecutor;
+	private VelocityRegistryStream registryStream;
+	private BackendHeartbeatListener dashboardHeartbeatListener;
 	private VelocityServerSelectorConfig serverSelectorConfig;
 	private VelocityServerConnectCommand selectorConnectCommand;
 	private VelocityLunaMiniPlaceholders lunaMiniPlaceholders;
 	private VelocityLunaTabPlaceholders lunaTabPlaceholders;
 	private EventHandler<TabLoadEvent> tabLoadHandler;
-	private ScheduledExecutorService heartbeatSweepExecutor;
+	private final VelocityPlayerSessionRegistry playerSessionRegistry;
+	private final VelocityPlayerRecordStore playerRecordStore;
+	private final SseBroadcaster telemetryBroadcaster;
+	private final SseBroadcaster playerBroadcaster;
+	private Consumer<VelocityPlayerSessionRegistry.Activity> playerActivityListener;
 	private Database sharedDatabase;
 	private final Map<String, Long> recentConnectRequests;
 
@@ -104,11 +131,36 @@ public final class LunaCoreVelocityPlugin {
 		this.httpServerManager = new VelocityHttpServerManager(this.logger);
 		this.dependencyManager = new DependencyManager();
 		this.recentConnectRequests = new ConcurrentHashMap<>();
+		// Sessions and subscribers outlive a config reload: reloading must not reset
+		// everyone's session clock or drop the console's open streams.
+		this.playerSessionRegistry = new VelocityPlayerSessionRegistry(proxyServer, this.logger);
+		// Long-lived like the registry — a reload only swaps its database handle,
+		// so no join/chat event is lost while modules restart.
+		this.playerRecordStore = new VelocityPlayerRecordStore(proxyServer, this.logger);
+		this.telemetryBroadcaster = new SseBroadcaster(this.logger, "telemetry");
+		this.playerBroadcaster = new SseBroadcaster(this.logger, "players");
+		// The timeout is a config value, but the registry itself must exist before
+		// any config is read, so it starts on the default and reload adjusts it.
+		this.backendStatusRegistry = new VelocityBackendStatusRegistry(20_000L, this.logger);
+
+		this.heartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
+			Thread thread = new Thread(task, "luna-heartbeat-timeout-sweep");
+			thread.setDaemon(true);
+			return thread;
+		});
+		this.heartbeatSweepExecutor.scheduleAtFixedRate(
+			() -> backendStatusRegistry.sweepTimeouts(System.currentTimeMillis()),
+			1L,
+			1L,
+			TimeUnit.SECONDS
+		);
 	}
 
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
+		proxyServer.getEventManager().register(this, playerSessionRegistry);
+		proxyServer.getEventManager().register(this, playerRecordStore);
 		ensureTabReloadHookRegistered();
 		reloadModules();
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
@@ -117,6 +169,11 @@ public final class LunaCoreVelocityPlugin {
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
 		unregisterTabReloadHook();
+		telemetryBroadcaster.close();
+		playerBroadcaster.close();
+		playerRecordStore.shutdown();
+		heartbeatSweepExecutor.shutdownNow();
+		backendStatusRegistry.shutdown();
 		teardownRuntime();
 		unregisterOwnedCommands();
 		dependencyManager.clear();
@@ -143,53 +200,112 @@ public final class LunaCoreVelocityPlugin {
 		String forwardingSecret = VelocityForwardingSecretResolver.resolve(dataDirectory, logger.scope("Heartbeat"));
 		AmqpMessagingConfig amqpMessagingConfig = AmqpMessagingConfigCodec.fromConfigMap(rootConfig);
 		VelocityMoneyFormat moneyFormat = VelocityMoneyFormat.fromConfig(rootConfig);
-		PermissionService permissionService = new LuckPermsService();
+		LuckPermsService permissionService = new LuckPermsService();
 		VelocityPlayerDisplayFormat playerDisplayFormat = VelocityPlayerDisplayFormat.fromConfig(rootConfig, permissionService);
 
 		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
 		Database nextDatabase = createSharedDatabase(databaseConfig);
-		VelocityBackendStatusRegistry nextBackendStatusRegistry = new VelocityBackendStatusRegistry(heartbeatTimeoutMillis, logger);
-		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, nextBackendStatusRegistry);
-		ScheduledExecutorService nextHeartbeatSweepExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
-			Thread thread = new Thread(task, "luna-heartbeat-timeout-sweep");
-			thread.setDaemon(true);
-			return thread;
-		});
-		nextHeartbeatSweepExecutor.scheduleAtFixedRate(
-			() -> nextBackendStatusRegistry.sweepTimeouts(System.currentTimeMillis()),
-			1L,
-			1L,
-			TimeUnit.SECONDS
-		);
+		prepareDirectorySchema(nextDatabase);
+		playerRecordStore.attach(nextDatabase);
+		backendStatusRegistry.updateTimeoutMillis(heartbeatTimeoutMillis);
+		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, backendStatusRegistry);
+
+		RequestAuthorizer authorizer = new RequestAuthorizer(forwardingSecret);
+		if (!authorizer.configured()) {
+			logger.warn("Chưa có forwarding secret — mọi endpoint HTTP sẽ trả về 401.");
+		}
 
 		new VelocityHeartbeatHttpEndpoints(
 			logger,
-			nextBackendStatusRegistry,
+			backendStatusRegistry,
 			new VelocityBackendNameResolver(proxyServer),
 			nextSelectorConfig,
 			amqpMessagingConfig,
-			forwardingSecret,
+			authorizer,
 			heartbeatTransportLogsEnabled
 		).register(nextHttpServerManager.router());
 
-		new VelocityDashboardHttpEndpoints(
+		VelocityRegistryStream nextRegistryStream = new VelocityRegistryStream(logger, backendStatusRegistry, authorizer);
+		nextRegistryStream.register(nextHttpServerManager.router());
+
+		VelocityDashboardHttpEndpoints dashboardEndpoints = new VelocityDashboardHttpEndpoints(
 			logger,
-			nextBackendStatusRegistry,
-			nextSelectorConfig
+			backendStatusRegistry,
+			nextSelectorConfig,
+			authorizer,
+			telemetryBroadcaster
+		);
+		dashboardEndpoints.register(nextHttpServerManager.router());
+
+		// The registry survives the reload, so the previous reload's listener would
+		// stay subscribed and keep feeding a dead endpoint instance.
+		if (dashboardHeartbeatListener != null) {
+			backendStatusRegistry.removeHeartbeatListener(dashboardHeartbeatListener);
+		}
+		dashboardHeartbeatListener = dashboardEndpoints::onHeartbeatEvent;
+		backendStatusRegistry.addHeartbeatListener(dashboardHeartbeatListener);
+
+		// Directory routes carry the literal /players/registered prefix, so they must
+		// be registered before the live-roster routes: the router matches in
+		// registration order and /players/{player} would otherwise swallow them.
+		new VelocityPlayerDirectoryHttpEndpoints(
+			logger,
+			proxyServer,
+			playerSessionRegistry,
+			playerRecordStore,
+			permissionService,
+			authorizer
+		).register(nextHttpServerManager.router());
+
+		new VelocityPermissionHttpEndpoints(
+			logger,
+			playerRecordStore,
+			authorizer
+		).register(nextHttpServerManager.router());
+
+		new VelocitySkinHttpEndpoints(
+			logger,
+			proxyServer,
+			playerRecordStore,
+			authorizer
+		).register(nextHttpServerManager.router());
+
+		VelocityPlayerHttpEndpoints playerEndpoints = new VelocityPlayerHttpEndpoints(
+			logger,
+			proxyServer,
+			playerSessionRegistry,
+			authorizer,
+			playerBroadcaster
+		);
+		playerEndpoints.register(nextHttpServerManager.router());
+
+		// Re-registered per reload against the new endpoint instance, so the previous
+		// one stops receiving activity and can be collected.
+		if (playerActivityListener != null) {
+			playerSessionRegistry.removeListener(playerActivityListener);
+		}
+		playerActivityListener = playerEndpoints::onActivity;
+		playerSessionRegistry.addListener(playerActivityListener);
+
+		new VelocityAdminHttpEndpoints(
+			logger,
+			proxyServer,
+			playerEndpoints,
+			playerRecordStore,
+			authorizer
 		).register(nextHttpServerManager.router());
 
 		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
 		nextPluginMessagingBus.updateAmqpConfig(amqpMessagingConfig);
-		registerMessagingHandlers(nextPluginMessagingBus, nextBackendStatusRegistry);
+		registerMessagingHandlers(nextPluginMessagingBus);
 
 		teardownRuntime();
 
 		httpServerManager = nextHttpServerManager;
 		sharedDatabase = nextDatabase;
-		backendStatusRegistry = nextBackendStatusRegistry;
+		registryStream = nextRegistryStream;
 		serverSelectorConfig = nextSelectorConfig;
 		pluginMessagingBus = nextPluginMessagingBus;
-		heartbeatSweepExecutor = nextHeartbeatSweepExecutor;
 		selectorConnectCommand = null;
 
 		dependencyManager.clear();
@@ -524,39 +640,11 @@ public final class LunaCoreVelocityPlugin {
 		tabLoadHandler = null;
 	}
 
-	private void registerMessagingHandlers(VelocityPluginMessagingBus bus, VelocityBackendStatusRegistry statusRegistry) {
-		bus.registerOutgoing(CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH);
-		statusRegistry.addHeartbeatListener(event -> {
-			if (event == null || event.current() == null) {
-				return;
-			}
-
-			BackendHeartbeatEventType eventType = event.type();
-			if (eventType != BackendHeartbeatEventType.SERVER_OFFLINE && eventType != BackendHeartbeatEventType.SERVER_ONLINE) {
-				return;
-			}
-
-			String changedServer = event.current().serverName();
-			String reason = eventType == BackendHeartbeatEventType.SERVER_ONLINE ? "backend_online" : "backend_offline";
-			int notified = 0;
-			for (com.velocitypowered.api.proxy.server.RegisteredServer registeredServer : proxyServer.getAllServers()) {
-				String targetName = registeredServer.getServerInfo().getName();
-				if (targetName != null && changedServer != null && targetName.equalsIgnoreCase(changedServer)) {
-					continue;
-				}
-
-				boolean sent = bus.send(registeredServer, CoreHeartbeatMessageChannels.REQUEST_IMMEDIATE_PUBLISH, writer -> {
-					writer.writeUtf(reason);
-					writer.writeUtf(changedServer == null ? "" : changedServer);
-				});
-				if (sent) {
-					notified++;
-				}
-			}
-
-			logger.debug("Heartbeat relay: event=" + eventType.name() + ", backend=" + changedServer + ", publish-notify sent=" + notified);
-		});
-
+	// Registry changes used to be announced with a plugin message telling backends
+	// to re-publish. That message rides a player's connection, so a backend with
+	// nobody on it never got it. The registry stream (/heartbeat/stream) carries
+	// the change itself and reaches an empty backend, so nothing announces here.
+	private void registerMessagingHandlers(VelocityPluginMessagingBus bus) {
 		bus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
 			String message = PluginMessageReader.of(context.payload()).readUtf();
 			if (context.source() instanceof ServerConnection serverConnection) {
@@ -601,6 +689,13 @@ public final class LunaCoreVelocityPlugin {
 		String key = playerIdRaw.trim() + "|" + normalizedBackend;
 		long now = System.currentTimeMillis();
 		Long previous = recentConnectRequests.put(key, now);
+
+		// one entry per (player, backend) pair is written for the whole uptime of
+		// the proxy, so entries past their debounce window have to be dropped
+		if (recentConnectRequests.size() > CONNECT_REQUEST_CACHE_LIMIT) {
+			recentConnectRequests.values().removeIf(stamp -> now - stamp > CONNECT_REQUEST_DEBOUNCE_MS);
+		}
+
 		if (previous == null) {
 			return false;
 		}
@@ -635,9 +730,9 @@ public final class LunaCoreVelocityPlugin {
 			pluginMessagingBus.close();
 			pluginMessagingBus = null;
 		}
-		if (heartbeatSweepExecutor != null) {
-			heartbeatSweepExecutor.shutdownNow();
-			heartbeatSweepExecutor = null;
+		if (registryStream != null) {
+			registryStream.close();
+			registryStream = null;
 		}
 		if (httpServerManager != null) {
 			httpServerManager.stop();
@@ -681,6 +776,16 @@ public final class LunaCoreVelocityPlugin {
 		} catch (Exception exception) {
 			logger.error("Không thể kết nối database cho LunaCore Velocity.", exception);
 			return new NoopDatabase();
+		}
+	}
+
+	private void prepareDirectorySchema(Database database) {
+		try {
+			DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("PlayerMigration"));
+			PlayerDatabaseMigrations.register(migrator);
+			migrator.migrateNamespace(PlayerDatabaseMigrations.NAMESPACE);
+		} catch (Exception exception) {
+			logger.error("Không thể chuẩn bị schema cho hồ sơ người chơi.", exception);
 		}
 	}
 

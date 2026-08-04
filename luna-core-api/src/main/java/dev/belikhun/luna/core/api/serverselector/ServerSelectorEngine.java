@@ -331,16 +331,7 @@ public final class ServerSelectorEngine {
 	}
 
 	public static String resolveStatus(BackendServerStatus status, boolean noPermission) {
-		if (noPermission) {
-			return "NOP";
-		}
-		if (status == null || !status.online()) {
-			return "OFFLINE";
-		}
-		if (status.stats() != null && status.stats().whitelistEnabled()) {
-			return "MAINT";
-		}
-		return "ONLINE";
+		return SelectorStatusResolver.resolve(status, noPermission);
 	}
 
 	public static String applyTemplate(String template, Map<String, String> values) {

@@ -22,7 +22,7 @@ import dev.belikhun.luna.core.api.serverselector.ServerSelectorEngine.ServerSele
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
-import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeBackendStatusView;
+import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeHeartbeatPublisher;
 import dev.belikhun.luna.core.neoforge.text.NeoForgeTextComponents;
 import net.minecraft.commands.CommandSourceStack;
@@ -80,7 +80,7 @@ public final class NeoForgeServerSelectorController {
 	private volatile PluginMessageBus<ServerPlayer, ServerPlayer> messagingBus;
 	private volatile NeoForgeHeartbeatPublisher heartbeatPublisher;
 	private volatile BackendStatusView statusView;
-	private volatile NeoForgeBackendStatusView concreteStatusView;
+	private volatile BackendStatusStore concreteStatusView;
 	private volatile Runnable statusUpdateListener;
 
 	public NeoForgeServerSelectorController(
@@ -109,7 +109,7 @@ public final class NeoForgeServerSelectorController {
 	public void start(NeoForgeHeartbeatPublisher heartbeatPublisher) {
 		this.heartbeatPublisher = heartbeatPublisher;
 		this.statusView = dependencyManager.resolveOptional(BackendStatusView.class).orElse(null);
-		NeoForgeBackendStatusView resolvedStatusView = dependencyManager.resolveOptional(NeoForgeBackendStatusView.class).orElse(null);
+		BackendStatusStore resolvedStatusView = dependencyManager.resolveOptional(BackendStatusStore.class).orElse(null);
 		this.concreteStatusView = resolvedStatusView;
 		if (resolvedStatusView != null) {
 			Runnable listener = this::scheduleRefreshOpenMenus;
@@ -124,7 +124,7 @@ public final class NeoForgeServerSelectorController {
 	}
 
 	public void close() {
-		NeoForgeBackendStatusView resolvedStatusView = concreteStatusView;
+		BackendStatusStore resolvedStatusView = concreteStatusView;
 		Runnable listener = statusUpdateListener;
 		if (resolvedStatusView != null && listener != null) {
 			resolvedStatusView.removeUpdateListener(listener);
@@ -272,11 +272,9 @@ public final class NeoForgeServerSelectorController {
 		ensureMessagingAttached();
 		ServerSelectorPayload payload = currentPayloadFor(player.getUUID());
 		if (payload.isEmpty()) {
+			// the fetch is asynchronous, so it serves the player's next attempt, not
+			// this one; arrival re-renders anything already open via acceptSelectorPayload
 			syncSelectorPayload();
-			payload = currentPayloadFor(player.getUUID());
-		}
-
-		if (payload.isEmpty()) {
 			player.sendSystemMessage(Component.literal("Danh sách máy chủ đang được đồng bộ. Hãy thử lại sau ít giây."));
 			return false;
 		}

@@ -47,6 +47,7 @@ subprojects {
         maven("https://repo.loohpjames.com/repository")
         maven("https://repo.william278.net/releases")
         maven("https://maven.neoforged.net/releases")
+        maven("https://repo.codemc.org/repository/maven-public/")
         maven("https://jitpack.io")
     }
 

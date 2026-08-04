@@ -5,11 +5,22 @@ import dev.belikhun.luna.core.api.config.ConfigValues;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 public final class HeartbeatFormCodec {
+	/**
+	 * Wire protocol version. Bumped to 2 when field-level deltas were replaced by
+	 * whole rows plus a registry epoch — the two sides are deployed together, so a
+	 * mismatch is a deployment error and is reported as one instead of being
+	 * papered over.
+	 */
+	public static final int PROTOCOL_VERSION = 2;
+
 	private HeartbeatFormCodec() {
 	}
 
@@ -115,28 +126,44 @@ public final class HeartbeatFormCodec {
 		return out;
 	}
 
-	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot) {
-		return encodeSnapshot(snapshot, 0L, null, true, null);
-	}
-
-	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot, long revision, String selfServerName, boolean fullSync) {
-		return encodeSnapshot(snapshot, revision, selfServerName, fullSync, null);
-	}
-
-	public static byte[] encodeSnapshot(Map<String, BackendServerStatus> snapshot, long revision, String selfServerName, boolean fullSync, BackendMetadata currentBackendMetadata) {
+	/**
+	 * Encode a set of whole registry rows.
+	 *
+	 * The same encoding serves the heartbeat response and every event on the
+	 * registry stream: a stream event is simply a payload carrying one row, which
+	 * lets the client decode both with {@link #decodeSnapshotPayload(byte[])}.
+	 *
+	 * @param fullSync tells the receiver to replace its mirror rather than merge
+	 * @param epoch    identifies the registry generation the revisions belong to
+	 */
+	public static byte[] encodeRows(
+		Collection<BackendStatusRow> rows,
+		long revision,
+		String epoch,
+		boolean fullSync,
+		String selfServerName,
+		BackendMetadata currentBackendMetadata
+	) {
 		Map<String, String> out = new LinkedHashMap<>();
+		out.put("protocol", String.valueOf(PROTOCOL_VERSION));
+		out.put("epoch", emptySafe(epoch));
 		out.put("revision", String.valueOf(Math.max(0L, revision)));
 		out.put("fullSync", String.valueOf(fullSync));
-		out.put("serverCount", String.valueOf(snapshot == null ? 0 : snapshot.size()));
+		out.put("serverCount", String.valueOf(rows == null ? 0 : rows.size()));
 		encodeCurrentBackendMetadata(out, currentBackendMetadata);
-		if (snapshot == null || snapshot.isEmpty()) {
+		if (rows == null || rows.isEmpty()) {
 			return encode(out);
 		}
 
 		String normalizedSelf = normalize(selfServerName);
 
 		int index = 0;
-		for (BackendServerStatus status : snapshot.values()) {
+		for (BackendStatusRow row : rows) {
+			if (row == null || row.status() == null) {
+				continue;
+			}
+
+			BackendServerStatus status = row.status();
 			String prefix = "server." + index + ".";
 			out.put(prefix + "server_name", emptySafe(status.serverName()));
 			out.put(prefix + "server_display", emptySafe(status.serverDisplay()));
@@ -144,7 +171,8 @@ public final class HeartbeatFormCodec {
 			out.put(prefix + "name", emptySafe(status.serverName()));
 			out.put(prefix + "online", String.valueOf(status.online()));
 			out.put(prefix + "lastHeartbeatEpochMillis", String.valueOf(status.lastHeartbeatEpochMillis()));
-			out.put(prefix + "self", String.valueOf(normalize(status.serverName()).equals(normalizedSelf)));
+			out.put(prefix + "revision", String.valueOf(Math.max(0L, row.revision())));
+			out.put(prefix + "self", String.valueOf(row.self() || normalize(status.serverName()).equals(normalizedSelf)));
 			Map<String, String> stats = encodeStats(status.stats());
 			for (Map.Entry<String, String> entry : stats.entrySet()) {
 				out.put(prefix + entry.getKey(), entry.getValue());
@@ -152,58 +180,17 @@ public final class HeartbeatFormCodec {
 			index++;
 		}
 
+		// serverCount is written before the loop, so rows dropped for being blank
+		// would leave the receiver reading past the end
+		out.put("serverCount", String.valueOf(index));
 		return encode(out);
-	}
-
-	public static byte[] encodeDelta(Map<String, BackendServerStatusDelta> delta, long revision, String selfServerName) {
-		return encodeDelta(delta, revision, selfServerName, null);
-	}
-
-	public static byte[] encodeDelta(Map<String, BackendServerStatusDelta> delta, long revision, String selfServerName, BackendMetadata currentBackendMetadata) {
-		Map<String, String> out = new LinkedHashMap<>();
-		out.put("revision", String.valueOf(Math.max(0L, revision)));
-		out.put("fullSync", String.valueOf(false));
-		out.put("serverCount", String.valueOf(delta == null ? 0 : delta.size()));
-		encodeCurrentBackendMetadata(out, currentBackendMetadata);
-		if (delta == null || delta.isEmpty()) {
-			return encode(out);
-		}
-
-		String normalizedSelf = normalize(selfServerName);
-		int index = 0;
-		for (BackendServerStatusDelta serverDelta : delta.values()) {
-			String prefix = "server." + index + ".";
-			String serverName = emptySafe(serverDelta.serverName());
-			out.put(prefix + "server_name", serverName);
-			out.put(prefix + "name", serverName);
-			out.put(prefix + "self", String.valueOf(serverDelta.self() || normalize(serverDelta.serverName()).equals(normalizedSelf)));
-			if (serverDelta.serverDisplay() != null) {
-				out.put(prefix + "server_display", serverDelta.serverDisplay());
-			}
-			if (serverDelta.serverAccentColor() != null) {
-				out.put(prefix + "server_accent_color", serverDelta.serverAccentColor());
-			}
-			if (serverDelta.online() != null) {
-				out.put(prefix + "online", String.valueOf(serverDelta.online()));
-			}
-			if (serverDelta.lastHeartbeatEpochMillis() != null) {
-				out.put(prefix + "lastHeartbeatEpochMillis", String.valueOf(serverDelta.lastHeartbeatEpochMillis()));
-			}
-			encodeStatsDelta(prefix, out, serverDelta.stats());
-			index++;
-		}
-
-		return encode(out);
-	}
-
-	public static Map<String, BackendServerStatus> decodeSnapshot(byte[] body) {
-		return decodeSnapshotPayload(body).statuses();
 	}
 
 	public static HeartbeatSnapshotPayload decodeSnapshotPayload(byte[] body) {
 		Map<String, String> fields = decode(body);
-		Map<String, BackendServerStatus> out = new LinkedHashMap<>();
-		Map<String, BackendServerStatusDelta> deltas = new LinkedHashMap<>();
+		List<BackendStatusRow> rows = new ArrayList<>();
+		int protocol = intValue(fields, "protocol", 0);
+		String epoch = string(fields, "epoch", "");
 		long revision = longValue(fields, "revision", 0L);
 		boolean fullSync = boolValue(fields, "fullSync", true);
 		int count = intValue(fields, "serverCount", 0);
@@ -214,23 +201,8 @@ public final class HeartbeatFormCodec {
 			if (name.isBlank()) {
 				continue;
 			}
+
 			boolean self = boolValue(fields, prefix + "self", false);
-
-			if (!fullSync) {
-				Map<String, String> prefixed = withPrefix(fields, prefix);
-				BackendServerStatusDelta delta = new BackendServerStatusDelta(
-					name,
-					self,
-					prefixed.containsKey("server_display") ? prefixed.get("server_display") : null,
-					prefixed.containsKey("server_accent_color") ? prefixed.get("server_accent_color") : null,
-					prefixed.containsKey("online") ? boolValue(prefixed, "online", false) : null,
-					prefixed.containsKey("lastHeartbeatEpochMillis") ? longValue(prefixed, "lastHeartbeatEpochMillis", 0L) : null,
-					decodeStatsDelta(prefixed)
-				);
-				deltas.put(name.toLowerCase(), delta);
-				continue;
-			}
-
 			BackendHeartbeatStats stats = decodeStats(withPrefix(fields, prefix));
 			BackendServerStatus status = new BackendServerStatus(
 				name,
@@ -243,10 +215,10 @@ public final class HeartbeatFormCodec {
 			if (self && currentBackendMetadata == null) {
 				currentBackendMetadata = status.metadata();
 			}
-			out.put(name.toLowerCase(), status);
+			rows.add(new BackendStatusRow(status, longValue(fields, prefix + "revision", revision), self));
 		}
 
-		return new HeartbeatSnapshotPayload(Math.max(0L, revision), fullSync, out, deltas, currentBackendMetadata);
+		return new HeartbeatSnapshotPayload(protocol, epoch, Math.max(0L, revision), fullSync, rows, currentBackendMetadata);
 	}
 
 	private static void encodeCurrentBackendMetadata(Map<String, String> out, BackendMetadata currentBackendMetadata) {
@@ -275,61 +247,21 @@ public final class HeartbeatFormCodec {
 		).sanitize();
 	}
 
+	/**
+	 * A decoded registry payload: either a full mirror or the rows that changed
+	 * since the caller's cursor.
+	 *
+	 * @param protocol the sender's {@link #PROTOCOL_VERSION}, 0 when it predates the field
+	 * @param epoch    the registry generation; a change means the cursor is meaningless
+	 */
 	public record HeartbeatSnapshotPayload(
+		int protocol,
+		String epoch,
 		long revision,
 		boolean fullSync,
-		Map<String, BackendServerStatus> statuses,
-		Map<String, BackendServerStatusDelta> deltas,
+		List<BackendStatusRow> rows,
 		BackendMetadata currentBackendMetadata
 	) {
-	}
-
-	private static void encodeStatsDelta(String prefix, Map<String, String> out, BackendHeartbeatStatsDelta delta) {
-		if (delta == null || delta.isEmpty()) {
-			return;
-		}
-		putIfPresent(out, prefix + "software", delta.software());
-		putIfPresent(out, prefix + "version", delta.version());
-		putIfPresent(out, prefix + "serverPort", delta.serverPort());
-		putIfPresent(out, prefix + "uptimeMillis", delta.uptimeMillis());
-		putIfPresent(out, prefix + "tps", delta.tps());
-		putIfPresent(out, prefix + "onlinePlayers", delta.onlinePlayers());
-		putIfPresent(out, prefix + "maxPlayers", delta.maxPlayers());
-		putIfPresent(out, prefix + "motd", delta.motd());
-		putIfPresent(out, prefix + "whitelistEnabled", delta.whitelistEnabled());
-		putIfPresent(out, prefix + "systemCpuUsagePercent", delta.systemCpuUsagePercent());
-		putIfPresent(out, prefix + "processCpuUsagePercent", delta.processCpuUsagePercent());
-		putIfPresent(out, prefix + "cpuUsagePercent", delta.systemCpuUsagePercent());
-		putIfPresent(out, prefix + "ramUsedBytes", delta.ramUsedBytes());
-		putIfPresent(out, prefix + "ramFreeBytes", delta.ramFreeBytes());
-		putIfPresent(out, prefix + "ramMaxBytes", delta.ramMaxBytes());
-		putIfPresent(out, prefix + "heartbeatLatencyMillis", delta.heartbeatLatencyMillis());
-	}
-
-	private static BackendHeartbeatStatsDelta decodeStatsDelta(Map<String, String> fields) {
-		return new BackendHeartbeatStatsDelta(
-			fields.containsKey("software") ? fields.get("software") : null,
-			fields.containsKey("version") ? fields.get("version") : null,
-			fields.containsKey("serverPort") ? intValue(fields, "serverPort", 0) : null,
-			fields.containsKey("uptimeMillis") ? longValue(fields, "uptimeMillis", 0L) : null,
-			fields.containsKey("tps") ? doubleValue(fields, "tps", 0D) : null,
-			fields.containsKey("onlinePlayers") ? intValue(fields, "onlinePlayers", 0) : null,
-			fields.containsKey("maxPlayers") ? intValue(fields, "maxPlayers", 0) : null,
-			fields.containsKey("motd") ? fields.get("motd") : null,
-			fields.containsKey("whitelistEnabled") ? boolValue(fields, "whitelistEnabled", false) : null,
-			fields.containsKey("systemCpuUsagePercent") ? doubleValue(fields, "systemCpuUsagePercent", doubleValue(fields, "cpuUsagePercent", 0D)) : null,
-			fields.containsKey("processCpuUsagePercent") ? doubleValue(fields, "processCpuUsagePercent", 0D) : null,
-			fields.containsKey("ramUsedBytes") ? longValue(fields, "ramUsedBytes", 0L) : null,
-			fields.containsKey("ramFreeBytes") ? longValue(fields, "ramFreeBytes", 0L) : null,
-			fields.containsKey("ramMaxBytes") ? longValue(fields, "ramMaxBytes", 0L) : null,
-			fields.containsKey("heartbeatLatencyMillis") ? longValue(fields, "heartbeatLatencyMillis", 0L) : null
-		);
-	}
-
-	private static void putIfPresent(Map<String, String> out, String key, Object value) {
-		if (value != null) {
-			out.put(key, String.valueOf(value));
-		}
 	}
 
 	private static Map<String, String> withPrefix(Map<String, String> fields, String prefix) {
