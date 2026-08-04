@@ -34,6 +34,17 @@ public final class VelocityPluginMessagingBus implements PluginMessageBus<Object
 		amqpTransport.updateConfig(config);
 	}
 
+	/**
+	 * Turn plugin-message logging on or off.
+	 *
+	 * The bus is built once and kept for the life of the proxy, so the config
+	 * value behind this has to be applied rather than baked in at construction.
+	 */
+	public void setLoggingEnabled(boolean loggingEnabled) {
+		fallbackBus.setLoggingEnabled(loggingEnabled);
+		amqpTransport.setLoggingEnabled(loggingEnabled);
+	}
+
 	public boolean isAmqpActive() {
 		return amqpTransport.isActive();
 	}

@@ -34,7 +34,11 @@ final class VelocityBungeePluginMessagingBus {
 	private final ProxyServer proxyServer;
 	private final Object plugin;
 	private final LunaLogger logger;
-	private final boolean loggingEnabled;
+	private volatile boolean loggingEnabled;
+
+	void setLoggingEnabled(boolean loggingEnabled) {
+		this.loggingEnabled = loggingEnabled;
+	}
 	private final Map<String, PluginMessageHandler<Object>> incomingHandlers;
 	private final Set<String> outgoingChannels;
 

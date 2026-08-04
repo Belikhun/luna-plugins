@@ -24,6 +24,7 @@ import dev.belikhun.luna.core.api.database.DatabaseConfig;
 import dev.belikhun.luna.core.api.database.DatabaseType;
 import dev.belikhun.luna.core.api.database.JdbcDatabase;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
+import dev.belikhun.luna.core.api.database.SwappableDatabase;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
@@ -99,6 +100,13 @@ public final class LunaCoreVelocityPlugin {
 	private VelocityHttpServerManager httpServerManager;
 	private final ProxyServer proxyServer;
 	private final DependencyManager dependencyManager;
+	/**
+	 * Outlives a config reload. Every other plugin resolves this once, at its own
+	 * startup, and keeps it — luna-pack and luna-messenger register their outgoing
+	 * channels on it right there. Handing them a new bus per reload left those
+	 * registrations on an object nothing was reading from any more, and every send
+	 * threw "channel not registered" until the proxy was restarted.
+	 */
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	/**
 	 * Outlives a config reload, and deliberately so: its revisions and epoch are
@@ -120,7 +128,12 @@ public final class LunaCoreVelocityPlugin {
 	private final SseBroadcaster telemetryBroadcaster;
 	private final SseBroadcaster playerBroadcaster;
 	private Consumer<VelocityPlayerSessionRegistry.Activity> playerActivityListener;
-	private Database sharedDatabase;
+	/**
+	 * Also outlives a reload, for the same reason: an auth repository holds the
+	 * handle it was given in a final field, so the handle has to stay the same
+	 * object. Only what sits behind it is swapped.
+	 */
+	private final SwappableDatabase sharedDatabase;
 	private final Map<String, Long> recentConnectRequests;
 
 	@Inject
@@ -137,6 +150,11 @@ public final class LunaCoreVelocityPlugin {
 		// Long-lived like the registry — a reload only swaps its database handle,
 		// so no join/chat event is lost while modules restart.
 		this.playerRecordStore = new VelocityPlayerRecordStore(proxyServer, this.logger);
+		// The database handle is built here so it exists before anything can ask for
+		// it; the messaging bus cannot be, because it registers a Velocity listener
+		// and the plugin has no container yet while Guice is still constructing it.
+		// It is built on the first reload instead, and kept from then on.
+		this.sharedDatabase = new SwappableDatabase(new NoopDatabase());
 		this.telemetryBroadcaster = new SseBroadcaster(this.logger, "telemetry");
 		this.playerBroadcaster = new SseBroadcaster(this.logger, "players");
 		// The timeout is a config value, but the registry itself must exist before
@@ -175,6 +193,7 @@ public final class LunaCoreVelocityPlugin {
 		heartbeatSweepExecutor.shutdownNow();
 		backendStatusRegistry.shutdown();
 		teardownRuntime();
+		shutdownSharedServices();
 		unregisterOwnedCommands();
 		dependencyManager.clear();
 		LunaCoreVelocity.clear();
@@ -203,10 +222,15 @@ public final class LunaCoreVelocityPlugin {
 		LuckPermsService permissionService = new LuckPermsService();
 		VelocityPlayerDisplayFormat playerDisplayFormat = VelocityPlayerDisplayFormat.fromConfig(rootConfig, permissionService);
 
-		VelocityHttpServerManager nextHttpServerManager = new VelocityHttpServerManager(this.logger);
-		Database nextDatabase = createSharedDatabase(databaseConfig);
-		prepareDirectorySchema(nextDatabase);
-		playerRecordStore.attach(nextDatabase);
+		// The HTTP manager keeps its identity too — luna-auth and luna-pack add
+		// their routes to it at their own startup, and a fresh one would serve
+		// none of them. Re-registering our own is safe because the router replaces
+		// a route rather than shadowing it.
+		VelocityHttpServerManager nextHttpServerManager = httpServerManager;
+		nextHttpServerManager.stop();
+		sharedDatabase.swap(createSharedDatabase(databaseConfig));
+		prepareDirectorySchema(sharedDatabase);
+		playerRecordStore.attach(sharedDatabase);
 		backendStatusRegistry.updateTimeoutMillis(heartbeatTimeoutMillis);
 		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, backendStatusRegistry);
 
@@ -295,17 +319,25 @@ public final class LunaCoreVelocityPlugin {
 			authorizer
 		).register(nextHttpServerManager.router());
 
-		VelocityPluginMessagingBus nextPluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
-		nextPluginMessagingBus.updateAmqpConfig(amqpMessagingConfig);
-		registerMessagingHandlers(nextPluginMessagingBus);
+		// Created once and kept: other plugins register their channels on it at
+		// their own startup, so a reload reconfigures it rather than replacing it.
+		// Only our own handlers are dropped and re-added; anything another plugin
+		// registered stays where it is.
+		if (pluginMessagingBus == null) {
+			pluginMessagingBus = new VelocityPluginMessagingBus(proxyServer, this, logger, pluginMessagingLogsEnabled);
+		} else {
+			pluginMessagingBus.setLoggingEnabled(pluginMessagingLogsEnabled);
+			pluginMessagingBus.unregisterIncomingPluginChannel(this);
+		}
+
+		pluginMessagingBus.updateAmqpConfig(amqpMessagingConfig);
+		registerMessagingHandlers(pluginMessagingBus);
 
 		teardownRuntime();
 
 		httpServerManager = nextHttpServerManager;
-		sharedDatabase = nextDatabase;
 		registryStream = nextRegistryStream;
 		serverSelectorConfig = nextSelectorConfig;
-		pluginMessagingBus = nextPluginMessagingBus;
 		selectorConnectCommand = null;
 
 		dependencyManager.clear();
@@ -645,7 +677,10 @@ public final class LunaCoreVelocityPlugin {
 	// nobody on it never got it. The registry stream (/heartbeat/stream) carries
 	// the change itself and reaches an empty backend, so nothing announces here.
 	private void registerMessagingHandlers(VelocityPluginMessagingBus bus) {
-		bus.registerIncoming(CorePlayerMessageChannels.CHAT_RELAY, context -> {
+		// `this` rather than the bus's shared default owner: every plugin using the
+		// convenience registration shares that owner, so unregistering by it would
+		// take everyone else's handlers down with ours.
+		bus.registerIncomingPluginChannel(this, CorePlayerMessageChannels.CHAT_RELAY, context -> {
 			String message = PluginMessageReader.of(context.payload()).readUtf();
 			if (context.source() instanceof ServerConnection serverConnection) {
 				serverConnection.getPlayer().sendRichMessage(message);
@@ -657,7 +692,7 @@ public final class LunaCoreVelocityPlugin {
 			return PluginMessageDispatchResult.HANDLED;
 		});
 
-		bus.registerIncoming(CoreServerSelectorMessageChannels.CONNECT_REQUEST, context -> {
+		bus.registerIncomingPluginChannel(this, CoreServerSelectorMessageChannels.CONNECT_REQUEST, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			String playerIdRaw = reader.readUtf();
 			String backendName = reader.readUtf();
@@ -726,10 +761,6 @@ public final class LunaCoreVelocityPlugin {
 			lunaTabPlaceholders.unregister();
 			lunaTabPlaceholders = null;
 		}
-		if (pluginMessagingBus != null) {
-			pluginMessagingBus.close();
-			pluginMessagingBus = null;
-		}
 		if (registryStream != null) {
 			registryStream.close();
 			registryStream = null;
@@ -737,11 +768,26 @@ public final class LunaCoreVelocityPlugin {
 		if (httpServerManager != null) {
 			httpServerManager.stop();
 		}
-		if (sharedDatabase != null) {
-			sharedDatabase.close();
-			sharedDatabase = null;
-		}
+		// The bus and the database are deliberately left alone: they outlive a
+		// reload because other plugins hold them. `shutdownSharedServices` closes
+		// them, and only the proxy going down calls that.
 		selectorConnectCommand = null;
+	}
+
+	/**
+	 * Close what a reload keeps alive.
+	 *
+	 * Only ever right when the proxy itself is going down — calling it on a reload
+	 * is what used to leave every dependent plugin holding a closed database and a
+	 * bus with no channels.
+	 */
+	private void shutdownSharedServices() {
+		if (pluginMessagingBus != null) {
+			pluginMessagingBus.close();
+			pluginMessagingBus = null;
+		}
+
+		sharedDatabase.close();
 	}
 
 	private Database createSharedDatabase(Map<String, Object> databaseConfig) {
