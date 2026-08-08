@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "lunamessenger",
+	"version": "${version}",
+	"name": "LunaMessenger",
+	"description": "Network chat, direct messages and pokes, routed through the velocity proxy. This build serves Minecraft 26.1 and up.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "server",
+	"entrypoints": {
+		"server": ["dev.belikhun.luna.messenger.fabric.bootstrap.LunaMessengerFabricMod"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"fabric-api": ">=0.156.0",
+		"lunacore": "*",
+		"lunacoremessaging": "*",
+		"minecraft": ">=26",
+		"java": ">=21"
+	},
+	"suggests": {
+		"luckperms": "*"
+	}
+}

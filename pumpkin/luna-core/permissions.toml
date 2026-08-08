@@ -1,0 +1,21 @@
+# The capabilities this plugin asks Pumpkin for.
+#
+# This file is the single source of truth for them. The plugin reads it at
+# compile time for its own metadata, and the build copies it beside the .wasm so
+# `luna` can pre-approve it when it deploys: Pumpkin otherwise prompts the
+# operator on the console and compares the answer against this exact list, which
+# nothing is there to answer inside a screen session.
+#
+# Order matters. Pumpkin compares its cached decision against the declared list
+# element by element, so reordering these invalidates every operator's consent.
+
+permissions = [
+	# the heartbeat and the broker are both plain sockets, so one capability
+	# covers both rather than also asking for http.outbound
+	"network.tcp",
+	"network.tcp.connect",
+	"network.dns",
+	# the config and the permissions file live in the plugin's own data folder
+	"fs.read.data",
+	"fs.write.data",
+]

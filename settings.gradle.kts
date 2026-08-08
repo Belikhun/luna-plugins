@@ -6,32 +6,87 @@
  * This project uses @Incubating APIs which are subject to change.
  */
 
+pluginManagement {
+    repositories {
+        // fabric-loom is published here only, never to the plugin portal
+        maven("https://maven.fabricmc.net/")
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
 plugins {
     // Apply the foojay-resolver plugin to allow automatic download of JDKs
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
 rootProject.name = "luna"
+
+// Platform-free: the API surface every other module compiles against.
 include("luna-core-api")
-include("luna-core-paper")
-include("luna-core-neoforge")
-include("luna-core-velocity")
-include("luna-core-messaging")
 include("luna-vault-api")
-include("luna-vault")
+
+// Paper backends, plus the plugins that only ever run on one.
+include("luna-core-paper")
 include("luna-vault-backend")
-include("luna-pack")
-include("luna-glyph")
 include("luna-shop")
 include("luna-countdown")
-include("luna-countdown-neoforge")
 include("luna-hat")
 include("luna-smp")
 include("luna-messenger")
-include("luna-messenger-neoforge")
-include("luna-messenger-velocity")
-include("luna-tab-bridge-neoforge")
-include("luna-auth")
 include("luna-auth-backend")
-include("luna-auth-backend-neoforge")
 include("luna-migrator")
+
+// The proxy, and everything that lives on it.
+include("luna-core-velocity")
+include("luna-vault")
+include("luna-pack")
+include("luna-glyph")
+include("luna-messenger-velocity")
+include("luna-auth")
+
+// NeoForge backends.
+include("luna-core-neoforge")
+include("luna-core-messaging")
+include("luna-countdown-neoforge")
+include("luna-messenger-neoforge")
+include("luna-tab-bridge-neoforge")
+include("luna-auth-backend-neoforge")
+
+// Fabric backends. A `-mc26` module is the 26.x build of its sibling.
+include("luna-core-fabric")
+include("luna-core-mc26-fabric")
+include("luna-core-messaging-fabric")
+include("luna-core-messaging-mc26-fabric")
+include("luna-countdown-fabric")
+include("luna-countdown-mc26-fabric")
+include("luna-messenger-fabric")
+include("luna-messenger-mc26-fabric")
+include("luna-tab-bridge-fabric")
+include("luna-tab-bridge-mc26-fabric")
+
+// Each module lives under its platform's folder, but its gradle project name stays
+// flat and unchanged. That is deliberate: the project name drives `archiveBaseName`
+// in the root build script, which is the pooled jar name luna's plugin lockfile
+// already keys on. Renaming the projects would orphan every entry in it.
+//
+// The folder and the directory name are the same two values the root build script
+// derives as `platformTarget` and `moduleBaseName`; keep the rules in step.
+rootProject.children.forEach { module ->
+	val name = module.name
+
+	val platform = when {
+		name.endsWith("-api") -> "core"
+		name.endsWith("-neoforge") || name == "luna-core-messaging" -> "neoforge"
+		name.endsWith("-fabric") -> "fabric"
+		name.endsWith("-velocity") || name in setOf("luna-pack", "luna-auth", "luna-vault", "luna-glyph") -> "velocity"
+		else -> "paper"
+	}
+
+	val directory = listOf("-neoforge", "-fabric", "-velocity", "-paper")
+		.firstOrNull { name.endsWith(it) }
+		?.let { name.removeSuffix(it) }
+		?: name
+
+	module.projectDir = file("$platform/$directory")
+}

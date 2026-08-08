@@ -6,6 +6,15 @@
   - `:luna-core-api` → shared cross-platform APIs/utilities (library module, not a runtime plugin jar).
   - `:luna-core-paper` → Paper runtime/plugin implementation for Luna Core.
   - `:luna-core-velocity` → Velocity target for Luna Core.
+  - `:luna-core-neoforge` → NeoForge target for Luna Core (moddevgradle).
+  - `:luna-core-fabric` → Fabric target for Luna Core (fabric-loom). **One build serves
+    Minecraft 1.20-1.21.x**; read `fabric/luna-core/README.md` before touching anything in
+    it that calls the game, and run `tools/check-versions.py` afterwards.
+  - Platform-neutral backend machinery lives in `:luna-core-api`, not in a platform module:
+    `BackendCoreRuntimeConfig`/`BackendCoreConfigLoader` (config.yml), `ForwardingSecretResolver`
+    (reads the forwarding mod's own config), `BackendHeartbeatPublisher` + `BackendServerProbe`
+    (the publish schedule, with only the per-platform facts behind the probe), `SparkMetrics`
+    and `Reflect`. A new loader implements `BackendServerProbe` and reuses the rest.
   - `:luna-vault-api` → shared economy contracts, repositories, RPC payloads, and money types.
   - `:luna-vault` → Velocity-side economy authority / source of truth for the network.
   - `:luna-vault-backend` → Paper-side Vault bridge and backend sync adapter.
@@ -31,6 +40,8 @@
 ## Plugin metadata conventions
 - Paper modules use `paper-plugin.yml` under `src/main/resources`.
 - Velocity modules use Velocity metadata generation via `@Plugin` (from `velocity-api` annotation processor).
+- NeoForge modules use `META-INF/neoforge.mods.toml`; Fabric modules use `fabric.mod.json`.
+  Both are expanded with the gradle `version` by the root `processResources` block.
 - Plugin names must be valid identifiers (no spaces), e.g. `LunaCore`, `LunaShop`.
 - If a module depends on another plugin at runtime, declare it in `paper-plugin.yml` under `dependencies.server`.
 - For runtime-downloaded libraries, prefer Paper `loader` + `PluginLoader` (`MavenLibraryResolver`) instead of shading heavy dependencies into the plugin jar.
@@ -38,16 +49,16 @@
 
 ## Dependency wiring (must stay aligned)
 - Build-time linkage is in module Gradle files:
-  - `luna-vault-api/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))`.
-  - `luna-vault/build.gradle.kts` uses `implementation(project(":luna-vault-api"))` and `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
-  - `luna-vault-backend/build.gradle.kts` uses `implementation(project(":luna-vault-api"))` and `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
-  - `luna-auth/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
-  - `luna-auth-backend/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
-  - `luna-migrator/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
-  - `luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
+  - `core/luna-vault-api/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))`.
+  - `velocity/luna-vault/build.gradle.kts` uses `implementation(project(":luna-vault-api"))` and `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
+  - `paper/luna-vault-backend/build.gradle.kts` uses `implementation(project(":luna-vault-api"))` and `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
+  - `velocity/luna-auth/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
+  - `paper/luna-auth-backend/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
+  - `paper/luna-migrator/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
+  - `paper/luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
   - `luna-countdown`, `luna-hat`, `luna-smp`, and `luna-messenger` follow the same `:luna-core-api` + `:luna-core-paper` linkage.
   - `luna-pack` and `luna-messenger-velocity` use `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
-  - `luna-glyph/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))` + `compileOnly(project(":luna-pack"))`.
+  - `velocity/luna-glyph/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))` + `compileOnly(project(":luna-pack"))`.
 - Runtime/plugin loading linkage is in descriptor files:
   - All active Paper-side plugins (`luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`, `luna-auth-backend`, `luna-vault-backend`, `luna-migrator`) must stay aligned with their `paper-plugin.yml` runtime dependencies.
   - Current Paper-side feature/adaptor plugins depend on `LunaCore` at runtime through `dependencies.server` in `paper-plugin.yml`.
@@ -103,7 +114,7 @@
     - Use neutral or bright colors for robust readability across day/night and mixed world lighting.
     - Avoid very dark colors that can disappear on dark scenes.
 - **Core palette usage (`LunaPalette`)**:
-  - Use palette tokens from `luna-core-api/src/main/java/dev/belikhun/luna/core/api/ui/LunaPalette.java`; avoid hard-coded hex in feature modules.
+  - Use palette tokens from `core/luna-core-api/src/main/java/dev/belikhun/luna/core/api/ui/LunaPalette.java`; avoid hard-coded hex in feature modules.
   - Shade intent:
     - Bright: `*_100`, `*_300` (high-contrast text on dark surfaces).
     - Mid: `*_500` (default accent and actionable text).
@@ -159,26 +170,26 @@
 - Entry points are no longer intentionally minimal; they commonly orchestrate bootstrap, config, service registration, command binding, placeholder registration, and shutdown cleanup.
 - Keep orchestration in entrypoints readable, but move sustained business logic into dedicated services/gateways/controllers rather than letting `onEnable` become a dumping ground.
 - Current representative entrypoints:
-  - `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java`
-  - `luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`
-  - `luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java`
-  - `luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java`
-  - `luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java`
-  - `luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java`
-  - `luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java`
-  - `luna-glyph/src/main/java/dev/belikhun/luna/glyph/LunaGlyphPlugin.java`
-  - `luna-messenger/src/main/java/dev/belikhun/luna/messenger/paper/LunaMessengerPaperPlugin.java`
-  - `luna-messenger-velocity/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java`
-- Keep Paper loader logic in `luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
+  - `paper/luna-core/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java`
+  - `velocity/luna-core/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`
+  - `velocity/luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java`
+  - `paper/luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java`
+  - `velocity/luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java`
+  - `paper/luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java`
+  - `velocity/luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java`
+  - `velocity/luna-glyph/src/main/java/dev/belikhun/luna/glyph/LunaGlyphPlugin.java`
+  - `paper/luna-messenger/src/main/java/dev/belikhun/luna/messenger/paper/LunaMessengerPaperPlugin.java`
+  - `velocity/luna-messenger/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java`
+- Keep Paper loader logic in `paper/luna-core/src/main/java/dev/belikhun/luna/core/paper/loader/LunaCoreLibraryLoader.java` for dynamic JDBC library resolution.
 - Current supported DB drivers in `luna-core-paper`: `sqlite`, `mysql`, `mariadb`.
-- Keep Velocity bootstrap entry in `luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`.
+- Keep Velocity bootstrap entry in `velocity/luna-core/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java`.
 - Keep Velocity version constants generated from templates:
-  - `luna-core-velocity/src/main/templates/dev/belikhun/luna/core/velocity/BuildConstants.java.tpl`
-  - `luna-pack/src/main/templates/dev/belikhun/luna/pack/BuildConstants.java.tpl`
-  - `luna-auth/src/main/templates/dev/belikhun/luna/auth/BuildConstants.java.tpl`
-  - `luna-vault/src/main/templates/dev/belikhun/luna/vault/BuildConstants.java.tpl`
-  - `luna-glyph/src/main/templates/dev/belikhun/luna/glyph/BuildConstants.java.tpl`
-  - `luna-messenger-velocity/src/main/templates/dev/belikhun/luna/messenger/velocity/BuildConstants.java.tpl`
+  - `velocity/luna-core/src/main/templates/dev/belikhun/luna/core/velocity/BuildConstants.java.tpl`
+  - `velocity/luna-pack/src/main/templates/dev/belikhun/luna/pack/BuildConstants.java.tpl`
+  - `velocity/luna-auth/src/main/templates/dev/belikhun/luna/auth/BuildConstants.java.tpl`
+  - `velocity/luna-vault/src/main/templates/dev/belikhun/luna/vault/BuildConstants.java.tpl`
+  - `velocity/luna-glyph/src/main/templates/dev/belikhun/luna/glyph/BuildConstants.java.tpl`
+  - `velocity/luna-messenger/src/main/templates/dev/belikhun/luna/messenger/velocity/BuildConstants.java.tpl`
 - Keep root-level shared Gradle behavior in `build.gradle.kts`; keep module behavior minimal and focused on dependencies.
 - Respect the current authority split when moving code:
   - network-wide auth logic belongs in `luna-auth` on Velocity.

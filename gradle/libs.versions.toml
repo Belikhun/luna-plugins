@@ -11,6 +11,23 @@ sqlite = "3.47.2.0"
 velocity = "3.5.0-SNAPSHOT"
 moddevgradle = "2.0.74"
 neoforge = "21.1.172"
+# newest loom that still targets this repo's gradle (1.16+ requires gradle 9.4+)
+fabricloom = "1.15.5"
+# Compile target for the fabric module. One jar serves 1.20 upward, so this is
+# the version its *stable* API surface is checked against, not a support floor;
+# everything that changed across that range goes through core/fabric/compat.
+fabricminecraft = "1.21.1"
+fabricloader = "0.16.14"
+fabricapi = "0.116.15+1.21.1"
+# The 26.x line ships unobfuscated, so fabric publishes an empty intermediary and
+# an intermediary-remapped jar cannot run there. luna-core-mc26-fabric builds the
+# same sources a second time against these coordinates and ships them unremapped.
+fabricminecraft26 = "26.2"
+# sha1 of that version's server bundle, which is also its download URL's last path
+# segment; bumping the version above without this one fails the build's own check
+fabricminecraft26sha1 = "823e2250d24b3ddac457a60c92a6a941943fcd6a"
+fabricloader26 = "0.19.3"
+fabricapi26 = "0.156.0+26.2"
 jda = "5.6.1"
 miniplaceholders = "3.1.0"
 placeholderapi = "2.12.2"
@@ -50,3 +67,4 @@ voicechat-api = { module = "de.maxhenkel.voicechat:voicechat-api", version.ref =
 
 [plugins]
 moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }
+fabricloom = { id = "fabric-loom", version.ref = "fabricloom" }

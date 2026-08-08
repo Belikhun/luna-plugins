@@ -173,7 +173,7 @@ LunaGlyph Velocity MiniPlaceholders:
 	- `<lunaglyph:glyph:<key>>`
 	- `<lunaglyph:glyph <key>>`
 - Available placeholders:
-	- Dynamic lookup from `luna-glyph/glyphs.yml` keys under `glyphs`.
+	- Dynamic lookup from `velocity/luna-glyph/glyphs.yml` keys under `glyphs`.
 	- Example key `sample_icon` -> `<lunaglyph:glyph:sample_icon>`
 	- Example key `sample_image` -> `<lunaglyph:glyph:sample_image>`
 
@@ -209,7 +209,7 @@ LunaGlyph Velocity TAB placeholders:
 
 - Format: `%lunaglyph-<key>%`
 - Available placeholders:
-	- Dynamic from `luna-glyph/glyphs.yml` keys under `glyphs`.
+	- Dynamic from `velocity/luna-glyph/glyphs.yml` keys under `glyphs`.
 	- Example key `sample_icon` -> `%lunaglyph-sample_icon%`
 	- Example key `sample_image` -> `%lunaglyph-sample_image%`
 	- TAB API requires explicit placeholder identifiers, so each used key is registered as its own TAB placeholder.

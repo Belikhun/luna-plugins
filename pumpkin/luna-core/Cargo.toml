@@ -1,0 +1,17 @@
+[package]
+name = "luna-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+amq-protocol = { version = "8", default-features = false }
+luna-core-api.workspace = true
+luna-permissions = { path = "../luna-permissions" }
+pumpkin-plugin-api.workspace = true
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+tracing.workspace = true

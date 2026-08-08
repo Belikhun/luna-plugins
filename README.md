@@ -14,6 +14,24 @@ In practice that means:
 - Paper hosts backend runtime services, gameplay integrations, and feature plugins that consume shared services exposed by Luna Core.
 - Shared contracts, codecs, storage abstractions, and messaging primitives live in `luna-core-api` and domain API modules such as `luna-vault-api`.
 
+## Layout
+
+Every module lives under the platform it targets:
+
+```
+core/        the platform-free API modules everything else compiles against
+paper/       Paper backends
+velocity/    the proxy, and everything that runs on it
+neoforge/    NeoForge backends
+fabric/      Fabric backends; a `-mc26` directory is the 26.x build of its sibling
+```
+
+A directory drops the platform suffix its gradle project keeps, so
+`fabric/luna-core` is the project `:luna-core-fabric`. The project names are
+deliberately unchanged by the folders: they drive `archiveBaseName`, which is the
+pooled jar name luna's plugin lockfile keys on, so renaming one would orphan its
+lockfile entry. [settings.gradle.kts](settings.gradle.kts) maps names to folders.
+
 ## Active Modules
 
 This README documents only modules that are currently included by [settings.gradle.kts](settings.gradle.kts).
@@ -336,8 +354,8 @@ Both proxy and backend runtimes expose database configuration. The stack support
 
 Relevant entrypoints:
 
-- [luna-core-paper/src/main/resources/config.yml](luna-core-paper/src/main/resources/config.yml)
-- [luna-core-velocity/src/main/resources/config.yml](luna-core-velocity/src/main/resources/config.yml)
+- [luna-core-paper/src/main/resources/config.yml](paper/luna-core/src/main/resources/config.yml)
+- [luna-core-velocity/src/main/resources/config.yml](velocity/luna-core/src/main/resources/config.yml)
 
 ### Optional RabbitMQ Transport
 
@@ -345,20 +363,20 @@ Plugin messaging can be augmented with RabbitMQ. The transport is optional and c
 
 ### Paper Runtime Dependencies
 
-`luna-core-paper` expects several server-side integrations to exist at runtime, including Spark, Vault, LuckPerms, PlaceholderAPI, and ProtocolLib. See [luna-core-paper/src/main/resources/paper-plugin.yml](luna-core-paper/src/main/resources/paper-plugin.yml).
+`luna-core-paper` expects several server-side integrations to exist at runtime, including Spark, Vault, LuckPerms, PlaceholderAPI, and ProtocolLib. See [luna-core-paper/src/main/resources/paper-plugin.yml](paper/luna-core/src/main/resources/paper-plugin.yml).
 
 ## Entry Points Worth Reading First
 
 If you are new to the codebase, start here:
 
-- [luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java](luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java)
-- [luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java](luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java)
-- [luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java](luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java)
-- [luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java](luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java)
-- [luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java](luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java)
-- [luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java](luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java)
-- [luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java](luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java)
-- [luna-messenger-velocity/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java](luna-messenger-velocity/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java)
+- [luna-core-paper/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java](paper/luna-core/src/main/java/dev/belikhun/luna/core/paper/LunaCorePlugin.java)
+- [luna-core-velocity/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java](velocity/luna-core/src/main/java/dev/belikhun/luna/core/velocity/LunaCoreVelocityPlugin.java)
+- [luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java](velocity/luna-auth/src/main/java/dev/belikhun/luna/auth/LunaAuthVelocityPlugin.java)
+- [luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java](paper/luna-auth-backend/src/main/java/dev/belikhun/luna/auth/backend/LunaAuthBackendPlugin.java)
+- [luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java](velocity/luna-vault/src/main/java/dev/belikhun/luna/vault/LunaVaultVelocityPlugin.java)
+- [luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java](paper/luna-vault-backend/src/main/java/dev/belikhun/luna/vault/backend/LunaVaultBackendPlugin.java)
+- [luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java](velocity/luna-pack/src/main/java/dev/belikhun/luna/pack/LunaPackLoaderPlugin.java)
+- [luna-messenger-velocity/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java](velocity/luna-messenger/src/main/java/dev/belikhun/luna/messenger/velocity/LunaMessengerVelocityPlugin.java)
 
 ## Further Docs
 

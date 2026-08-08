@@ -8,3 +8,11 @@ build
 
 # Ignore Kotlin plugin data
 .kotlin
+
+# Rust / cargo build output for the pumpkin plugins. `build` above already
+# catches gradle's, but cargo puts everything under target/ instead.
+target
+Cargo.lock.bak
+
+# The compiled components land beside the gradle jars in /output, which is
+# already ignored; nothing else here is generated.

@@ -1,0 +1,20 @@
+logging:
+  ansi: true
+  level: "INFO"
+  pluginMessaging:
+    enabled: false
+  heartbeatTransport:
+    enabled: false
+
+heartbeat:
+  enabled: true
+  endpoint: "http://127.0.0.1:32452/api/heartbeat"
+  serverName: ""
+  intervalSeconds: 5
+  connectTimeoutMillis: 3000
+  readTimeoutMillis: 3000
+  # Subscribe to the proxy's registry stream so backend status changes arrive as
+  # they happen instead of on the next beat. Turning this off falls back to the
+  # heartbeat poll, which means the server selector can be up to
+  # intervalSeconds stale.
+  streamEnabled: true

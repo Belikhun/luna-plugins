@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["luna-core-api", "luna-permissions", "luna-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "All Rights Reserved"
+
+[workspace.dependencies]
+pumpkin-plugin-api = { git = "https://github.com/Pumpkin-MC/Pumpkin", package = "pumpkin-plugin-api" }
+luna-core-api = { path = "luna-core-api" }
+tracing = "0.1"
+
+[profile.release]
+lto = true
+
+# amq-protocol pulls in amq-protocol-tcp unconditionally, and that reaches
+# reactor-trait, which has only unix and windows arms for its `sys` module and so
+# does not build for wasm32-wasip2. luna uses none of it - the AMQP client here
+# drives its own socket - but an unused dependency still has to compile. The fork
+# adds a wasi arm and nothing else; it should go upstream rather than live here.
+[patch.crates-io]
+reactor-trait = { path = "vendor/reactor-trait" }
