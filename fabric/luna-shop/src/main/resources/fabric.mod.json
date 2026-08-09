@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "lunashop",
+	"version": "${version}",
+	"name": "LunaShop",
+	"description": "The server shop: categories, buy and sell screens, daily trade limits and a transaction history. One build serves Minecraft 1.21.x.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "server",
+	"entrypoints": {
+		"server": ["dev.belikhun.luna.shop.fabric.bootstrap.LunaShopFabricMod"]
+	},
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"fabric-api": ">=0.116.0",
+		"lunacore": "*",
+		"lunavaultbackend": "*",
+		"minecraft": ">=1.21 <2.0",
+		"java": ">=21"
+	}
+}

@@ -30,7 +30,21 @@ class ForwardingSecretResolverTest {
 	}
 
 	@Test
-	void readsProxyCompatibleForgeKey(@TempDir Path configDir) throws IOException {
+	void readsProxyCompatibleForgeV2SectionKey(@TempDir Path configDir) throws IOException {
+		Files.writeString(configDir.resolve("proxy-compatible-forge.toml"), """
+			version = 2.0
+
+			[forwarding]
+				enabled = true
+				mode = "MODERN"
+				secret = "forge-secret"
+			""");
+
+		assertEquals("forge-secret", ForwardingSecretResolver.resolve(configDir, LOGGER));
+	}
+
+	@Test
+	void readsLegacyPcfCommonKey(@TempDir Path configDir) throws IOException {
 		Files.writeString(configDir.resolve("pcf-common.toml"), """
 			modernForwarding = true
 			forwardingSecret = "forge-secret"

@@ -2,6 +2,10 @@ package dev.belikhun.luna.core.fabric.bootstrap;
 
 import dev.belikhun.luna.core.api.config.BackendCoreConfigLoader;
 import dev.belikhun.luna.core.api.config.BackendCoreRuntimeConfig;
+import dev.belikhun.luna.core.api.config.YamlConfigFile;
+import dev.belikhun.luna.core.api.database.Database;
+import dev.belikhun.luna.core.api.database.DatabaseConnector;
+import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatPublisher;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
@@ -19,6 +23,8 @@ import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
 import dev.belikhun.luna.core.fabric.placeholder.BuiltInFabricPlaceholderService;
 import dev.belikhun.luna.core.fabric.placeholder.FabricPlaceholderService;
 import dev.belikhun.luna.core.fabric.serverselector.FabricServerSelectorController;
+import dev.belikhun.luna.core.fabric.ui.FabricChatPrompts;
+import dev.belikhun.luna.core.mc.ui.ChatPrompts;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -55,6 +61,8 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 	private BackendHeartbeatPublisher heartbeatPublisher;
 	private FabricServerSelectorController serverSelectorController;
 	private FabricPlaceholderService placeholderService;
+	private ChatPrompts chatPrompts;
+	private Database database;
 	private int ticksSincePlaceholderRefresh;
 
 	public LunaCoreFabricMod() {
@@ -64,6 +72,8 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		this.heartbeatPublisher = null;
 		this.serverSelectorController = null;
 		this.placeholderService = null;
+		this.chatPrompts = null;
+		this.database = new NoopDatabase();
 		this.ticksSincePlaceholderRefresh = 0;
 	}
 
@@ -82,6 +92,10 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		// join/leave only sharpen the reporting: a beat that misses them is late by
 		// one interval rather than wrong
 		registerConnectionEvents();
+
+		// fabric's events are static, so the chat hook is installed once here and the
+		// service behind it is swapped per server start
+		FabricChatPrompts.registerEvents(() -> chatPrompts);
 
 		logger.audit("Đã đăng ký LunaCore Fabric bootstrap trên Minecraft " + GameVersion.display() + ".");
 	}
@@ -113,6 +127,11 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 			.resolve(MOD_ID).resolve("config.yml");
 		BackendCoreRuntimeConfig runtimeConfig = BackendCoreConfigLoader.loadRuntimeConfig(configPath, getClass(), logger);
 
+		// the same file again, this time as the whole tree: the runtime config is
+		// the slice every platform parses identically, while the modules above the
+		// core read their own keys out of it the way they do from Paper's ConfigStore
+		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), "config.yml");
+
 		this.logger = FabricLunaLoggers.create(
 			"LunaCore",
 			runtimeConfig.ansiLoggingEnabled(),
@@ -140,10 +159,16 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		);
 		BackendIdentity backendIdentity = heartbeatPublisher.identity();
 
+		database = DatabaseConnector.connect(config.section("database"), logger);
+		chatPrompts = new ChatPrompts(server);
+
 		dependencyManager.registerSingleton(MinecraftServer.class, server);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		dependencyManager.registerSingleton(LunaLogger.class, logger);
 		dependencyManager.registerSingleton(BackendCoreRuntimeConfig.class, runtimeConfig);
+		dependencyManager.registerSingleton(YamlConfigFile.class, config);
+		dependencyManager.registerSingleton(Database.class, database);
+		dependencyManager.registerSingleton(ChatPrompts.class, chatPrompts);
 		dependencyManager.registerSingleton(BackendStatusView.class, backendStatusStore);
 		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(BackendIdentity.class, backendIdentity);
@@ -171,12 +196,13 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		dependencyManager.registerSingleton(FabricPlaceholderService.class, placeholderService);
 		placeholderService.refreshSharedSnapshot();
 
-		LunaCoreFabric.set(new LunaCoreFabricServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher));
+		LunaCoreFabric.set(new LunaCoreFabricServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
 		logger.success("LunaCore Fabric đã khởi động bootstrap với heartbeat publisher.");
 	}
 
 	private void onServerStopping(MinecraftServer server) {
 		placeholderService = null;
+		chatPrompts = null;
 
 		if (serverSelectorController != null) {
 			serverSelectorController.close();
@@ -187,6 +213,9 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 			heartbeatPublisher.shutdown();
 			heartbeatPublisher = null;
 		}
+
+		database.close();
+		database = new NoopDatabase();
 
 		dependencyManager.clear();
 		LunaCoreFabric.clear();

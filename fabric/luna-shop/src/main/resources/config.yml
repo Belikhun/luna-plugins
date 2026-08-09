@@ -1,0 +1,8 @@
+economy:
+  # how long a wallet call may take before the shop gives up on it; a trade
+  # started from a button gets a much shorter slice of this, since it runs on the
+  # server thread
+  timeout-millis: 3000
+
+logging:
+  debug: false

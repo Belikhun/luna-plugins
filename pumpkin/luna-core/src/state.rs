@@ -6,22 +6,33 @@
 //! what names the AMQP queue and the `current_server` placeholder later.
 
 use crate::amqp::AmqpTransport;
+use std::sync::Arc;
 use crate::config::CoreConfig;
 use crate::http;
-use luna_core_api::heartbeat::{HeartbeatStats, decode_form, effective_tps, encode_form};
+use luna_core_api::heartbeat::{
+	HeartbeatStats, decode_form, effective_tps, encode_form, selector_config_url,
+};
 
+use luna_core_api::host_metrics::{HostMetrics, decode_host_metrics};
 use luna_core_api::identity::{BackendIdentity, BackendMetadata};
+use luna_core_api::registry::{BackendRegistry, decode_frame};
 use luna_core_api::messaging::AmqpConfig;
 use pumpkin_plugin_api::Server;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// What the daemon leaves in the plugin's data folder, and the only file in
+/// there this component did not write itself.
+const HOST_METRICS_FILE: &str = "host-metrics";
 
 /// Everything the beat needs, shared with the scheduled task.
 pub struct CoreState {
 	config: CoreConfig,
 	identity: BackendIdentity,
-	transport: AmqpTransport,
+	/// Shared with the message bus: the broker is messaging's, and the beat only
+	/// borrows it to hand over the settings the proxy publishes.
+	transport: Arc<AmqpTransport>,
 	boot_epoch_millis: u64,
 	/// Where the registry cursor is; the proxy sends what changed after it.
 	cursor: AtomicU64,
@@ -29,20 +40,81 @@ pub struct CoreState {
 	consecutive_failures: AtomicU64,
 	/// The last messaging-config body seen, so an unchanged one is not re-applied.
 	messaging_body: Mutex<Option<String>>,
+	/// The last selector layout seen, for the same reason.
+	selector_body: Mutex<Option<Vec<u8>>>,
+	/// Every backend the proxy has told us about, which is what the selector draws.
+	registry: Arc<Mutex<BackendRegistry>>,
+	/// The plugin's own data folder, where the daemon leaves this instance's
+	/// CPU and memory; see [`luna_core_api::host_metrics`].
+	data_folder: String,
+	/// Whether the last read found a fresh sample, so the change is logged once.
+	host_metrics_seen: AtomicBool,
 }
 
 impl CoreState {
 	#[must_use]
-	pub fn new(config: CoreConfig, identity: BackendIdentity) -> Self {
+	pub fn new(
+		config: CoreConfig,
+		identity: BackendIdentity,
+		transport: Arc<AmqpTransport>,
+		data_folder: String,
+	) -> Self {
 		Self {
 			config,
 			identity,
-			transport: AmqpTransport::new(),
+			transport,
 			boot_epoch_millis: now_millis(),
 			cursor: AtomicU64::new(0),
 			consecutive_failures: AtomicU64::new(0),
 			messaging_body: Mutex::new(None),
+			selector_body: Mutex::new(None),
+			registry: Arc::new(Mutex::new(BackendRegistry::new())),
+			data_folder,
+			host_metrics_seen: AtomicBool::new(false),
 		}
+	}
+
+	/// What the daemon last measured about this instance, if it is still current.
+	///
+	/// Read per beat rather than cached: the file is a few dozen bytes in the
+	/// one directory this component already has open, and a cache would only
+	/// add a second way for the figures to go stale.
+	///
+	/// Whether it is there is logged when it *changes*, not per beat. A backend
+	/// silently reporting no CPU or memory looks identical to one reporting
+	/// zero, and the difference is a daemon that stopped writing.
+	fn host_metrics(&self) -> Option<HostMetrics> {
+		let path = std::path::Path::new(&self.data_folder).join(HOST_METRICS_FILE);
+		let metrics = std::fs::read_to_string(path)
+			.ok()
+			.map(|body| decode_host_metrics(&body))
+			.filter(|metrics| metrics.is_fresh(now_millis()));
+
+		if self.host_metrics_seen.swap(metrics.is_some(), Ordering::Relaxed) != metrics.is_some() {
+			match metrics {
+				Some(metrics) => tracing::info!(
+					"Đang nhận CPU/RAM từ luna daemon: cpu {:.1}% máy · {:.1}% tiến trình · ram {} MB/{} MB.",
+					metrics.system_cpu_percent,
+					metrics.process_cpu_percent,
+					metrics.ram_used_bytes / 1024 / 1024,
+					metrics.ram_max_bytes / 1024 / 1024
+				),
+				None => tracing::warn!(
+					"Không có số liệu CPU/RAM từ luna daemon ({}/{}); \
+					 backend sẽ báo cáo 0 cho hai chỉ số này.",
+					self.data_folder,
+					HOST_METRICS_FILE
+				),
+			}
+		}
+
+		metrics
+	}
+
+	/// The registry, shared with whatever draws it.
+	#[must_use]
+	pub fn registry(&self) -> Arc<Mutex<BackendRegistry>> {
+		Arc::clone(&self.registry)
 	}
 
 	#[must_use]
@@ -117,6 +189,47 @@ impl CoreState {
 		}
 	}
 
+	/// Fetch the server selector's layout, when it has changed.
+	///
+	/// The proxy serves the menu over HTTP rather than pushing it on a channel,
+	/// because it is the cluster's configuration rather than a message about a
+	/// player: a backend with nobody on it still needs the current one, ready
+	/// for whoever arrives next. `None` means unchanged or unavailable, and the
+	/// caller keeps whatever it already drew.
+	pub fn fetch_selector_config(&self) -> Option<Vec<u8>> {
+		let url = selector_config_url(&self.config.heartbeat.endpoint);
+		let timeout = Duration::from_millis(self.config.heartbeat.read_timeout_millis.max(500));
+
+		let response = http::request(
+			"GET",
+			&url,
+			&[(
+				"X-Luna-Forwarding-Secret",
+				self.config.heartbeat.forwarding_secret.trim(),
+			)],
+			None,
+			timeout,
+		);
+
+		let Ok(reply) = response else {
+			return None;
+		};
+
+		if !reply.is_ok() || reply.body.is_empty() {
+			return None;
+		}
+
+		let mut seen = self.selector_body.lock().expect("selector body poisoned");
+
+		if seen.as_deref() == Some(reply.body.as_slice()) {
+			return None;
+		}
+
+		*seen = Some(reply.body.clone());
+
+		Some(reply.body)
+	}
+
 	/// Take the broker settings the proxy publishes for this backend.
 	///
 	/// The proxy owns them, exactly as it does on Paper: a backend that read its
@@ -171,33 +284,34 @@ impl CoreState {
 			tracing::debug!("[RX] {body}");
 		}
 
-		let fields = decode_form(body);
+		let frame = decode_frame(body);
 
-		if let Some(revision) = fields.get("revision").and_then(|value| value.parse().ok()) {
-			self.cursor.store(revision, Ordering::Relaxed);
+		if frame.revision > 0 {
+			self.cursor.store(frame.revision, Ordering::Relaxed);
 		}
+
+		// The whole registry comes back with every beat, not just an
+		// acknowledgement: this is where a backend learns about its neighbours,
+		// and the server selector draws itself out of nothing else.
+		self.registry
+			.lock()
+			.expect("backend registry poisoned")
+			.apply(&frame);
 
 		// the proxy names this backend in the row it holds for it; that name is
 		// what the queue and the placeholders use, so it is worth taking eagerly
-		let name = fields
-			.get("server_0_name")
-			.or_else(|| fields.get("name"))
-			.cloned()
-			.unwrap_or_default();
-
-		if !name.trim().is_empty() {
+		if !frame.identity.is_blank() {
 			self.identity.observe(BackendMetadata {
-				name,
-				display_name: fields.get("server_0_display").cloned().unwrap_or_default(),
-				accent_color: fields
-					.get("server_0_accent_color")
-					.cloned()
-					.unwrap_or_default(),
+				name: frame.identity.name,
+				display_name: frame.identity.display_name,
+				accent_color: frame.identity.accent_color,
 			});
 		}
 	}
 
 	fn collect(&self, server: &Server) -> HeartbeatStats {
+		let metrics = self.host_metrics();
+
 		HeartbeatStats {
 			software: "Pumpkin".into(),
 			version: server.get_sys_info().pumpkin_version,
@@ -208,17 +322,19 @@ impl CoreState {
 			max_players: i32::try_from(server.get_max_players()).unwrap_or(0),
 			motd: server.get_motd(),
 			whitelist_enabled: server.has_whitelist(),
-			// Every figure below is heap and process on the JVM platforms, and the
-			// sandbox can read neither: `get-sys-info` reports the whole machine,
-			// which would show a backend "using" the host's 12 GB and would reach
-			// players through the selector's ram placeholders. Left at zero on
-			// purpose; the daemon samples this instance's real RSS from /proc,
-			// which is where the console's memory column already comes from.
-			system_cpu_usage_percent: 0.0,
-			process_cpu_usage_percent: 0.0,
-			ram_used_bytes: 0,
-			ram_free_bytes: 0,
-			ram_max_bytes: 0,
+			// Every figure below is heap and process load on the JVM platforms,
+			// and this sandbox can measure neither: `get-sys-info` reports the
+			// whole machine, which would have a backend claiming the host's
+			// 12 GB, and that reaches players through the selector's ram
+			// placeholders. The luna daemon samples both per instance from
+			// /proc - it is where the console's own columns come from - and
+			// leaves them in this plugin's data folder. Zero when it has left
+			// nothing recent, which reads as "not reported" rather than as idle.
+			system_cpu_usage_percent: metrics.map_or(0.0, |m| m.system_cpu_percent),
+			process_cpu_usage_percent: metrics.map_or(0.0, |m| m.process_cpu_percent),
+			ram_used_bytes: metrics.map_or(0, |m| m.ram_used_bytes as i64),
+			ram_free_bytes: metrics.map_or(0, |m| m.ram_free_bytes() as i64),
+			ram_max_bytes: metrics.map_or(0, |m| m.ram_max_bytes as i64),
 		}
 	}
 
@@ -243,7 +359,7 @@ impl CoreState {
 	}
 }
 
-fn now_millis() -> u64 {
+pub fn now_millis() -> u64 {
 	SystemTime::now()
 		.duration_since(UNIX_EPOCH)
 		.map(|elapsed| elapsed.as_millis() as u64)

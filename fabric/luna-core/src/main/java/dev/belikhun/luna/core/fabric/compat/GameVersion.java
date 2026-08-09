@@ -5,9 +5,9 @@ import net.fabricmc.loader.api.FabricLoader;
 /**
  * Which Minecraft this jar ended up running on.
  *
- * One build of this mod serves 1.20 upward, so anything that changed inside that
- * range is gated on a version test rather than assumed. The reading comes from
- * the loader's own metadata, not from a game class, because that is the one
+ * One build of this mod serves a whole game line, so anything that changed inside
+ * that range is gated on a version test rather than assumed. The reading comes
+ * from the loader's own metadata, not from a game class, because that is the one
  * source that cannot be renamed by a remap.
  *
  * Two numbering schemes are in circulation: the historical {@code 1.<minor>.<patch>}
@@ -39,15 +39,6 @@ public final class GameVersion {
 		}
 
 		return true;
-	}
-
-	/**
-	 * Whether item display data is carried by data components rather than NBT.
-	 * That switch landed in 1.20.5 and is the widest behavioural split inside the
-	 * supported range.
-	 */
-	public static boolean hasDataComponents() {
-		return atLeast(1, 20, 5);
 	}
 
 	private static String readDisplay() {

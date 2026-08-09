@@ -54,7 +54,6 @@ This README documents only modules that are currently included by [settings.grad
 | `luna-messenger-velocity` | Velocity | Central messaging hub for network chat, presence, moderation, and Discord bridge routing |
 | `luna-auth` | Velocity | Authentication authority, account storage, password verification, mixed-mode routing |
 | `luna-auth-backend` | Paper | Backend auth restrictions, login/register command forwarding, pre-auth spawn and prompt flow |
-| `luna-migrator` | Paper | UUID/auth migration support plugin for the LUNA stack |
 
 ## Server Architecture
 
@@ -90,7 +89,6 @@ flowchart LR
         Countdown[LunaCountdown]
         Hat[LunaHat]
         Smp[LunaSmp]
-        Migrator[LunaMigrator]
     end
 
     subgraph Infra[Shared Infrastructure]
@@ -118,7 +116,6 @@ flowchart LR
     CorePaper --> Countdown
     CorePaper --> Hat
     CorePaper --> Smp
-    CorePaper --> Migrator
 
     CoreVelocity --- Db
     Auth --- Db
@@ -166,7 +163,6 @@ flowchart TB
         AuthBackend[luna-auth-backend]
         VaultBackend[luna-vault-backend]
         MessengerP[luna-messenger]
-        Migrator[luna-migrator]
     end
 
     subgraph Features[Gameplay Features]
@@ -188,7 +184,6 @@ flowchart TB
     CorePaper --> AuthBackend
     CorePaper --> VaultBackend
     CorePaper --> MessengerP
-    CorePaper --> Migrator
     CorePaper --> Shop
     CorePaper --> Countdown
     CorePaper --> Hat

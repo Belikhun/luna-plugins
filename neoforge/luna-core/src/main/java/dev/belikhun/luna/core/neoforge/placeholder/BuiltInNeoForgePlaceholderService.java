@@ -7,6 +7,7 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
 import dev.belikhun.luna.core.api.placeholder.PlaceholderEscaping;
 import dev.belikhun.luna.core.api.placeholder.PlaceholderRoute;
+import dev.belikhun.luna.core.mc.placeholder.LunaPlaceholderExtension;
 import dev.belikhun.luna.core.api.placeholder.PlaceholderRouting;
 import dev.belikhun.luna.core.api.placeholder.PlaceholderSnapshot;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -64,6 +66,8 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	private final BackendIdentity backendIdentity;
 	private final List<NeoForgePlaceholderProvider> placeholderProviders;
 	private final Map<String, List<NeoForgePlaceholderProvider>> placeholderProvidersByNamespace;
+	private final Map<String, LunaPlaceholderExtension> extensionsByNamespace = new ConcurrentHashMap<>();
+	private final List<LunaPlaceholderExtension> extensions = new CopyOnWriteArrayList<>();
 	private final ConcurrentMap<ReflectionMemberKey, Optional<Method>> zeroArgMethodCache = new ConcurrentHashMap<>();
 	private final ConcurrentMap<ReflectionMemberKey, Optional<Field>> fieldCache = new ConcurrentHashMap<>();
 	private volatile SharedSnapshot latestSharedSnapshot;
@@ -107,6 +111,10 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 	private Map<String, String> snapshotFor(ServerPlayer player, Collection<String> requestedIdentifiers, SharedSnapshot sharedSnapshot) {
 		Map<String, String> values = new LinkedHashMap<>();
 		PlaceholderSnapshot currentSnapshot = currentSnapshot(player, sharedSnapshot);
+		for (LunaPlaceholderExtension extension : extensions) {
+			extension.contributeSnapshot(player, values);
+		}
+
 		for (NeoForgePlaceholderProvider provider : placeholderProviders) {
 			provider.contributeSnapshot(this, player, currentSnapshot, values);
 		}
@@ -202,7 +210,62 @@ public final class BuiltInNeoForgePlaceholderService implements NeoForgePlacehol
 		return trimmed;
 	}
 
+	@Override
+	public void registerExtension(LunaPlaceholderExtension extension) {
+		if (extension == null) {
+			return;
+		}
+
+		for (String namespace : extension.namespaces()) {
+			if (namespace != null && !namespace.isBlank()) {
+				extensionsByNamespace.put(namespace.trim().toLowerCase(Locale.ROOT), extension);
+			}
+		}
+
+		extensions.add(extension);
+	}
+
+	/**
+	 * Ask the extensions, splitting the identifier on its first underscore.
+	 *
+	 * That is the same split PlaceholderAPI makes on Paper, which is what keeps
+	 * one proxy-side template - {@code %lunavault_balance%} - rendering on every
+	 * platform.
+	 */
+	private String resolveFromExtension(ServerPlayer player, String identifier) {
+		if (extensionsByNamespace.isEmpty()) {
+			return null;
+		}
+
+		String unwrapped = PlaceholderRouting.unwrapIdentifier(identifier);
+
+		if (unwrapped == null || unwrapped.isBlank()) {
+			return null;
+		}
+
+		int separator = unwrapped.indexOf('_');
+
+		if (separator <= 0 || separator >= unwrapped.length() - 1) {
+			return null;
+		}
+
+		String namespace = unwrapped.substring(0, separator).toLowerCase(Locale.ROOT);
+		LunaPlaceholderExtension extension = extensionsByNamespace.get(namespace);
+
+		if (extension == null) {
+			return null;
+		}
+
+		return extension.resolve(player, namespace, unwrapped.substring(separator + 1).toLowerCase(Locale.ROOT));
+	}
+
 	String resolveRequestedValue(ServerPlayer player, String identifier, PlaceholderSnapshot snapshot) {
+		String fromExtension = resolveFromExtension(player, identifier);
+
+		if (fromExtension != null) {
+			return fromExtension;
+		}
+
 		PlaceholderRoute<NeoForgePlaceholderProvider> route = PlaceholderRouting.resolve(identifier, placeholderProvidersByNamespace);
 		if (route == null) {
 			return null;

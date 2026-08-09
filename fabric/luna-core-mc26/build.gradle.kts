@@ -13,6 +13,8 @@ dependencies {
 	compileOnly(libs.adventure.serializer.gson)
 	compileOnly(libs.luckperms.api)
 	compileOnly(libs.spark.api)
+	compileOnly(libs.voicechat.api)
+	compileOnly(libs.mariadb.jdbc)
 }
 
 val embeddedAdventureMiniMessage = configurations.detachedConfiguration(
@@ -31,6 +33,15 @@ val embeddedSnakeYaml = configurations.detachedConfiguration(
 	dependencies.create("org.yaml:snakeyaml:2.2")
 )
 
+// The jdbc driver ships inside the jar here for the same reason as on the 1.21
+// build, and unrelocated for the same reason: DatabaseType names its class as a
+// string. See the sibling module for the whole note.
+val embeddedMariaDbDriver = configurations.detachedConfiguration(
+	dependencies.create(libs.mariadb.jdbc.get())
+).apply {
+	isTransitive = false
+}
+
 tasks.named<ShadowJar>("shadowJar") {
 	val coreApiJar = project(":luna-core-api").tasks.named<Jar>("jar")
 	dependsOn(coreApiJar)
@@ -39,7 +50,8 @@ tasks.named<ShadowJar>("shadowJar") {
 			embeddedAdventureMiniMessage,
 			embeddedAdventureSerializerLegacy,
 			embeddedAdventureSerializerGson,
-			embeddedSnakeYaml
+			embeddedSnakeYaml,
+			embeddedMariaDbDriver
 		)
 	}
 	from(zipTree(coreApiJar.get().archiveFile.get().asFile))

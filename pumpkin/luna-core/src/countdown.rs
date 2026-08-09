@@ -11,10 +11,12 @@
 //! finishes its countdown when it said it would, instead of drifting later by
 //! however long it was busy.
 
+use crate::text::{broadcast, render};
 use luna_core_api::countdown::{Rgb, readable_time};
+use luna_core_api::text::Span;
+use pumpkin_plugin_api::Server;
 use pumpkin_plugin_api::boss_bar::{BossBar, BossBarColor, BossBarDivision};
 use pumpkin_plugin_api::text::TextComponent;
-use pumpkin_plugin_api::{Server, common::RgbColor};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -303,24 +305,19 @@ impl Countdowns {
 	}
 }
 
-/// One coloured run of a message.
-///
-/// A `TextComponent` is a WIT resource: it is owned, it cannot be cloned, and
-/// handing it to the host consumes it. A line therefore cannot be built once and
-/// sent to everybody; it is held as its runs and rendered fresh per recipient,
-/// which is also what lets the same line serve a bar title and a chat message.
-type Line = Vec<(String, Rgb)>;
+/// A message held as its runs, rendered per use; see `crate::text`.
+type Line = Vec<Span>;
 
 /// `Sự kiện <title> sẽ bắt đầu sau <time> nữa!`
 fn starting_line(title: &str, seconds: f64) -> Line {
 	let time = readable_time(seconds);
 
 	vec![
-		("Sự kiện ".to_owned(), WHITE),
-		(title.to_owned(), GREEN),
-		(" sẽ bắt đầu sau ".to_owned(), WHITE),
-		(time.text, time.color),
-		(" nữa!".to_owned(), WHITE),
+		Span::colored("Sự kiện ", WHITE),
+		Span::colored(title, GREEN),
+		Span::colored(" sẽ bắt đầu sau ", WHITE),
+		Span::colored(time.text, time.color),
+		Span::colored(" nữa!", WHITE),
 	]
 }
 
@@ -329,25 +326,25 @@ fn counting_bar(id: u32, title: &str, remaining: f64) -> Line {
 	let time = readable_time(remaining);
 
 	vec![
-		(format!("#{id} "), GRAY),
-		(title.to_owned(), GREEN),
-		(" sau ".to_owned(), GRAY),
-		(time.text, time.color),
+		Span::colored(format!("#{id} "), GRAY),
+		Span::colored(title, GREEN),
+		Span::colored(" sau ", GRAY),
+		Span::colored(time.text, time.color),
 	]
 }
 
 /// `#<id> <title> đã bắt đầu!`
 fn finished_bar(id: u32, title: &str) -> Line {
 	vec![
-		(format!("#{id} "), GRAY),
-		(title.to_owned(), GREEN),
-		(" đã bắt đầu!".to_owned(), GRAY),
+		Span::colored(format!("#{id} "), GRAY),
+		Span::colored(title, GREEN),
+		Span::colored(" đã bắt đầu!", GRAY),
 	]
 }
 
 /// The same words, prefixed for chat.
 fn finished_line(id: u32, title: &str) -> Line {
-	let mut line = vec![("Sự kiện ".to_owned(), WHITE)];
+	let mut line = vec![Span::colored("Sự kiện ", WHITE)];
 
 	line.extend(finished_bar(id, title));
 
@@ -357,47 +354,21 @@ fn finished_line(id: u32, title: &str) -> Line {
 /// What a cancelled bar is left showing.
 fn cancelled_bar(title: &str, reason: Option<&str>) -> Line {
 	if let Some(reason) = reason.map(str::trim).filter(|given| !given.is_empty()) {
-		return vec![(reason.to_owned(), WHITE)];
+		return vec![Span::colored(reason, WHITE)];
 	}
 
 	vec![
-		("Đã hủy bỏ ".to_owned(), WHITE),
-		(title.to_owned(), LIGHT_PURPLE),
+		Span::colored("Đã hủy bỏ ", WHITE),
+		Span::colored(title, LIGHT_PURPLE),
 	]
 }
 
 /// `Sự kiện (#<id>) <title> đã bị hủy!`
 fn cancelled_line(id: u32, title: &str) -> Line {
 	vec![
-		("Sự kiện ".to_owned(), WHITE),
-		(format!("(#{id}) "), GRAY),
-		(title.to_owned(), LIGHT_PURPLE),
-		(" đã bị hủy!".to_owned(), WHITE),
+		Span::colored("Sự kiện ", WHITE),
+		Span::colored(format!("(#{id}) "), GRAY),
+		Span::colored(title, LIGHT_PURPLE),
+		Span::colored(" đã bị hủy!", WHITE),
 	]
-}
-
-/// Build a component from the runs. One per use; see [`Line`].
-fn render(line: &Line) -> TextComponent {
-	let root = TextComponent::text("");
-
-	for (message, color) in line {
-		let run = TextComponent::text(message);
-
-		run.color_rgb(RgbColor {
-			r: color.0,
-			g: color.1,
-			b: color.2,
-		});
-
-		root.add_child(run);
-	}
-
-	root
-}
-
-/// Send one line to everybody, in chat rather than over the hotbar.
-fn broadcast(server: &Server, line: &Line) {
-	for player in server.get_all_players() {
-		player.send_system_message(render(line), false);
-	}
 }

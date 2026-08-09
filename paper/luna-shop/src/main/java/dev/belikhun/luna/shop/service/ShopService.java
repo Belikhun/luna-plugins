@@ -1,5 +1,9 @@
 package dev.belikhun.luna.shop.service;
 
+import dev.belikhun.luna.shop.api.ShopResult;
+import dev.belikhun.luna.shop.api.ShopTransactionEntry;
+import dev.belikhun.luna.shop.api.ShopTransactionPlayer;
+import dev.belikhun.luna.shop.api.ShopTransactionStore;
 import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.gui.LunaPagination;

@@ -13,6 +13,7 @@ import dev.belikhun.luna.vault.api.VaultFailureReason;
 import dev.belikhun.luna.vault.api.VaultLeaderboardPage;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
+import dev.belikhun.luna.vault.api.VaultPlayerStateCache;
 import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.VaultTransactionRecord;
 import dev.belikhun.luna.vault.api.model.VaultAccountModel;
@@ -65,7 +66,7 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 	private final Map<UUID, CompletableFuture<VaultRpcResponse>> pendingRequests;
 	private final Map<UUID, CompletableFuture<VaultPlayerSnapshot>> inFlightSnapshots;
 	private final Map<UUID, Long> playerSessionVersions;
-	private final PaperVaultPlayerStateCache stateCache;
+	private final VaultPlayerStateCache stateCache;
 	private final String backendInstanceId;
 	private final AtomicLong retryScheduledCount;
 	private final AtomicLong retryExhaustedCount;
@@ -87,7 +88,7 @@ public final class PaperVaultGateway implements LunaVaultApi, Listener {
 		this.pendingRequests = new ConcurrentHashMap<>();
 		this.inFlightSnapshots = new ConcurrentHashMap<>();
 		this.playerSessionVersions = new ConcurrentHashMap<>();
-		this.stateCache = new PaperVaultPlayerStateCache();
+		this.stateCache = new VaultPlayerStateCache();
 		this.backendInstanceId = plugin.getServer().getName() + "-" + UUID.randomUUID();
 		this.retryScheduledCount = new AtomicLong();
 		this.retryExhaustedCount = new AtomicLong();

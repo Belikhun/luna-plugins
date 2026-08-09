@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "lunaauthbackend",
+	"version": "${version}",
+	"name": "LunaAuthBackend",
+	"description": "Holds a player at the auth spawn until the proxy says they are authenticated. One build serves Minecraft 1.21.x.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "server",
+	"entrypoints": {
+		"server": ["dev.belikhun.luna.auth.backend.fabric.bootstrap.LunaAuthBackendFabricMod"]
+	},
+	"mixins": [
+		"lunaauthbackend.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"fabric-api": ">=0.116.0",
+		"lunacore": "*",
+		"lunacoremessaging": "*",
+		"minecraft": ">=1.21 <2.0",
+		"java": ">=21"
+	}
+}

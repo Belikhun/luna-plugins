@@ -1,0 +1,54 @@
+logging:
+  auth-flow: true
+
+auth:
+  mode-selector-gui:
+    enabled: true
+  teleport-to-spawn-on-connect: true
+
+prompt:
+  pending:
+    bossbar: "<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>"
+    actionbar: "<yellow>Đang kiểm tra trạng thái tài khoản...</yellow>"
+    chat: "<yellow>ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</yellow>"
+  login:
+    bossbar: "<yellow><b>⚠ Vui lòng đăng nhập để tiếp tục</b></yellow>"
+    actionbar: "<yellow>Dùng <white>/login <mật_khẩu></white> để đăng nhập</yellow>"
+    chat: "<yellow>ℹ Tài khoản đã đăng ký. Dùng <white>/login <mật_khẩu></white> để tiếp tục.</yellow>"
+  register:
+    bossbar: "<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>"
+    actionbar: "<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>"
+    chat: "<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>"
+  authenticated:
+    actionbar: "<green>✔ Đã xác thực thành công</green>"
+    chat: "<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>"
+    by-method:
+      quick_login:
+        actionbar: "<green>✔ <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực tức thì</green>"
+        chat: "<green>✔ Bạn đã được <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực bằng phiên Premium hợp lệ.</green>"
+      session_resume:
+        actionbar: "<green>✔ Phiên đăng nhập đã khôi phục</green>"
+        chat: "<green>✔ Phiên trước vẫn còn hiệu lực, không cần nhập lại mật khẩu.</green>"
+      password_login:
+        actionbar: "<green>✔ Đăng nhập mật khẩu thành công</green>"
+        chat: "<green>✔ Bạn đã xác thực bằng mật khẩu thành công.</green>"
+      register_password:
+        actionbar: "<green>✔ Tạo tài khoản thành công</green>"
+        chat: "<green>✔ Tài khoản mới đã được tạo và xác thực.</green>"
+
+allowedCommands:
+  - login
+  - register
+  - l
+  - reg
+  - help
+
+auth-spawn:
+  world: ""
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  yaw: 0.0
+  pitch: 0.0
+  set-by: ""
+  updated-at: 0

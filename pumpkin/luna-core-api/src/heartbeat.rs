@@ -225,6 +225,20 @@ pub fn messaging_config_url(endpoint: &str, server_name: &str) -> String {
 	format!("{sibling}/{}", encode_path_segment(server_name))
 }
 
+/// Where the proxy serves the server selector's layout.
+///
+/// A sibling of the heartbeat endpoint like the messaging config, but with no
+/// name segment: the menu is the cluster's, not one backend's.
+#[must_use]
+pub fn selector_config_url(endpoint: &str) -> String {
+	let base = endpoint.trim_end_matches('/');
+
+	match base.rfind('/') {
+		Some(index) => format!("{}/server-selector-config", &base[..index]),
+		None => format!("{base}/server-selector-config"),
+	}
+}
+
 /// Percent-encode a name for use as one path segment.
 fn encode_path_segment(value: &str) -> String {
 	let mut out = String::with_capacity(value.len());

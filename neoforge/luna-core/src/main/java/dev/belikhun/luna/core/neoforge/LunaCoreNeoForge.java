@@ -16,6 +16,16 @@ public final class LunaCoreNeoForge {
 		return services;
 	}
 
+	/**
+	 * Whether {@link #services()} would answer rather than throw.
+	 *
+	 * A module that starts before the core has published its services asks this
+	 * and waits, rather than treating a missing core as a crash.
+	 */
+	public static boolean isReady() {
+		return services != null;
+	}
+
 	public static void set(LunaCoreNeoForgeServices coreServices) {
 		services = coreServices;
 	}

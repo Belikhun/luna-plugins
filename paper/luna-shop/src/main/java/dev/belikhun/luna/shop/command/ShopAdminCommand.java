@@ -7,7 +7,7 @@ import dev.belikhun.luna.shop.gui.ShopGuiController;
 import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
 import dev.belikhun.luna.shop.service.ShopService;
-import dev.belikhun.luna.shop.service.ShopTransactionPlayer;
+import dev.belikhun.luna.shop.api.ShopTransactionPlayer;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 import org.bukkit.Material;
 import io.papermc.paper.command.brigadier.BasicCommand;

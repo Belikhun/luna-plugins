@@ -17,6 +17,18 @@ public final class LunaCoreFabric {
 		return services;
 	}
 
+	/**
+	 * Whether {@link #services()} would answer rather than throw.
+	 *
+	 * Fabric gives every mod the same server-started event and no ordering a mod
+	 * can rely on - a dependant whose id sorts first is called first - so a module
+	 * that needs the core asks this and waits for a later tick rather than
+	 * treating a missing core as a crash.
+	 */
+	public static boolean isReady() {
+		return services != null;
+	}
+
 	public static void set(LunaCoreFabricServices coreServices) {
 		services = coreServices;
 	}

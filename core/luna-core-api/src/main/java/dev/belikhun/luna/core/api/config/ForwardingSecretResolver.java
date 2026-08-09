@@ -36,10 +36,15 @@ public final class ForwardingSecretResolver {
 		}
 	}
 
-	/** Every forwarding mod luna provisions, newest ecosystem first. */
+	/**
+	 * Every forwarding mod luna provisions, newest ecosystem first.
+	 * proxy-compatible-forge.toml is PCF 1.2+; pcf-common.toml is its retired
+	 * 1.1.x line, kept for a backend still carrying the old jar.
+	 */
 	public static final List<Source> KNOWN_SOURCES = List.of(
 		new Source("neovelocity-common.toml", "forwarding", "forwarding-secret", "forwarding-secret-file", "forwarding-secret-type"),
 		Source.topLevel("FabricProxy-Lite.toml", "secret"),
+		new Source("proxy-compatible-forge.toml", "forwarding", "secret", "", ""),
 		Source.topLevel("pcf-common.toml", "forwardingSecret")
 	);
 

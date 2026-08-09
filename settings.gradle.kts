@@ -25,6 +25,7 @@ rootProject.name = "luna"
 // Platform-free: the API surface every other module compiles against.
 include("luna-core-api")
 include("luna-vault-api")
+include("luna-shop-api")
 
 // Paper backends, plus the plugins that only ever run on one.
 include("luna-core-paper")
@@ -35,7 +36,6 @@ include("luna-hat")
 include("luna-smp")
 include("luna-messenger")
 include("luna-auth-backend")
-include("luna-migrator")
 
 // The proxy, and everything that lives on it.
 include("luna-core-velocity")
@@ -51,6 +51,9 @@ include("luna-core-messaging")
 include("luna-countdown-neoforge")
 include("luna-messenger-neoforge")
 include("luna-tab-bridge-neoforge")
+include("luna-hat-neoforge")
+include("luna-vault-backend-neoforge")
+include("luna-shop-neoforge")
 include("luna-auth-backend-neoforge")
 
 // Fabric backends. A `-mc26` module is the 26.x build of its sibling.
@@ -64,6 +67,14 @@ include("luna-messenger-fabric")
 include("luna-messenger-mc26-fabric")
 include("luna-tab-bridge-fabric")
 include("luna-tab-bridge-mc26-fabric")
+include("luna-auth-backend-fabric")
+include("luna-auth-backend-mc26-fabric")
+include("luna-vault-backend-fabric")
+include("luna-vault-backend-mc26-fabric")
+include("luna-shop-fabric")
+include("luna-shop-mc26-fabric")
+include("luna-hat-fabric")
+include("luna-hat-mc26-fabric")
 
 // Each module lives under its platform's folder, but its gradle project name stays
 // flat and unchanged. That is deliberate: the project name drives `archiveBaseName`

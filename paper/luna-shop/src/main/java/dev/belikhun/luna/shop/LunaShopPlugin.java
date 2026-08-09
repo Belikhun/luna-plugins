@@ -10,10 +10,10 @@ import dev.belikhun.luna.shop.economy.LunaVaultEconomyService;
 import dev.belikhun.luna.shop.economy.ShopEconomyService;
 import dev.belikhun.luna.shop.economy.VaultEconomyService;
 import dev.belikhun.luna.shop.gui.ShopGuiController;
-import dev.belikhun.luna.shop.migration.ShopTransactionHistoryMigration;
+import dev.belikhun.luna.shop.api.ShopTransactionHistoryMigration;
 import dev.belikhun.luna.shop.service.ShopService;
 import dev.belikhun.luna.shop.service.ShopTradeLimitService;
-import dev.belikhun.luna.shop.service.ShopTransactionStore;
+import dev.belikhun.luna.shop.api.ShopTransactionStore;
 import dev.belikhun.luna.shop.store.ShopItemStore;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 

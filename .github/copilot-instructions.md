@@ -28,10 +28,9 @@
   - `:luna-messenger-velocity` → Velocity-side messenger bridge plugin (depends on `:luna-core-api` + `:luna-core-velocity`).
   - `:luna-auth` → Velocity-side authentication authority.
   - `:luna-auth-backend` → Paper-side auth restriction and command-forwarding plugin.
-  - `:luna-migrator` → Paper-side UUID/auth migration helper plugin.
 - Current runtime split:
   - Velocity hosts network-wide authority and infra (`luna-auth`, `luna-vault`, `luna-pack`, `luna-glyph`, `luna-messenger-velocity`) on top of `:luna-core-velocity`.
-  - Paper hosts shared backend runtime plus adapters and feature consumers (`luna-auth-backend`, `luna-vault-backend`, `luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`, `luna-migrator`) on top of `:luna-core-paper`.
+  - Paper hosts shared backend runtime plus adapters and feature consumers (`luna-auth-backend`, `luna-vault-backend`, `luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`) on top of `:luna-core-paper`.
 - The `luna-messenger-interactivechat/` folder currently exists in the workspace but is not included in `settings.gradle.kts`; treat it as non-participating unless explicitly added as a subproject.
 - The `luna-auth-api/` and `luna-messenger-api/` folders may exist with build outputs, but they are not active subprojects in `settings.gradle.kts`.
 - Keep shared contracts and reusable helpers in `luna-core-api`; keep platform runtime code in `luna-core-paper` / `luna-core-velocity`.
@@ -54,13 +53,12 @@
   - `paper/luna-vault-backend/build.gradle.kts` uses `implementation(project(":luna-vault-api"))` and `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
   - `velocity/luna-auth/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
   - `paper/luna-auth-backend/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
-  - `paper/luna-migrator/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-paper"))`.
   - `paper/luna-shop/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` and `compileOnly(project(":luna-core-paper"))`.
   - `luna-countdown`, `luna-hat`, `luna-smp`, and `luna-messenger` follow the same `:luna-core-api` + `:luna-core-paper` linkage.
   - `luna-pack` and `luna-messenger-velocity` use `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))`.
   - `velocity/luna-glyph/build.gradle.kts` uses `compileOnly(project(":luna-core-api"))` + `compileOnly(project(":luna-core-velocity"))` + `compileOnly(project(":luna-pack"))`.
 - Runtime/plugin loading linkage is in descriptor files:
-  - All active Paper-side plugins (`luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`, `luna-auth-backend`, `luna-vault-backend`, `luna-migrator`) must stay aligned with their `paper-plugin.yml` runtime dependencies.
+  - All active Paper-side plugins (`luna-shop`, `luna-countdown`, `luna-hat`, `luna-smp`, `luna-messenger`, `luna-auth-backend`, `luna-vault-backend`) must stay aligned with their `paper-plugin.yml` runtime dependencies.
   - Current Paper-side feature/adaptor plugins depend on `LunaCore` at runtime through `dependencies.server` in `paper-plugin.yml`.
   - `luna-vault-backend` also declares runtime integration with Vault and optional HuskHomes behavior.
   - Velocity modules express runtime plugin dependencies through `@Plugin` annotations, not `paper-plugin.yml`.

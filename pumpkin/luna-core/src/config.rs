@@ -12,6 +12,7 @@
 
 use luna_core_api::heartbeat;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Everything the core reads at startup.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -19,6 +20,63 @@ use serde::{Deserialize, Serialize};
 pub struct CoreConfig {
 	pub heartbeat: HeartbeatConfig,
 	pub logging: LoggingConfig,
+	pub auth: AuthConfig,
+}
+
+/// What the auth backend shows and what it lets through.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AuthConfig {
+	/// Off for a backend the proxy does not gate, so nothing is ever locked.
+	pub enabled: bool,
+	/// Whether every refusal and state change is written to the log.
+	pub log_flow: bool,
+	pub mode_selector_enabled: bool,
+	/// Empty a player's inventory when the lock goes on, as the Paper plugin
+	/// does. It is on by default because that is Paper's behaviour and the
+	/// backends this gates are lobbies, where nothing is carried; on a backend
+	/// where players keep an inventory, turn it off, because the items are not
+	/// given back - Paper only restores lobby items, which this port has no
+	/// registry for.
+	pub clear_inventory_on_lock: bool,
+	/// What an unauthenticated player may still type.
+	pub allowed_commands: Vec<String>,
+	pub prompt: PromptConfig,
+}
+
+/// The three prompts, the congratulation, and its per-method variants.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PromptConfig {
+	pub pending: PromptStrings,
+	pub login: PromptStrings,
+	pub register: PromptStrings,
+	pub authenticated: PromptStrings,
+	/// Keyed by the normalised auth method; see `luna_core_api::auth`.
+	pub by_method: BTreeMap<String, PromptStrings>,
+}
+
+/// One prompt, in the three places it is shown.
+///
+/// These are MiniMessage, the same as every JVM backend's, so a config can be
+/// copied across from a Paper server unchanged; `luna_core_api::text` is what
+/// reads them, since Pumpkin's text component does not.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PromptStrings {
+	pub bossbar: String,
+	pub actionbar: String,
+	pub chat: String,
+}
+
+impl PromptStrings {
+	fn of(bossbar: &str, actionbar: &str, chat: &str) -> Self {
+		Self {
+			bossbar: bossbar.to_owned(),
+			actionbar: actionbar.to_owned(),
+			chat: chat.to_owned(),
+		}
+	}
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,6 +109,90 @@ impl Default for CoreConfig {
 		Self {
 			heartbeat: HeartbeatConfig::default(),
 			logging: LoggingConfig::default(),
+			auth: AuthConfig::default(),
+		}
+	}
+}
+
+impl Default for AuthConfig {
+	fn default() -> Self {
+		Self {
+			enabled: true,
+			log_flow: true,
+			mode_selector_enabled: true,
+			clear_inventory_on_lock: true,
+			allowed_commands: ["login", "register", "l", "reg", "help"]
+				.iter()
+				.map(|command| (*command).to_owned())
+				.collect(),
+			prompt: PromptConfig::default(),
+		}
+	}
+}
+
+impl Default for PromptConfig {
+	fn default() -> Self {
+		// These are `luna-auth-backend/src/main/resources/config.yml` verbatim.
+		// An operator running one Paper backend and one Pumpkin backend should
+		// see the same words on both, so the defaults are copied rather than
+		// rewritten to suit this platform.
+		let mut by_method = BTreeMap::new();
+
+		by_method.insert(
+			"quick_login".to_owned(),
+			PromptStrings::of(
+				"",
+				"<green>✔ <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực tức thì</green>",
+				"<green>✔ Bạn đã được <color:#00c2ff><b>Luna QuikAuth™</b></color> xác thực bằng phiên Premium hợp lệ.</green>",
+			),
+		);
+		by_method.insert(
+			"session_resume".to_owned(),
+			PromptStrings::of(
+				"",
+				"<green>✔ Phiên đăng nhập đã khôi phục</green>",
+				"<green>✔ Phiên trước vẫn còn hiệu lực, không cần nhập lại mật khẩu.</green>",
+			),
+		);
+		by_method.insert(
+			"password_login".to_owned(),
+			PromptStrings::of(
+				"",
+				"<green>✔ Đăng nhập mật khẩu thành công</green>",
+				"<green>✔ Bạn đã xác thực bằng mật khẩu thành công.</green>",
+			),
+		);
+		by_method.insert(
+			"register_password".to_owned(),
+			PromptStrings::of(
+				"",
+				"<green>✔ Tạo tài khoản thành công</green>",
+				"<green>✔ Tài khoản mới đã được tạo và xác thực.</green>",
+			),
+		);
+
+		Self {
+			pending: PromptStrings::of(
+				"<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>",
+				"<yellow>Đang kiểm tra trạng thái tài khoản...</yellow>",
+				"<yellow>ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</yellow>",
+			),
+			login: PromptStrings::of(
+				"<yellow><b>⚠ Vui lòng đăng nhập để tiếp tục</b></yellow>",
+				"<yellow>Dùng <white>/login <mật_khẩu></white> để đăng nhập</yellow>",
+				"<yellow>ℹ Tài khoản đã đăng ký. Dùng <white>/login <mật_khẩu></white> để tiếp tục.</yellow>",
+			),
+			register: PromptStrings::of(
+				"<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>",
+				"<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>",
+				"<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>",
+			),
+			authenticated: PromptStrings::of(
+				"",
+				"<green>✔ Đã xác thực thành công</green>",
+				"<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>",
+			),
+			by_method,
 		}
 	}
 }

@@ -6,6 +6,7 @@ import net.luckperms.api.cacheddata.CachedMetaData;
 import net.luckperms.api.model.group.Group;
 import net.luckperms.api.model.user.User;
 import net.luckperms.api.node.types.InheritanceNode;
+import net.luckperms.api.util.Tristate;
 
 import java.util.Locale;
 import java.util.Optional;
@@ -38,6 +39,18 @@ public final class LuckPermsService implements PermissionService {
 		return getUser(username)
 			.map(user -> user.getCachedData().getPermissionData().checkPermission(permission).asBoolean())
 			.orElse(false);
+	}
+
+	@Override
+	public boolean hasPermissionOrDefault(UUID uniqueId, String permission, boolean fallback) {
+		if (uniqueId == null || permission == null || permission.isBlank()) {
+			return fallback;
+		}
+
+		return getUser(uniqueId)
+			.map(user -> user.getCachedData().getPermissionData().checkPermission(permission))
+			.map(state -> state == Tristate.UNDEFINED ? fallback : state.asBoolean())
+			.orElse(fallback);
 	}
 
 	public Optional<User> getUser(UUID uniqueId) {

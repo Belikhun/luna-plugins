@@ -3,21 +3,23 @@
 	"id": "lunacore",
 	"version": "${version}",
 	"name": "LunaCore",
-	"description": "Fabric runtime foundation for Luna backend modules. One build serves Minecraft 1.20 through 1.21.x.",
+	"description": "Fabric runtime foundation for Luna backend modules. One build serves Minecraft 1.21.x.",
 	"authors": ["Belikhun"],
 	"license": "All Rights Reserved",
 	"environment": "server",
 	"entrypoints": {
-		"server": ["dev.belikhun.luna.core.fabric.bootstrap.LunaCoreFabricMod"]
+		"server": ["dev.belikhun.luna.core.fabric.bootstrap.LunaCoreFabricMod"],
+		"voicechat": ["dev.belikhun.luna.core.fabric.compat.voicechat.FabricSimpleVoiceChatPlugin"]
 	},
 	"depends": {
 		"fabricloader": ">=0.15.0",
 		"fabric-api": ">=0.116.0",
-		"minecraft": ">=1.20 <2.0",
+		"minecraft": ">=1.21 <2.0",
 		"java": ">=21"
 	},
 	"suggests": {
 		"luckperms": "*",
-		"spark": "*"
+		"spark": "*",
+		"voicechat": "*"
 	}
 }

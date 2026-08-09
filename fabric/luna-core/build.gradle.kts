@@ -6,17 +6,25 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import net.fabricmc.loom.task.RemapJarTask
 import org.gradle.jvm.tasks.Jar
 
-// One jar serves every game version from 1.20 up, so the compile target below is
-// only where the *stable* half of the API surface is type-checked. Anything that
-// changed across that range is reached through dev.belikhun.luna.core.fabric.compat,
-// never linked directly, and the loom remap leaves those call sites alone.
+// One jar serves every 1.21.x, so the compile target below is only where the
+// *stable* half of the API surface is type-checked. Anything that changed across
+// that range is reached through dev.belikhun.luna.core.fabric.compat, never
+// linked directly, and the loom remap leaves those call sites alone.
 val fabricApiVersion = libs.versions.fabricapi.get()
 
 // src/main/java is the trunk both fabric builds compile; src/mc21/java is this
 // build's half of the one class the two game lines cannot share. luna-core-mc26-fabric
 // takes the trunk by reference and supplies the other half from its own sources.
+//
+// The platform-free half of the luna UI toolkit. It is source-shared rather than
+// a dependency because it is written against net.minecraft, which no plain jar can
+// see: each loader compiles it against its own game. luna-core-neoforge adds the
+// same directory, which is why a screen written once renders on both.
+val lunaCoreMcSources = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src/main/java")
+
 sourceSets.named("main") {
 	java.srcDir("src/mc21/java")
+	java.srcDir(lunaCoreMcSources)
 }
 
 dependencies {
@@ -32,6 +40,8 @@ dependencies {
 	compileOnly(libs.adventure.serializer.gson)
 	compileOnly(libs.luckperms.api)
 	compileOnly(libs.spark.api)
+	compileOnly(libs.voicechat.api)
+	compileOnly(libs.mariadb.jdbc)
 }
 
 val embeddedAdventureMiniMessage = configurations.detachedConfiguration(
@@ -50,6 +60,19 @@ val embeddedSnakeYaml = configurations.detachedConfiguration(
 	dependencies.create("org.yaml:snakeyaml:2.2")
 )
 
+// A paper plugin downloads its jdbc driver at boot through the plugin loader; a
+// fabric mod has no equivalent, so the driver ships inside the jar. It is the only
+// one that does: mysql is four times the size and sqlite twenty, and the cluster's
+// backends all point at the same mariadb the proxy uses.
+//
+// Deliberately not relocated. DatabaseType names the driver class as a string for
+// Class.forName, and a relocated copy would not answer to it.
+val embeddedMariaDbDriver = configurations.detachedConfiguration(
+	dependencies.create(libs.mariadb.jdbc.get())
+).apply {
+	isTransitive = false
+}
+
 // shadow runs first and stays in build/libs; remapJar takes its output and writes
 // the deliverable, because a fabric mod has to be remapped after everything it
 // carries is already inside it
@@ -61,7 +84,8 @@ tasks.named<ShadowJar>("shadowJar") {
 			embeddedAdventureMiniMessage,
 			embeddedAdventureSerializerLegacy,
 			embeddedAdventureSerializerGson,
-			embeddedSnakeYaml
+			embeddedSnakeYaml,
+			embeddedMariaDbDriver
 		)
 	}
 	from(zipTree(coreApiJar.get().archiveFile.get().asFile))

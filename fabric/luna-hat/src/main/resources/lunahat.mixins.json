@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.belikhun.luna.hat.mc.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"server": [
+		"ArmorSlotMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

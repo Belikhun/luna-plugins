@@ -1,0 +1,14 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.belikhun.luna.auth.backend.fabric.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"server": [
+		"CommandsMixin",
+		"ItemEntityMixin",
+		"PlayerDropMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

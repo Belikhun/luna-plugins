@@ -209,6 +209,12 @@ subprojects {
         extensions.configure<SourceSetContainer>("sourceSets") {
             named("main") {
                 java.srcDir(File(sharedDir, "src/main/java"))
+
+                // the platform-free UI toolkit the 1.21 sibling also compiles; see
+                // fabric/luna-core/build.gradle.kts for why it is shared by source
+                if (project.name == "luna-core-mc26-fabric") {
+                    java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-core-mc/src/main/java"))
+                }
             }
         }
 

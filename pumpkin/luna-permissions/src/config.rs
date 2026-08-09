@@ -58,15 +58,23 @@ impl Default for PermissionsFile {
 	fn default() -> Self {
 		let mut groups = BTreeMap::new();
 
-		// a file with nothing in it should still let people onto the server and
-		// open the selector, or a fresh backend looks broken rather than empty
+		// A file with nothing in it should still let people onto the server, or a
+		// fresh backend looks broken rather than empty. `auth.login` and
+		// `auth.register` in particular are not a privilege: a player who cannot
+		// run them cannot get past the auth lock at all, so withholding them by
+		// default would make an unconfigured backend unplayable.
 		groups.insert(
 			"default".to_owned(),
 			GroupEntry {
 				weight: 0,
 				prefix: String::new(),
 				suffix: String::new(),
-				permissions: vec!["luna.selector.open".to_owned()],
+				permissions: vec![
+					"auth.login".to_owned(),
+					"auth.register".to_owned(),
+					"luna.selector.open".to_owned(),
+					"messenger.use".to_owned(),
+				],
 				inherits: Vec::new(),
 			},
 		);

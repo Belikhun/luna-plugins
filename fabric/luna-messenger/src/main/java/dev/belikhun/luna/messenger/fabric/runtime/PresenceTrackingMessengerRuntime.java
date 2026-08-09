@@ -15,7 +15,7 @@ import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionRequest;
 import dev.belikhun.luna.core.api.messenger.PlaceholderResolutionResult;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
-import dev.belikhun.luna.core.fabric.text.FabricTextComponents;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -307,7 +307,7 @@ final class PresenceTrackingMessengerRuntime implements FabricMessengerRuntime {
 			return;
 		}
 
-		receiver.sendSystemMessage(FabricTextComponents.mini(result.miniMessage()));
+		receiver.sendSystemMessage(LunaTextComponents.mini(result.miniMessage()));
 	}
 
 	private boolean isDuplicateControlCommand(UUID playerId, MessengerCommandType commandType, String argument, String targetName) {

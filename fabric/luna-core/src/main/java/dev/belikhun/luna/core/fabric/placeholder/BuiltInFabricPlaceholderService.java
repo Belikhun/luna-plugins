@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.fabric.placeholder;
 
+import dev.belikhun.luna.core.mc.placeholder.LunaPlaceholderExtension;
 import com.sun.management.OperatingSystemMXBean;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
@@ -33,6 +34,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
@@ -78,6 +81,8 @@ public final class BuiltInFabricPlaceholderService implements FabricPlaceholderS
 	private final BackendIdentity backendIdentity;
 	private final List<FabricPlaceholderProvider> placeholderProviders;
 	private final Map<String, List<FabricPlaceholderProvider>> placeholderProvidersByNamespace;
+	private final Map<String, LunaPlaceholderExtension> extensionsByNamespace;
+	private final List<LunaPlaceholderExtension> extensions;
 	private volatile SharedSnapshot latestSharedSnapshot;
 
 	/**
@@ -122,6 +127,23 @@ public final class BuiltInFabricPlaceholderService implements FabricPlaceholderS
 		this.backendIdentity = Objects.requireNonNull(backendIdentity, "backendIdentity");
 		this.placeholderProviders = List.copyOf(Objects.requireNonNull(placeholderProviders, "placeholderProviders"));
 		this.placeholderProvidersByNamespace = PlaceholderRouting.indexProvidersByNamespace(this.placeholderProviders);
+		this.extensionsByNamespace = new ConcurrentHashMap<>();
+		this.extensions = new CopyOnWriteArrayList<>();
+	}
+
+	@Override
+	public void registerExtension(LunaPlaceholderExtension extension) {
+		if (extension == null) {
+			return;
+		}
+
+		for (String namespace : extension.namespaces()) {
+			if (namespace != null && !namespace.isBlank()) {
+				extensionsByNamespace.put(namespace.trim().toLowerCase(Locale.ROOT), extension);
+			}
+		}
+
+		extensions.add(extension);
 	}
 
 	@Override
@@ -142,6 +164,10 @@ public final class BuiltInFabricPlaceholderService implements FabricPlaceholderS
 			provider.contributeSnapshot(this, player, currentSnapshot, values);
 		}
 
+		for (LunaPlaceholderExtension extension : extensions) {
+			extension.contributeSnapshot(player, values);
+		}
+
 		putRequestedValues(values, player, requestedIdentifiers, currentSnapshot);
 
 		return Map.copyOf(values);
@@ -159,6 +185,12 @@ public final class BuiltInFabricPlaceholderService implements FabricPlaceholderS
 	}
 
 	String resolveRequestedValue(ServerPlayer player, String identifier, PlaceholderSnapshot snapshot) {
+		String fromExtension = resolveFromExtension(player, identifier);
+
+		if (fromExtension != null) {
+			return fromExtension;
+		}
+
 		PlaceholderRoute<FabricPlaceholderProvider> route = PlaceholderRouting.resolve(identifier, placeholderProvidersByNamespace);
 
 		if (route == null) {
@@ -182,6 +214,40 @@ public final class BuiltInFabricPlaceholderService implements FabricPlaceholderS
 		}
 
 		return null;
+	}
+
+	/**
+	 * Ask the extensions, splitting the identifier on its first underscore.
+	 *
+	 * That is the same split PlaceholderAPI makes on Paper, which is what keeps
+	 * one proxy-side template - {@code %lunavault_balance%} - rendering on either
+	 * platform.
+	 */
+	private String resolveFromExtension(ServerPlayer player, String identifier) {
+		if (extensionsByNamespace.isEmpty()) {
+			return null;
+		}
+
+		String unwrapped = PlaceholderRouting.unwrapIdentifier(identifier);
+
+		if (unwrapped == null || unwrapped.isBlank()) {
+			return null;
+		}
+
+		int separator = unwrapped.indexOf('_');
+
+		if (separator <= 0 || separator >= unwrapped.length() - 1) {
+			return null;
+		}
+
+		String namespace = unwrapped.substring(0, separator).toLowerCase(Locale.ROOT);
+		LunaPlaceholderExtension extension = extensionsByNamespace.get(namespace);
+
+		if (extension == null) {
+			return null;
+		}
+
+		return extension.resolve(player, namespace, unwrapped.substring(separator + 1).toLowerCase(Locale.ROOT));
 	}
 
 	private void putRequestedValues(

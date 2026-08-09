@@ -1,0 +1,6 @@
+transport:
+  # how long an rpc to the proxy may take before the backend gives up on it
+  timeout-millis: 3000
+
+history:
+  page-size: 45

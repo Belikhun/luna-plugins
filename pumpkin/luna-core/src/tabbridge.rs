@@ -13,6 +13,7 @@
 //! names that are worth showing.
 
 use luna_core_api::wire::{MessageReader, MessageWriter};
+use crate::messaging::MessageBus;
 use luna_permissions::PermissionStore;
 use pumpkin_plugin_api::player::Player;
 use std::collections::BTreeMap;
@@ -54,14 +55,18 @@ struct PlayerState {
 /// The bridge, shared with the event handler and the refresh task.
 pub struct TabBridge {
 	permissions: Arc<PermissionStore>,
+	/// Every reply goes out through the bus, which is what holds one back while
+	/// the player's connection is still warming up and sends it in order after.
+	bus: Arc<MessageBus>,
 	players: Mutex<BTreeMap<String, PlayerState>>,
 }
 
 impl TabBridge {
 	#[must_use]
-	pub fn new(permissions: Arc<PermissionStore>) -> Self {
+	pub fn new(permissions: Arc<PermissionStore>, bus: Arc<MessageBus>) -> Self {
 		Self {
 			permissions,
+			bus,
 			players: Mutex::new(BTreeMap::new()),
 		}
 	}
@@ -140,7 +145,7 @@ impl TabBridge {
 			.expect("tab state poisoned")
 			.insert(id, state);
 
-		send(player, writer);
+		self.send(player, writer);
 	}
 
 	/// TAB registering one more placeholder after the join.
@@ -185,7 +190,7 @@ impl TabBridge {
 		writer.write_utf(&permission);
 		writer.write_bool(granted);
 
-		send(player, writer);
+		self.send(player, writer);
 	}
 
 	/// TAB pushing a value it resolved on its own side.
@@ -241,7 +246,7 @@ impl TabBridge {
 			let mut writer = MessageWriter::new();
 			writer.write_u8(SET_WORLD);
 			writer.write_utf(&world);
-			send(player, writer);
+			self.send(player, writer);
 
 			self.with_state(&id, |state| state.world = world);
 		}
@@ -252,7 +257,7 @@ impl TabBridge {
 			let mut writer = MessageWriter::new();
 			writer.write_u8(SET_GROUP);
 			writer.write_utf(&group);
-			send(player, writer);
+			self.send(player, writer);
 
 			self.with_state(&id, |state| state.group = group);
 		}
@@ -263,7 +268,7 @@ impl TabBridge {
 			let mut writer = MessageWriter::new();
 			writer.write_u8(UPDATE_GAME_MODE);
 			writer.write_i32(mode);
-			send(player, writer);
+			self.send(player, writer);
 
 			self.with_state(&id, |state| state.game_mode = mode);
 		}
@@ -287,7 +292,7 @@ impl TabBridge {
 		writer.write_utf(identifier);
 		writer.write_utf(value);
 
-		send(player, writer);
+		self.send(player, writer);
 	}
 
 	/// What one placeholder is worth for this player, right now.
@@ -322,6 +327,11 @@ impl TabBridge {
 		}
 	}
 
+	/// Put a built packet on TAB's channel.
+	fn send(&self, player: &Player, writer: MessageWriter) {
+		self.bus.send(player, CHANNEL, &writer.into_vec());
+	}
+
 	fn with_state(&self, id: &str, apply: impl FnOnce(&mut PlayerState)) {
 		let mut players = self.players.lock().expect("tab state poisoned");
 
@@ -348,18 +358,6 @@ fn read_registrations(reader: &mut MessageReader<'_>) -> BTreeMap<String, i32> {
 	requested
 }
 
-/// Put a built packet on TAB's channel.
-///
-/// Plugin messages are a Java-edition mechanism, so a Bedrock player simply has
-/// nowhere to send this: they are skipped rather than treated as a failure,
-/// since TAB never opened the channel with them in the first place.
-fn send(player: &Player, writer: MessageWriter) {
-	let Some(java) = player.as_java() else {
-		return;
-	};
-
-	java.send_custom_payload(CHANNEL, &writer.into_vec());
-}
 
 /// The world's identifier, which is what TAB matches its per-world rules on.
 fn world_name(player: &Player) -> String {

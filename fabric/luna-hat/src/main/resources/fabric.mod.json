@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "lunahat",
+	"version": "${version}",
+	"name": "LunaHat",
+	"description": "Wear anything on your head: the /hat command, and a helmet slot that accepts items the game would refuse. One build serves Minecraft 1.21.x.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "server",
+	"entrypoints": {
+		"server": ["dev.belikhun.luna.hat.fabric.bootstrap.LunaHatFabricMod"]
+	},
+	"mixins": [
+		"lunahat.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"fabric-api": ">=0.116.0",
+		"lunacore": "*",
+		"minecraft": ">=1.21 <2.0",
+		"java": ">=21"
+	}
+}

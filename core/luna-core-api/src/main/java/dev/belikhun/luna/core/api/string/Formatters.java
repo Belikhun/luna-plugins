@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.core.api.config.YamlConfigFile;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.io.BufferedReader;
@@ -87,6 +88,45 @@ public final class Formatters {
 		return normalizedTemplate
 			.replace("{amount}", amount)
 			.replace("{symbol}", normalizedSymbol);
+	}
+
+	/**
+	 * The same three settings read from a path-backed config instead of Bukkit's.
+	 *
+	 * The mod loaders have no {@link ConfigStore}, and money has to read the same
+	 * on every backend or the network prints two different currencies; keeping
+	 * both overloads here is what keeps the key names in one place.
+	 */
+	public static String money(YamlConfigFile config, double value) {
+		return money(value, moneySymbol(config), moneyGrouping(config), moneyTemplate(config));
+	}
+
+	public static String money(YamlConfigFile config, long minorUnits, int scale) {
+		return money(minorUnits, scale, moneySymbol(config), moneyGrouping(config), moneyTemplate(config));
+	}
+
+	public static String moneySymbol(YamlConfigFile config) {
+		if (config == null) {
+			return "₫";
+		}
+
+		return config.getString("strings.money.currencySymbol", "₫");
+	}
+
+	private static boolean moneyGrouping(YamlConfigFile config) {
+		if (config == null) {
+			return true;
+		}
+
+		return config.getBoolean("strings.money.grouping", true);
+	}
+
+	private static String moneyTemplate(YamlConfigFile config) {
+		if (config == null) {
+			return "{amount}{symbol}";
+		}
+
+		return config.getString("strings.money.format", "{amount}{symbol}");
 	}
 
 	public static String money(ConfigStore configStore, double value) {

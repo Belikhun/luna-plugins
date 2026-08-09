@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "lunavaultbackend",
+	"version": "${version}",
+	"name": "LunaVaultBackend",
+	"description": "The backend half of the network economy: balances, transfers and the transaction history screen. This build serves Minecraft 26.1 and up.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "server",
+	"entrypoints": {
+		"server": ["dev.belikhun.luna.vault.backend.fabric.bootstrap.LunaVaultBackendFabricMod"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"fabric-api": ">=0.156.0",
+		"lunacore": "*",
+		"lunacoremessaging": "*",
+		"minecraft": ">=26",
+		"java": ">=21"
+	}
+}

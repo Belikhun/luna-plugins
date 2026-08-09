@@ -7,7 +7,10 @@
 //! the wire formats rather than being re-derived per platform.
 
 /// An RGB colour, as the palette spells them.
-pub type Rgb = (u8, u8, u8);
+///
+/// Re-exported rather than redefined: the countdown's palette and a config's
+/// `<color:#…>` have to be the same type, or the one renderer cannot draw both.
+pub use crate::text::Rgb;
 
 // Palette entries `LunaPalette` holds on the JVM side, by the same names.
 const AMBER_300: Rgb = (0xfc, 0xd3, 0x4d);
