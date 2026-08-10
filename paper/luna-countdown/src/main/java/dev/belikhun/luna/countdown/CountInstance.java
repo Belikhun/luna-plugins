@@ -1,6 +1,6 @@
 package dev.belikhun.luna.countdown;
 
-import dev.belikhun.luna.core.api.ui.LunaPalette;
+import dev.belikhun.luna.core.api.countdown.CountdownMessages;
 import java.util.ArrayList;
 
 import org.bukkit.Bukkit;
@@ -106,11 +106,7 @@ public class CountInstance {
 	}
 
 	public static String readableTime(double seconds) {
-		return (seconds / 3600d > 1)
-			? String.format("<color:%s>%.0fh %.2fm</color>", LunaPalette.AMBER_300, Math.floor(seconds / 3600d), (seconds % 3600d) / 60d)
-			: ((seconds > 300d)
-				? String.format("<color:%s>%.0fm %.0fs</color>", LunaPalette.TEAL_300, Math.floor(seconds / 60d), (seconds % 60d))
-				: String.format("<color:%s>%.1fs</color>", LunaPalette.SKY_300, seconds));
+		return CountdownMessages.readableTime(seconds);
 	}
 
 	public static void handlePlayerJoin(Player player) {

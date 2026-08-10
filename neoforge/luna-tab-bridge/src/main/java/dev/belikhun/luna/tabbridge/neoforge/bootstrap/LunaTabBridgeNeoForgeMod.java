@@ -3,14 +3,15 @@ package dev.belikhun.luna.tabbridge.neoforge.bootstrap;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
-import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderService;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.BuiltInNeoForgeTabBridgeRelationalPlaceholderSource;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgePlaceholderUpdater;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgeRelationalPlaceholderSource;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgeRuntime;
-import dev.belikhun.luna.tabbridge.neoforge.runtime.NeoForgeTabBridgeRuntimeFactory;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
+import dev.belikhun.luna.tabbridge.mc.runtime.BuiltInTabBridgeRelationalPlaceholderSource;
+import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgePlaceholderUpdater;
+import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRelationalPlaceholderSource;
+import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRuntime;
+import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRuntimeFactory;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -24,26 +25,26 @@ public final class LunaTabBridgeNeoForgeMod {
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private NeoForgeTabBridgeRuntime tabBridgeRuntime;
-	private NeoForgeTabBridgeRelationalPlaceholderSource relationalPlaceholderSource;
-	private NeoForgeTabBridgePlaceholderUpdater placeholderUpdater;
+	private TabBridgeRuntime tabBridgeRuntime;
+	private TabBridgeRelationalPlaceholderSource relationalPlaceholderSource;
+	private TabBridgePlaceholderUpdater placeholderUpdater;
 
 	public LunaTabBridgeNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaTabBridge", true);
+		this.logger = LunaLoggers.create("LunaTabBridge", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
-		dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		tabBridgeRuntime = NeoForgeTabBridgeRuntimeFactory.create(logger, dependencyManager);
-		NeoForgePlaceholderService placeholderService = dependencyManager.resolveOptional(NeoForgePlaceholderService.class)
-			.orElseThrow(() -> new IllegalStateException("Thiếu NeoForgePlaceholderService từ LunaCore NeoForge."));
+		dependencyManager = LunaCore.services().dependencyManager();
+		tabBridgeRuntime = TabBridgeRuntimeFactory.create(logger, dependencyManager);
+		PlaceholderService placeholderService = dependencyManager.resolveOptional(PlaceholderService.class)
+			.orElseThrow(() -> new IllegalStateException("Thiếu PlaceholderService từ LunaCore NeoForge."));
 		PermissionService permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
-		relationalPlaceholderSource = dependencyManager.resolveOptional(NeoForgeTabBridgeRelationalPlaceholderSource.class)
-			.orElseGet(() -> new BuiltInNeoForgeTabBridgeRelationalPlaceholderSource(event.getServer(), permissionService));
-		dependencyManager.registerSingleton(NeoForgeTabBridgeRuntime.class, tabBridgeRuntime);
-		placeholderUpdater = new NeoForgeTabBridgePlaceholderUpdater(
+		relationalPlaceholderSource = dependencyManager.resolveOptional(TabBridgeRelationalPlaceholderSource.class)
+			.orElseGet(() -> new BuiltInTabBridgeRelationalPlaceholderSource(event.getServer(), permissionService));
+		dependencyManager.registerSingleton(TabBridgeRuntime.class, tabBridgeRuntime);
+		placeholderUpdater = new TabBridgePlaceholderUpdater(
 			event.getServer(),
 			tabBridgeRuntime,
 			relationalPlaceholderSource,
@@ -80,7 +81,7 @@ public final class LunaTabBridgeNeoForgeMod {
 		}
 
 		if (dependencyManager != null) {
-			dependencyManager.unregister(NeoForgeTabBridgeRuntime.class);
+			dependencyManager.unregister(TabBridgeRuntime.class);
 		}
 
 		if (tabBridgeRuntime != null) {

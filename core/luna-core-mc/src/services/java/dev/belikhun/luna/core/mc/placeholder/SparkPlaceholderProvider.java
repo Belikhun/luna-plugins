@@ -1,0 +1,45 @@
+package dev.belikhun.luna.core.mc.placeholder;
+
+import dev.belikhun.luna.core.api.heartbeat.SparkMetrics;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderSnapshot;
+
+import java.util.Set;
+
+final class SparkPlaceholderProvider implements ServerPlaceholderProvider {
+	@Override
+	public Set<String> namespaces() {
+		return Set.of("spark", "server");
+	}
+
+	@Override
+	public String resolve(
+		BuiltInPlaceholderService support,
+		net.minecraft.server.level.ServerPlayer player,
+		String rawNamespace,
+		String normalizedNamespace,
+		String rawParams,
+		String normalizedParams,
+		PlaceholderSnapshot snapshot
+	) {
+		if ("server".equals(normalizedNamespace) && normalizedParams.startsWith("time_")) {
+			return support.formatServerTime(rawParams.substring("time_".length()));
+		}
+
+		if (!"spark".equals(normalizedNamespace)) {
+			return null;
+		}
+
+		if (normalizedParams != null && !normalizedParams.isBlank()) {
+			String sparkValue = SparkMetrics.resolveLegacyPlaceholder(
+				normalizedParams
+			);
+			if (!sparkValue.isBlank()) {
+				return sparkValue;
+			}
+		}
+
+		return "tickduration_10s".equals(normalizedParams)
+			? support.formatSparkTickDuration(snapshot)
+			: null;
+	}
+}

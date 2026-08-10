@@ -4,7 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import dev.belikhun.luna.core.api.string.CommandCompletions;
-import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.countdown.CountdownMessages;
 import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.countdown.CountInstance;
 import dev.belikhun.luna.countdown.Countdown;
@@ -32,34 +32,32 @@ public class ShutdownCommand implements BasicCommand {
 			return;
 
 		if (args.length < 1) {
-			sender.sendMessage(Countdown.mm(CommandStrings.usage("/shutdown",
-				CommandStrings.required("length", "time"),
-				CommandStrings.optional("message", "text"))));
+			sender.sendMessage(Countdown.mm(CountdownMessages.shutdownUsage("shutdown")));
 			return;
 		}
 
 		if (args[0].equalsIgnoreCase("cancel")) {
 			if (instance == null) {
-				sender.sendMessage(Countdown.mm("<red>❌ Không có lịch tắt máy chủ.</red>"));
+				sender.sendMessage(Countdown.mm(CountdownMessages.noShutdownScheduled()));
 				return;
 			}
 
 			instance.stop("<green><bold>Đã Hủy Tắt Máy Chủ!</bold></green>");
 			instance.bar.setColor(BarColor.GREEN);
-			Countdown.broadcast("<green>✔ Đã hủy tắt máy chủ.</green>");
+			Countdown.broadcast(CountdownMessages.shutdownCancelled());
 			instance = null;
 			return;
 		}
 
 		if (instance != null) {
-			sender.sendMessage(Countdown.mm("<red>❌ Tắt máy chủ đã được lên lịch!</red> <white>Hủy bằng <yellow>/shutdown cancel</yellow>.</white>"));
+			sender.sendMessage(Countdown.mm(CountdownMessages.shutdownAlreadyScheduled()));
 			return;
 		}
 
 		String message = null;
 		int length = Countdown.parseTime(args[0]);
 		if (length <= 0) {
-			sender.sendMessage(Countdown.mm("<red>❌ Thời gian không hợp lệ: <white>" + Countdown.escape(args[0]) + "</white></red>"));
+			sender.sendMessage(Countdown.mm(CountdownMessages.invalidTime(args[0])));
 			return;
 		}
 
@@ -77,30 +75,18 @@ public class ShutdownCommand implements BasicCommand {
 
 			@Override
 			public void begin(BossBar bar) {
-				String message = (reason != null)
-					? "<white>Máy chủ sẽ tắt sau " + CountInstance.readableTime(seconds)
-						+ "<white> nữa! <gray>(lí do: " + Countdown.escape(reason) + ")</gray></white>"
-					: "<white>Máy chủ sẽ tắt sau " + CountInstance.readableTime(seconds) + "<white> nữa!</white>";
-
-				Countdown.broadcast(message);
+				Countdown.broadcast(CountdownMessages.shutdownBegin(seconds, reason));
 			}
 
 			@Override
 			public void update(BossBar bar, double remain) {
-				String message = (reason != null)
-					? "<color:" + LunaPalette.DANGER_500 + ">⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</color><white> sau "
-						+ CountInstance.readableTime(remain)
-						+ " <gray>(" + Countdown.escape(reason) + ")</gray></white>"
-					: "<color:" + LunaPalette.DANGER_500 + ">⚠⚠⚠ TẮT MÁY CHỦ ⚠⚠⚠</color><white> sau "
-						+ CountInstance.readableTime(remain) + "</white>";
-
-				bar.setTitle(Countdown.legacy(message));
+				bar.setTitle(Countdown.legacy(CountdownMessages.shutdownBar(remain, reason)));
 			}
 
 			@Override
 			public void complete(BossBar bar) {
 				String message = "<yellow><bold>Đang Tắt Máy Chủ...</bold></yellow>";
-				Countdown.broadcast("<yellow>⚠ Đang tắt máy chủ...</yellow>");
+				Countdown.broadcast(CountdownMessages.shutdownNow());
 				bar.setColor(BarColor.YELLOW);
 				bar.setTitle(Countdown.legacy(message));
 				instance = null;

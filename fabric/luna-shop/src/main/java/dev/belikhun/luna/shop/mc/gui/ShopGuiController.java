@@ -1,5 +1,6 @@
 package dev.belikhun.luna.shop.mc.gui;
 
+import dev.belikhun.luna.core.mc.compat.ItemDecor;
 import dev.belikhun.luna.core.api.gui.LunaPagination;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
@@ -17,12 +18,10 @@ import dev.belikhun.luna.shop.mc.model.ShopCategory;
 import dev.belikhun.luna.shop.mc.model.ShopItem;
 import dev.belikhun.luna.shop.mc.service.ShopService;
 import dev.belikhun.luna.shop.mc.store.ShopItemStore;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.ItemLore;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -1363,11 +1362,7 @@ public final class ShopGuiController {
 	private ItemStack decorate(ItemStack source, String title, List<String> shopLore) {
 		ItemStack stack = source.copyWithCount(1);
 		List<Component> lore = new ArrayList<>();
-		ItemLore existing = stack.get(DataComponents.LORE);
-
-		if (existing != null) {
-			lore.addAll(existing.lines());
-		}
+		lore.addAll(ItemDecor.readLore(stack));
 
 		lore.add(Component.empty());
 
@@ -1375,10 +1370,10 @@ public final class ShopGuiController {
 			lore.add(line.isEmpty() ? Component.empty() : LunaTextComponents.mini(line));
 		}
 
-		stack.set(DataComponents.LORE, new ItemLore(lore));
+		ItemDecor.lore(stack, lore);
 
 		if (title != null) {
-			stack.set(DataComponents.CUSTOM_NAME, LunaTextComponents.mini(title));
+			ItemDecor.name(stack, LunaTextComponents.mini(title));
 		}
 
 		return stack;

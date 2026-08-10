@@ -15,8 +15,15 @@ val fabricApiVersion = libs.versions.fabricapi.get()
 // build's half of the one callback the two game lines cannot share.
 // luna-auth-backend-mc26-fabric takes the trunk by reference and supplies the
 // other half from its own sources.
+// The restriction cage itself lives in core/luna-auth-backend-mc and is compiled
+// by every mod loader; player-1x is this game line's half of the three calls 26.x
+// re-spelled. See core/luna-core-mc/README.md for the compat-set convention.
+val lunaAuthMc = rootProject.layout.projectDirectory.dir("core/luna-auth-backend-mc/src")
+
 sourceSets.named("main") {
 	java.srcDir("src/mc21/java")
+	java.srcDir(lunaAuthMc.dir("main/java"))
+	java.srcDir(lunaAuthMc.dir("player-1x/java"))
 }
 
 dependencies {

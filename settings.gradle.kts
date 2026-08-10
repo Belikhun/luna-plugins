@@ -56,6 +56,18 @@ include("luna-vault-backend-neoforge")
 include("luna-shop-neoforge")
 include("luna-auth-backend-neoforge")
 
+// Classic forge backends. A `-mc19` module is the 1.19.2 build of its sibling;
+// the plain module targets 1.20.1.
+include("luna-core-forge")
+include("luna-hat-forge")
+include("luna-vault-backend-forge")
+include("luna-shop-forge")
+include("luna-core-messaging-forge")
+include("luna-auth-backend-forge")
+include("luna-messenger-forge")
+include("luna-countdown-forge")
+include("luna-tab-bridge-forge")
+
 // Fabric backends. A `-mc26` module is the 26.x build of its sibling.
 include("luna-core-fabric")
 include("luna-core-mc26-fabric")
@@ -89,12 +101,13 @@ rootProject.children.forEach { module ->
 	val platform = when {
 		name.endsWith("-api") -> "core"
 		name.endsWith("-neoforge") || name == "luna-core-messaging" -> "neoforge"
+		name.endsWith("-forge") -> "forge"
 		name.endsWith("-fabric") -> "fabric"
 		name.endsWith("-velocity") || name in setOf("luna-pack", "luna-auth", "luna-vault", "luna-glyph") -> "velocity"
 		else -> "paper"
 	}
 
-	val directory = listOf("-neoforge", "-fabric", "-velocity", "-paper")
+	val directory = listOf("-neoforge", "-forge", "-fabric", "-velocity", "-paper")
 		.firstOrNull { name.endsWith(it) }
 		?.let { name.removeSuffix(it) }
 		?: name

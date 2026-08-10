@@ -12,7 +12,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
-import dev.belikhun.luna.core.fabric.placeholder.FabricPlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
@@ -43,6 +43,9 @@ import java.util.UUID;
  * every screen are unchanged.
  */
 public final class LunaVaultBackendFabricMod implements DedicatedServerModInitializer {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunavaultbackend/config.yml";
+
 	public static final String MOD_ID = "lunavaultbackend";
 	private static final String PLAYERS_ONLY = "<red>❌ Chỉ người chơi mới dùng lệnh này.</red>";
 	private static final String NOT_READY = "<red>❌ LunaVaultBackend chưa sẵn sàng.</red>";
@@ -108,7 +111,7 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 
 		Path configPath = FabricLoader.getInstance().getConfigDir().toAbsolutePath().normalize()
 			.resolve(MOD_ID).resolve("config.yml");
-		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), "config.yml");
+		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
 
 		logger = FabricLunaLoggers.create("VaultBackend", true);
 
@@ -150,8 +153,8 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 	}
 
 	private void registerPlaceholders(DependencyManager dependencyManager, YamlConfigFile coreConfig, long timeoutMillis) {
-		FabricPlaceholderService placeholderService = dependencyManager
-			.resolveOptional(FabricPlaceholderService.class)
+		PlaceholderService placeholderService = dependencyManager
+			.resolveOptional(PlaceholderService.class)
 			.orElse(null);
 
 		if (placeholderService == null) {

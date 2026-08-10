@@ -1,5 +1,6 @@
 package dev.belikhun.luna.shop.mc.service;
 
+import dev.belikhun.luna.core.mc.compat.ItemDecor;
 import dev.belikhun.luna.core.api.config.YamlConfigFile;
 import dev.belikhun.luna.core.api.gui.LunaPagination;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -227,7 +228,7 @@ public final class ShopService {
 		for (int slot = 0; slot < slots; slot++) {
 			ItemStack content = inventory.getItem(slot);
 
-			if (!content.isEmpty() && ItemStack.isSameItemSameComponents(content, sample)) {
+			if (!content.isEmpty() && ItemDecor.sameItemAndData(content, sample)) {
 				total += content.getCount();
 			}
 		}
@@ -267,7 +268,7 @@ public final class ShopService {
 				continue;
 			}
 
-			if (ItemStack.isSameItemSameComponents(content, sample)) {
+			if (ItemDecor.sameItemAndData(content, sample)) {
 				space += Math.max(0, maxStack - content.getCount());
 			}
 		}
@@ -282,7 +283,7 @@ public final class ShopService {
 		for (int slot = 0; slot < slots && remaining > 0; slot++) {
 			ItemStack content = inventory.getItem(slot);
 
-			if (content.isEmpty() || !ItemStack.isSameItemSameComponents(content, sample)) {
+			if (content.isEmpty() || !ItemDecor.sameItemAndData(content, sample)) {
 				continue;
 			}
 

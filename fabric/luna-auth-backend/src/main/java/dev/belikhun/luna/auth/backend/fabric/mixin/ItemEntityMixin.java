@@ -1,6 +1,6 @@
 package dev.belikhun.luna.auth.backend.fabric.mixin;
 
-import dev.belikhun.luna.auth.backend.fabric.runtime.AuthLockHooks;
+import dev.belikhun.luna.auth.backend.mc.runtime.AuthLockHooks;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import org.spongepowered.asm.mixin.Mixin;

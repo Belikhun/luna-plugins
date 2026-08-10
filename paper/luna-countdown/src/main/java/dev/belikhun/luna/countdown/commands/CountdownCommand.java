@@ -6,7 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import dev.belikhun.luna.core.api.string.CommandCompletions;
-import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.countdown.CountdownMessages;
 import dev.belikhun.luna.countdown.CountInstance;
 import dev.belikhun.luna.countdown.Countdown;
 import dev.belikhun.luna.countdown.CountInstance.CountdownCallback;
@@ -34,22 +34,19 @@ public class CountdownCommand implements BasicCommand {
 
 				@Override
 				public void begin(BossBar bar) {
-					Countdown.broadcast("<white>Sự kiện <green>" + Countdown.escape(title)
-						+ "</green> sẽ bắt đầu sau " + CountInstance.readableTime(seconds)
-						+ "<white> nữa!</white>");
+					Countdown.broadcast(CountdownMessages.countdownBegin(title, seconds));
 				}
 
 				@Override
 				public void update(BossBar bar, double remain) {
-					bar.setTitle(Countdown.legacy("<gray>#" + id + " <green>" + Countdown.escape(title)
-						+ "</green> sau " + CountInstance.readableTime(remain) + "</gray>"));
+					bar.setTitle(Countdown.legacy(CountdownMessages.countdownBar(id, title, remain)));
 				}
 
 				@Override
 				public void complete(BossBar bar) {
-					String message = "<gray>#" + id + " <green>" + Countdown.escape(title) + "</green> đã bắt đầu!</gray>";
+					String message = CountdownMessages.countdownStarted(id, title);
 					bar.setTitle(Countdown.legacy(message));
-					Countdown.broadcast("<white>Sự kiện " + message + "</white>");
+					Countdown.broadcast(message);
 
 					removeInstance();
 				}
@@ -58,8 +55,7 @@ public class CountdownCommand implements BasicCommand {
 
 		public void stop() {
 			count.stop("<white>Đã hủy bỏ <light_purple>" + Countdown.escape(title) + "</light_purple></white>");
-			Countdown.broadcast("<white>Sự kiện <gray>(#" + id + ")</gray> <light_purple>"
-				+ Countdown.escape(title) + "</light_purple> đã bị hủy!</white>");
+			Countdown.broadcast(CountdownMessages.countdownCancelled(id, title));
 
 			removeInstance();
 		}
@@ -80,18 +76,14 @@ public class CountdownCommand implements BasicCommand {
 			return;
 
 		if (args.length < 1) {
-			sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
-				CommandStrings.required("start|stop|stopall", "action"))));
+			sender.sendMessage(Countdown.mm(CountdownMessages.countdownUsage("countdown")));
 			return;
 		}
 
 		switch (args[0]) {
 			case "start":
 				if (args.length < 2) {
-					sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
-						CommandStrings.literal("start"),
-						CommandStrings.required("length", "time"),
-						CommandStrings.optional("message", "text"))));
+					sender.sendMessage(Countdown.mm(CountdownMessages.countdownStartUsage("countdown")));
 							return;
 				}
 
@@ -99,7 +91,7 @@ public class CountdownCommand implements BasicCommand {
 				int length = Countdown.parseTime(args[1]);
 
 				if (length <= 0) {
-					sender.sendMessage(Countdown.mm("<red>❌ Thời gian không hợp lệ: <white>" + Countdown.escape(args[1]) + "</white></red>"));
+					sender.sendMessage(Countdown.mm(CountdownMessages.invalidTime(args[1])));
 					return;
 				}
 
@@ -111,9 +103,7 @@ public class CountdownCommand implements BasicCommand {
 
 			case "stop":
 				if (args.length < 2) {
-					sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
-						CommandStrings.literal("stop"),
-						CommandStrings.required("id", "number"))));
+					sender.sendMessage(Countdown.mm(CountdownMessages.countdownStopUsage("countdown")));
 					return;
 				}
 
@@ -121,7 +111,7 @@ public class CountdownCommand implements BasicCommand {
 				try {
 					id = Integer.parseInt(args[1]);
 				} catch (NumberFormatException exception) {
-					sender.sendMessage(Countdown.mm("<red>❌ ID không hợp lệ: <white>" + Countdown.escape(args[1]) + "</white></red>"));
+					sender.sendMessage(Countdown.mm(CountdownMessages.invalidId(args[1])));
 					return;
 				}
 
@@ -133,7 +123,7 @@ public class CountdownCommand implements BasicCommand {
 					return;
 				}
 
-				sender.sendMessage(Countdown.mm("<red>❌ Không tìm thấy countdown với ID <white>" + id + "</white></red>"));
+				sender.sendMessage(Countdown.mm(CountdownMessages.countdownNotFound(id)));
 				return;
 
 			case "stopall":
@@ -142,9 +132,8 @@ public class CountdownCommand implements BasicCommand {
 				break;
 
 			default:
-				sender.sendMessage(Countdown.mm("<red>❌ Hành động <white>" + Countdown.escape(args[0]) + "</white> không tồn tại.</red>"));
-				sender.sendMessage(Countdown.mm(CommandStrings.usage("/countdown",
-					CommandStrings.required("start|stop|stopall", "action"))));
+				sender.sendMessage(Countdown.mm(CountdownMessages.unknownAction(args[0])));
+				sender.sendMessage(Countdown.mm(CountdownMessages.countdownUsage("countdown")));
 				return;
 		}
 	}

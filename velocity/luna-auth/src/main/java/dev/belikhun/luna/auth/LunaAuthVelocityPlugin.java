@@ -64,6 +64,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -78,6 +79,7 @@ import java.util.logging.Logger;
 )
 public final class LunaAuthVelocityPlugin {
 	private static final int BACKEND_SYNC_RETRY_MAX_ATTEMPTS = 20;
+	private static final long BACKEND_SYNC_RETRY_DELAY_MILLIS = 250L;
 	private static final long MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS = 90_000L;
 	private static final long MIXED_MODE_MANUAL_PROBE_WINDOW_MILLIS = 300_000L;
 	private static final long MODE_PREFERENCE_MIN_TTL_MILLIS = 60_000L;
@@ -575,25 +577,59 @@ public final class LunaAuthVelocityPlugin {
 			return;
 		}
 
-		flow("ServerPostConnect sync player=" + player.getUsername() + " server=" + connection.getServerInfo().getName());
-		boolean authStateSent = sendAuthState(connection, player, authService.isAuthenticated(playerUuid));
-		if (authStateSent && authService.isAuthenticated(playerUuid)) {
-			player.sendActionBar(Component.text("Bạn đã xác thực."));
-		}
-		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
-		String pendingMethod = pendingBackendAuthMethods.getOrDefault(playerUuid, "default");
-		boolean authResultSent = true;
-		if (pendingMessage != null) {
-			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage, pendingMethod);
-			if (authResultSent) {
-				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
-				pendingBackendAuthMethods.remove(playerUuid, pendingMethod);
-			}
+		// a retry loop is already pushing exactly this and lands the moment the
+		// connection appears; letting both run is how the backend receives the
+		// same auth_state and the same notice twice
+		if (backendSyncRetryInFlight.contains(playerUuid)) {
+			flow("ServerPostConnect skip-sync player=" + player.getUsername() + " reason=RETRY_IN_FLIGHT");
+			return;
 		}
 
-		if (!authStateSent || !authResultSent) {
+		flow("ServerPostConnect sync player=" + player.getUsername() + " server=" + connection.getServerInfo().getName());
+		boolean delivered = deliverBackendSync(player, connection);
+
+		if (delivered && authService.isAuthenticated(playerUuid)) {
+			player.sendActionBar(Component.text("Bạn đã xác thực."));
+		}
+
+		if (!delivered) {
 			scheduleBackendSyncRetry(playerUuid, 1);
 		}
+	}
+
+	/**
+	 * Push the player's auth state to the backend it is on, plus the one-shot
+	 * "you are authenticated" notice when one is still owed.
+	 *
+	 * The notice is *claimed*, not read: post-connect and the retry loop both
+	 * end up here and can overlap, and two readers of one pending entry is
+	 * exactly how the player sees the quick-login message twice. Whoever removes
+	 * it owns it, and a failed send puts it back for the next attempt.
+	 *
+	 * @return whether everything owed to the backend landed
+	 */
+	private boolean deliverBackendSync(Player player, ServerConnection connection) {
+		UUID playerUuid = player.getUniqueId();
+		boolean stateSent = sendAuthState(connection, player, authService.isAuthenticated(playerUuid));
+		String pendingMessage = pendingBackendAuthMessages.remove(playerUuid);
+
+		if (pendingMessage == null) {
+			return stateSent;
+		}
+
+		String pendingMethod = pendingBackendAuthMethods.remove(playerUuid);
+
+		if (sendAuthenticatedBackendNotice(player, connection, pendingMessage, pendingMethod == null ? "default" : pendingMethod)) {
+			return stateSent;
+		}
+
+		pendingBackendAuthMessages.put(playerUuid, pendingMessage);
+
+		if (pendingMethod != null) {
+			pendingBackendAuthMethods.put(playerUuid, pendingMethod);
+		}
+
+		return false;
 	}
 
 	@Subscribe
@@ -792,28 +828,15 @@ public final class LunaAuthVelocityPlugin {
 		}
 
 		ServerConnection connection = connectionOptional.get();
-		boolean authenticated = authService.isAuthenticated(playerUuid);
-		boolean stateSent = sendAuthState(connection, player, authenticated);
 
-		String pendingMessage = pendingBackendAuthMessages.get(playerUuid);
-		String pendingMethod = pendingBackendAuthMethods.getOrDefault(playerUuid, "default");
-		boolean authResultSent = true;
-		if (authenticated && pendingMessage != null) {
-			authResultSent = sendAuthenticatedBackendNotice(player, connection, pendingMessage, pendingMethod);
-			if (authResultSent) {
-				pendingBackendAuthMessages.remove(playerUuid, pendingMessage);
-				pendingBackendAuthMethods.remove(playerUuid, pendingMethod);
-			}
-		}
-
-		if (stateSent && authResultSent) {
+		if (deliverBackendSync(player, connection)) {
 			flow("Retry backend sync success player=" + player.getUsername() + " attempt=" + attempt);
 			backendSyncRetryInFlight.remove(playerUuid);
 			return;
 		}
 
 		if (attempt >= BACKEND_SYNC_RETRY_MAX_ATTEMPTS) {
-			flow("Retry backend sync give up player=" + player.getUsername() + " attempt=" + attempt + " stateSent=" + stateSent + " authResultSent=" + authResultSent);
+			flow("Retry backend sync give up player=" + player.getUsername() + " attempt=" + attempt);
 			backendSyncRetryInFlight.remove(playerUuid);
 			return;
 		}
@@ -822,7 +845,13 @@ public final class LunaAuthVelocityPlugin {
 	}
 
 	private void scheduleNextBackendSyncRetry(UUID playerUuid, int nextAttempt) {
-		proxyServer.getScheduler().buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt)).schedule();
+		// what this waits for is the player's backend connection appearing, which
+		// takes a moment; without a delay the twenty attempts burn through in well
+		// under a second and the loop is a spin, not a retry
+		proxyServer.getScheduler()
+			.buildTask(this, () -> runBackendSyncRetry(playerUuid, nextAttempt))
+			.delay(BACKEND_SYNC_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+			.schedule();
 	}
 
 	private String authMethodForCommandAction(String action, boolean success) {

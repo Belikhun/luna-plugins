@@ -4,6 +4,11 @@ logging:
 auth:
   mode-selector-gui:
     enabled: true
+  # Lobby hotbar: clears the player's inventory while it is locked and again
+  # on a successful login, then hands it the server-selector compass. Only
+  # turn this on for a lobby backend; anywhere else it destroys inventories.
+  lobby-items:
+    enabled: false
 
 prompt:
   pending:

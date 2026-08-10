@@ -8,11 +8,14 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandType;
+import dev.belikhun.luna.core.api.messenger.MessengerMessages;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
+import dev.belikhun.luna.core.mc.command.VanillaCommands;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
-import dev.belikhun.luna.messenger.fabric.runtime.FabricMessengerRuntime;
-import dev.belikhun.luna.messenger.fabric.runtime.MessengerRuntimeFactory;
+import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntime;
+import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntimeFactory;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -37,12 +40,13 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class LunaMessengerFabricMod implements DedicatedServerModInitializer {
 	public static final String MOD_ID = "lunamessenger";
+
 	private static final String NOT_READY = "❌ LunaMessenger chưa sẵn sàng.";
 	private static final String PLAYERS_ONLY = "❌ Lệnh này chỉ dùng cho người chơi.";
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private FabricMessengerRuntime messengerRuntime;
+	private MessengerRuntime messengerRuntime;
 
 	public LunaMessengerFabricMod() {
 		this.logger = FabricLunaLoggers.create("LunaMessenger", true);
@@ -72,15 +76,15 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 
 	private void onServerStarted(MinecraftServer server) {
 		dependencyManager = LunaCoreFabric.services().dependencyManager();
-		messengerRuntime = MessengerRuntimeFactory.create(logger, dependencyManager);
+		messengerRuntime = MessengerRuntimeFactory.create(logger, server, dependencyManager);
 
-		dependencyManager.registerSingleton(FabricMessengerRuntime.class, messengerRuntime);
+		dependencyManager.registerSingleton(MessengerRuntime.class, messengerRuntime);
 		logger.success("Luna Messenger Fabric runtime đã sẵn sàng.");
 	}
 
 	private void onServerStopping(MinecraftServer server) {
 		if (dependencyManager != null) {
-			dependencyManager.unregister(FabricMessengerRuntime.class);
+			dependencyManager.unregister(MessengerRuntime.class);
 			dependencyManager = null;
 		}
 
@@ -101,7 +105,7 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 		}
 
 		if (!messengerRuntime.sendCommand(sender, MessengerCommandType.SEND_CHAT, rawText.trim())) {
-			sender.sendSystemMessage(Component.literal("❌ Không thể gửi chat messenger lúc này."));
+			sender.sendSystemMessage(mini(MessengerMessages.chatFailed()));
 		}
 
 		return false;
@@ -114,7 +118,7 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 				MessengerCommandType.SWITCH_NETWORK,
 				"",
 				null,
-				"❌ Không thể chuyển sang kênh mạng lúc này."
+				MessengerMessages.networkSwitchFailed()
 			)));
 
 		dispatcher.register(Commands.literal("sv")
@@ -123,7 +127,7 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 				MessengerCommandType.SWITCH_SERVER,
 				"",
 				null,
-				"❌ Không thể chuyển sang kênh máy chủ lúc này."
+				MessengerMessages.serverSwitchFailed()
 			)));
 
 		dispatcher.register(Commands.literal("poke")
@@ -135,31 +139,42 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 					StringArgumentType.getString(context, "target")
 				))));
 
-		dispatcher.register(Commands.literal("msg")
-			.executes(context -> reply(context.getSource(), directUsage()))
-			.then(Commands.argument("target", StringArgumentType.word())
-				.suggests(this::suggestDirectTargets)
-				.executes(context -> executeContextSwitch(
-					context.getSource(),
-					MessengerCommandType.SWITCH_DIRECT,
-					StringArgumentType.getString(context, "target"),
-					StringArgumentType.getString(context, "target"),
-					"❌ Không thể chuyển sang nhắn tin trực tiếp lúc này."
-				))
-				.then(Commands.argument("message", StringArgumentType.greedyString())
-					.executes(context -> executeDirectMessage(
-						context.getSource(),
-						StringArgumentType.getString(context, "target"),
-						StringArgumentType.getString(context, "message")
-					)))));
+		// vanilla owns msg/tell/w as aliases of /tell, and brigadier merges a
+		// same-named literal instead of replacing it, so its <targets> argument
+		// would still match first; the paper build wins these outright
+		if (!VanillaCommands.remove(dispatcher, "msg", "tell", "w")) {
+			logger.warn("Không gỡ được lệnh /msg gốc của Minecraft. Lệnh nhắn tin của Luna có thể không hoạt động.");
+		}
 
-		dispatcher.register(Commands.literal("r")
-			.executes(context -> reply(context.getSource(), replyUsage()))
-			.then(Commands.argument("message", StringArgumentType.greedyString())
-				.executes(context -> executeReply(
-					context.getSource(),
-					StringArgumentType.getString(context, "message")
-				))));
+		for (String alias : MessengerMessages.DIRECT_COMMANDS) {
+			dispatcher.register(Commands.literal(alias)
+				.executes(context -> reply(context.getSource(), directUsage()))
+				.then(Commands.argument("target", StringArgumentType.word())
+					.suggests(this::suggestDirectTargets)
+					.executes(context -> executeContextSwitch(
+						context.getSource(),
+						MessengerCommandType.SWITCH_DIRECT,
+						StringArgumentType.getString(context, "target"),
+						StringArgumentType.getString(context, "target"),
+						MessengerMessages.directSwitchFailed()
+					))
+					.then(Commands.argument("message", StringArgumentType.greedyString())
+						.executes(context -> executeDirectMessage(
+							context.getSource(),
+							StringArgumentType.getString(context, "target"),
+							StringArgumentType.getString(context, "message")
+						)))));
+		}
+
+		for (String alias : MessengerMessages.REPLY_COMMANDS) {
+			dispatcher.register(Commands.literal(alias)
+				.executes(context -> reply(context.getSource(), replyUsage()))
+				.then(Commands.argument("message", StringArgumentType.greedyString())
+					.executes(context -> executeReply(
+						context.getSource(),
+						StringArgumentType.getString(context, "message")
+					))));
+		}
 	}
 
 	private int executePoke(CommandSourceStack source, String targetName) {
@@ -278,23 +293,25 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 
 	/** Answer the command source; 0 is brigadier's "did nothing". */
 	private int reply(CommandSourceStack source, String message) {
-		source.sendSystemMessage(Component.literal(message));
+		source.sendSystemMessage(mini(message));
 		return 0;
 	}
 
 	private String pokeUsage() {
-		return CommandStrings.plainUsage("/poke", CommandStrings.required("người_chơi", "text"));
+		return MessengerMessages.pokeUsage();
 	}
 
 	private String directUsage() {
-		return CommandStrings.plainUsage(
-			"/msg",
-			CommandStrings.required("người_chơi", "text"),
-			CommandStrings.required("nội_dung", "text")
-		);
+		return MessengerMessages.directUsage();
 	}
 
 	private String replyUsage() {
-		return CommandStrings.plainUsage("/r", CommandStrings.required("nội_dung", "text"));
+		return MessengerMessages.replyUsage();
 	}
+
+	/** Render one of the shared messenger strings; they are all MiniMessage. */
+	private Component mini(String miniMessage) {
+		return LunaTextComponents.mini(miniMessage == null ? "" : miniMessage);
+	}
+
 }

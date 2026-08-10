@@ -2,6 +2,7 @@ package dev.belikhun.luna.auth.backend.listener;
 
 import dev.belikhun.luna.auth.backend.api.AuthLobbyItemRegistry;
 import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.auth.BackendAuthStateRegistry;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import net.kyori.adventure.bossbar.BossBar;
@@ -68,10 +69,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private static final float DEFAULT_FLY_SPEED = 0.1F;
 	private static final int BLINDNESS_DURATION_TICKS = 600;
 	private static final int LOCK_EFFECT_DURATION_TICKS = 220;
-	private static final Component MODE_SELECTOR_TITLE = Component.text("Chọn kiểu tài khoản");
-	private static final int SLOT_PREMIUM = 3;
-	private static final int SLOT_OFFLINE = 5;
-	private static final int SLOT_REMEMBER = 7;
+	private static final Component MODE_SELECTOR_TITLE = Component.text(AuthMessages.MODE_SELECTOR_TITLE);
+	private static final int SLOT_PREMIUM = AuthMessages.MODE_SELECTOR_SLOT_PREMIUM;
+	private static final int SLOT_OFFLINE = AuthMessages.MODE_SELECTOR_SLOT_OFFLINE;
+	private static final int SLOT_REMEMBER = AuthMessages.MODE_SELECTOR_SLOT_REMEMBER;
 
 	private final JavaPlugin plugin;
 	private final BackendAuthStateRegistry stateRegistry;
@@ -87,6 +88,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private final LunaLogger logger;
 	private final boolean authFlowLogsEnabled;
 	private final boolean modeSelectorGuiEnabled;
+	private final boolean lobbyItemsEnabled;
 	private final Set<UUID> shownModeSelectorPlayers;
 	private final Set<UUID> modeSelectedPlayers;
 	private final ConcurrentMap<UUID, Boolean> modeSelectorEligible;
@@ -117,6 +119,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		Consumer<Player> syncStateRequestSender,
 		BiFunction<Player, String, Boolean> probePreferenceSender,
 		boolean modeSelectorGuiEnabled,
+		boolean lobbyItemsEnabled,
 		LunaLogger logger,
 		boolean authFlowLogsEnabled
 	) {
@@ -134,6 +137,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		this.probePreferenceSender = probePreferenceSender;
 		this.authFlowLogsEnabled = authFlowLogsEnabled;
 		this.modeSelectorGuiEnabled = modeSelectorGuiEnabled;
+		this.lobbyItemsEnabled = lobbyItemsEnabled;
 		this.shownModeSelectorPlayers = ConcurrentHashMap.newKeySet();
 		this.modeSelectedPlayers = ConcurrentHashMap.newKeySet();
 		this.modeSelectorEligible = new ConcurrentHashMap<>();
@@ -274,48 +278,38 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 			boolean next = !modeRememberSelection.getOrDefault(player.getUniqueId(), false);
 			modeRememberSelection.put(player.getUniqueId(), next);
 			event.getView().getTopInventory().setItem(SLOT_REMEMBER, rememberToggleItem(next));
-			player.sendActionBar(miniMessage.deserialize(next
-				? "<gold>Đã bật ghi nhớ lựa chọn vĩnh viễn.</gold>"
-				: "<yellow>Đã tắt ghi nhớ vĩnh viễn (chỉ 24h).</yellow>"));
+			player.sendActionBar(miniMessage.deserialize(AuthMessages.rememberToggled(next)));
 			return;
 		}
 
 		if (event.getSlot() == SLOT_PREMIUM) {
-			boolean remember = modeRememberSelection.getOrDefault(player.getUniqueId(), false);
-			String selectedMode = remember ? "online_forever" : "online";
-			boolean sent = probePreferenceSender.apply(player, selectedMode);
-			if (!sent) {
-				modeSelectedPlayers.remove(player.getUniqueId());
-				player.sendActionBar(miniMessage.deserialize("<red>Không gửi được lựa chọn. Vui lòng thử lại.</red>"));
-				flow("ModeSelectorChoiceSendFailed player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
-				return;
-			}
-			modeSelectedPlayers.add(player.getUniqueId());
-			player.sendRichMessage(remember
-				? "<yellow>Đã chọn Premium (ghi nhớ vĩnh viễn). Bạn sẽ được kết nối lại để xác thực online.</yellow>"
-				: "<yellow>Đã chọn Premium (24h). Bạn sẽ được kết nối lại để xác thực online.</yellow>");
-			player.closeInventory();
-			flow("ModeSelectorChoice player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + (remember ? "online_forever" : "online"));
+			chooseMode(player, true);
 			return;
 		}
 
 		if (event.getSlot() == SLOT_OFFLINE) {
-			boolean remember = modeRememberSelection.getOrDefault(player.getUniqueId(), false);
-			String selectedMode = remember ? "offline_forever" : "offline";
-			boolean sent = probePreferenceSender.apply(player, selectedMode);
-			if (!sent) {
-				modeSelectedPlayers.remove(player.getUniqueId());
-				player.sendActionBar(miniMessage.deserialize("<red>Không gửi được lựa chọn. Vui lòng thử lại.</red>"));
-				flow("ModeSelectorChoiceSendFailed player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
-				return;
-			}
-			modeSelectedPlayers.add(player.getUniqueId());
-			player.sendRichMessage(remember
-				? "<green>Đã chọn Offline (ghi nhớ vĩnh viễn). Tiếp tục đăng nhập bằng mật khẩu server.</green>"
-				: "<green>Đã chọn Offline (24h). Tiếp tục đăng nhập bằng mật khẩu server.</green>");
-			player.closeInventory();
-			flow("ModeSelectorChoice player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + (remember ? "offline_forever" : "offline"));
+			chooseMode(player, false);
 		}
+	}
+
+	/** Hand the premium/offline choice to the proxy and tell the player what happened. */
+	private void chooseMode(Player player, boolean premium) {
+		boolean remember = modeRememberSelection.getOrDefault(player.getUniqueId(), false);
+		String selectedMode = (premium ? "online" : "offline") + (remember ? "_forever" : "");
+
+		if (!probePreferenceSender.apply(player, selectedMode)) {
+			modeSelectedPlayers.remove(player.getUniqueId());
+			player.sendActionBar(miniMessage.deserialize(AuthMessages.modeChoiceSendFailed()));
+			flow("ModeSelectorChoiceSendFailed player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
+			return;
+		}
+
+		modeSelectedPlayers.add(player.getUniqueId());
+		player.sendRichMessage(premium
+			? AuthMessages.modePremiumChosen(remember)
+			: AuthMessages.modeOfflineChosen(remember));
+		player.closeInventory();
+		flow("ModeSelectorChoice player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + selectedMode);
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST)
@@ -678,7 +672,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 	@Override
 	public void applyLobbyItems(Player player) {
-		if (player == null || !stateRegistry.isAuthenticated(player.getUniqueId())) {
+		if (!lobbyItemsEnabled || player == null || !stateRegistry.isAuthenticated(player.getUniqueId())) {
 			return;
 		}
 
@@ -694,6 +688,10 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	}
 
 	private void clearUnauthorizedInventory(Player player) {
+		if (!lobbyItemsEnabled) {
+			return;
+		}
+
 		PlayerInventory inventory = player.getInventory();
 		inventory.clear();
 		inventory.setArmorContents(new ItemStack[4]);
@@ -923,49 +921,30 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 	private Inventory createModeSelectorInventory(UUID playerUuid) {
 		ModeSelectorHolder holder = new ModeSelectorHolder();
-		Inventory inventory = Bukkit.createInventory(holder, 9, MODE_SELECTOR_TITLE);
+		Inventory inventory = Bukkit.createInventory(holder, AuthMessages.MODE_SELECTOR_SIZE, MODE_SELECTOR_TITLE);
 		holder.inventory = inventory;
 		boolean remember = modeRememberSelection.getOrDefault(playerUuid, false);
 
-		ItemStack frame = selectorItem(
-			Material.GRAY_STAINED_GLASS_PANE,
-			"<dark_gray>•</dark_gray>",
-			List.of("<gray> </gray>")
-		);
-		for (int slot : List.of(0, 1, 2, 6, 8)) {
+		ItemStack frame = selectorItem(AuthMessages.ITEM_FRAME, AuthMessages.frameItemName(), AuthMessages.frameItemLore());
+		for (int slot : AuthMessages.MODE_SELECTOR_FRAME_SLOTS) {
 			inventory.setItem(slot, frame);
 		}
 
-		inventory.setItem(4, selectorItem(
-			Material.BOOK,
-			"<yellow><b>ℹ Chọn Chế Độ Đăng Nhập</b></yellow>",
-			List.of(
-				"<gray>Premium hoặc Offline.</gray>",
-				"<gray>Nút bên phải bật/tắt ghi nhớ.</gray>",
-				"",
-				"<gold>⚠ Hãy chọn đúng để tránh lỗi phiên.</gold>"
-			)
+		inventory.setItem(AuthMessages.MODE_SELECTOR_SLOT_INFO, selectorItem(
+			AuthMessages.ITEM_INFO,
+			AuthMessages.infoItemName(),
+			AuthMessages.infoItemLore()
 		));
 
 		inventory.setItem(SLOT_PREMIUM, selectorItem(
-			Material.NETHER_STAR,
-			"<green><b>★ Tài Khoản Premium</b></green>",
-			List.of(
-				"<gray>Dùng launcher Microsoft.</gray>",
-				"<gray>Sẽ probe xác thực online.</gray>",
-				"",
-				"<yellow>▶ Ấn để chọn.</yellow>"
-			)
+			AuthMessages.ITEM_PREMIUM,
+			AuthMessages.premiumItemName(),
+			AuthMessages.premiumItemLore()
 		));
 		inventory.setItem(SLOT_OFFLINE, selectorItem(
-			Material.IRON_BARS,
-			"<aqua><b>⬤ Tài Khoản Offline</b></aqua>",
-			List.of(
-				"<gray>Dùng launcher cracked.</gray>",
-				"<gray>Không ép xác thực online.</gray>",
-				"",
-				"<yellow>▶ Ấn để chọn.</yellow>"
-			)
+			AuthMessages.ITEM_OFFLINE,
+			AuthMessages.offlineItemName(),
+			AuthMessages.offlineItemLore()
 		));
 
 		inventory.setItem(SLOT_REMEMBER, rememberToggleItem(remember));
@@ -974,21 +953,20 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 
 	private ItemStack rememberToggleItem(boolean remember) {
 		return selectorItem(
-			remember ? Material.LIME_DYE : Material.GRAY_DYE,
-			remember
-				? "<gold><b>🔔 Ghi Nhớ: BẬT</b></gold>"
-				: "<gray><b>🔔 Ghi Nhớ: TẮT</b></gray>",
-			List.of(
-				remember
-					? "<gray>Lựa chọn sẽ được giữ vĩnh viễn.</gray>"
-					: "<gray>Lựa chọn chỉ có hiệu lực 24 giờ.</gray>",
-				"<yellow>▶ Ấn để chuyển trạng thái.</yellow>"
-			)
+			remember ? AuthMessages.ITEM_REMEMBER_ON : AuthMessages.ITEM_REMEMBER_OFF,
+			AuthMessages.rememberItem(remember),
+			AuthMessages.rememberItemLore(remember)
 		);
 	}
 
-	private ItemStack selectorItem(Material material, String name, List<String> loreLines) {
-		ItemStack stack = new ItemStack(material);
+	/**
+	 * Build one selector button. The material arrives as its registry name
+	 * rather than a {@link Material}, because that is the form the shared
+	 * layout can express and every platform can resolve.
+	 */
+	private ItemStack selectorItem(String materialName, String name, List<String> loreLines) {
+		Material material = Material.matchMaterial(materialName);
+		ItemStack stack = new ItemStack(material == null ? Material.BARRIER : material);
 		ItemMeta meta = stack.getItemMeta();
 		meta.displayName(miniMessage.deserialize("<!i>" + name));
 		List<Component> lore = new java.util.ArrayList<>();

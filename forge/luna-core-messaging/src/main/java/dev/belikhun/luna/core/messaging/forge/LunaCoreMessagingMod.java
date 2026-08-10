@@ -1,0 +1,134 @@
+package dev.belikhun.luna.core.messaging.forge;
+
+import dev.belikhun.luna.core.api.config.BackendCoreRuntimeConfig;
+import dev.belikhun.luna.core.api.dependency.DependencyManager;
+import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatPublisher;
+import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
+import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
+import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
+import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.messaging.mc.PluginMessagingBus;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+
+@Mod(LunaCoreMessagingMod.MOD_ID)
+public final class LunaCoreMessagingMod {
+	public static final String MOD_ID = "lunacoremessaging";
+
+	private final LunaLogger logger;
+	private DependencyManager dependencyManager;
+	private PluginMessagingBus pluginMessagingBus;
+	private final ForgePayloadFallbackTransport payloadFallback;
+
+	/**
+	 * The transport is built here, not on a registration event.
+	 *
+	 * Forge has no payload-registry event to answer: its raw channels are created
+	 * by asking NetworkRegistry during mod construction, which is exactly this
+	 * moment, so the transport's own constructor does the registering.
+	 */
+	public LunaCoreMessagingMod() {
+		this.logger = LunaLoggers.create("LunaCoreMessagingForge", true).scope("CoreMessagingForge");
+		this.payloadFallback = new ForgePayloadFallbackTransport();
+
+		MinecraftForge.EVENT_BUS.register(this);
+	}
+
+	// The startup chain is ordered by priority, because mods.toml `ordering`
+	// governs loading and not the event bus: LunaCore runs at NORMAL, this bus at
+	// LOW, and everything that resolves the bus at LOWEST.
+	@SubscribeEvent(priority = EventPriority.LOW)
+	public void onServerStarted(ServerStartedEvent event) {
+		if (!LunaCore.isReady()) {
+			logger.error("LunaCore chưa sẵn sàng. Luna Core Messaging sẽ không khởi động.");
+			return;
+		}
+
+		dependencyManager = LunaCore.services().dependencyManager();
+		pluginMessagingBus = new PluginMessagingBus(logger, resolveBackendIdentity(), pluginMessagingLoggingEnabled());
+		pluginMessagingBus.useFallback(payloadFallback);
+
+		attachMessagingConfig();
+
+		dependencyManager.registerSingleton(PluginMessagingBus.class, pluginMessagingBus);
+		dependencyManager.registerSingleton(PluginMessageBus.class, pluginMessagingBus);
+		logger.success("Luna Core Messaging Forge bus đã sẵn sàng.");
+	}
+
+	/**
+	 * Take the AMQP settings from the proxy over the heartbeat, the way Paper
+	 * does. This mod loads after the core, so the first fetch may already have
+	 * happened; the registry client clears its checksum when a consumer arrives
+	 * late, and the sync below is what delivers it.
+	 */
+	private void attachMessagingConfig() {
+		BackendHeartbeatPublisher heartbeatPublisher = dependencyManager.resolveOptional(BackendHeartbeatPublisher.class)
+			.orElse(null);
+
+		if (heartbeatPublisher == null) {
+			logger.warn("Thiếu BackendHeartbeatPublisher, AMQP transport sẽ không nhận được cấu hình từ proxy.");
+			return;
+		}
+
+		PluginMessagingBus bus = pluginMessagingBus;
+		heartbeatPublisher.setMessagingConfigConsumer(payload -> bus.updateAmqpConfig(AmqpMessagingConfigCodec.decode(payload)));
+		heartbeatPublisher.syncMessagingConfigNow();
+	}
+
+	/** The same audit switch Paper reads: logging.pluginMessaging.enabled. */
+	private boolean pluginMessagingLoggingEnabled() {
+		return dependencyManager.resolveOptional(BackendCoreRuntimeConfig.class)
+			.map(BackendCoreRuntimeConfig::pluginMessagingLoggingEnabled)
+			.orElse(false);
+	}
+
+	private BackendIdentity resolveBackendIdentity() {
+		return dependencyManager.resolveOptional(BackendIdentity.class)
+			.orElseGet(() -> {
+				logger.warn("Thiếu BackendIdentity, dùng tên backend mặc định cho AMQP queue.");
+				return () -> new BackendMetadata("backend", "", "").sanitize();
+			});
+	}
+
+	@SubscribeEvent
+	public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+		if (pluginMessagingBus == null || !(event.getEntity() instanceof ServerPlayer player)) {
+			return;
+		}
+
+		pluginMessagingBus.bindSender(player);
+	}
+
+	@SubscribeEvent
+	public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+		if (pluginMessagingBus == null || !(event.getEntity() instanceof ServerPlayer player)) {
+			return;
+		}
+
+		pluginMessagingBus.unbindSender(player);
+	}
+
+	@SubscribeEvent
+	public void onServerStopping(ServerStoppingEvent event) {
+		if (dependencyManager != null) {
+			dependencyManager.unregister(PluginMessagingBus.class);
+			dependencyManager.unregister(PluginMessageBus.class);
+		}
+
+		if (pluginMessagingBus != null) {
+			pluginMessagingBus.close();
+			pluginMessagingBus = null;
+		}
+
+		dependencyManager = null;
+	}
+}

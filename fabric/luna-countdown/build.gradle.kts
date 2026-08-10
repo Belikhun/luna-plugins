@@ -11,6 +11,14 @@ import org.gradle.api.artifacts.Configuration
 // lunacore jar, and fabric loads every mod through one class loader.
 val fabricApiVersion = libs.versions.fabricapi.get()
 
+// The runtime is core/luna-countdown-mc, compiled by every mod loader; only the
+// bootstrap below is this module's own.
+val lunaCountdownMc = rootProject.layout.projectDirectory.dir("core/luna-countdown-mc/src")
+
+sourceSets.named("main") {
+	java.srcDir(lunaCountdownMc.dir("main/java"))
+}
+
 dependencies {
 	minecraft("com.mojang:minecraft:${libs.versions.fabricminecraft.get()}")
 	mappings(loom.officialMojangMappings())

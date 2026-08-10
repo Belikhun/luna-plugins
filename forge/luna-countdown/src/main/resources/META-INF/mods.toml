@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="lunacountdown"
+version="${version}"
+displayName="LunaCountdown"
+description='''
+Scheduled countdowns and the graceful shutdown timer.
+'''
+
+[[dependencies.lunacountdown]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunacountdown]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunacountdown]]
+modId="lunacore"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

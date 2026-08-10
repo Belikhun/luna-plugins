@@ -6,8 +6,8 @@ import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForgeServices;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.LunaCoreServices;
 import dev.belikhun.luna.core.api.config.BackendCoreConfigLoader;
 import dev.belikhun.luna.core.mc.ui.ChatPrompts;
 import dev.belikhun.luna.core.api.config.YamlConfigFile;
@@ -17,12 +17,12 @@ import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.config.BackendCoreRuntimeConfig;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatPublisher;
-import dev.belikhun.luna.core.neoforge.heartbeat.NeoForgeServerProbe;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
-import dev.belikhun.luna.core.neoforge.placeholder.BuiltInNeoForgePlaceholderService;
-import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderProviderFactory;
-import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderService;
-import dev.belikhun.luna.core.neoforge.serverselector.NeoForgeServerSelectorController;
+import dev.belikhun.luna.core.mc.heartbeat.ServerProbe;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import dev.belikhun.luna.core.mc.placeholder.BuiltInPlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderProviderFactory;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
+import dev.belikhun.luna.core.mc.serverselector.ServerSelectorController;
 import net.minecraft.server.MinecraftServer;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
@@ -40,6 +40,9 @@ import java.nio.file.Path;
 
 @Mod(LunaCoreNeoForgeMod.MOD_ID)
 public final class LunaCoreNeoForgeMod {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunacore/config.yml";
+
 	public static final String MOD_ID = "lunacore";
 	private static final String LUCKPERMS_MOD_ID = "luckperms";
 	private static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve(MOD_ID).resolve("config.yml");
@@ -47,13 +50,13 @@ public final class LunaCoreNeoForgeMod {
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
 	private BackendHeartbeatPublisher heartbeatPublisher;
-	private NeoForgePlaceholderService placeholderService;
-	private NeoForgeServerSelectorController serverSelectorController;
+	private PlaceholderService placeholderService;
+	private ServerSelectorController serverSelectorController;
 	private Database database = new NoopDatabase();
 	private ChatPrompts chatPrompts;
 
 	public LunaCoreNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaCore", true);
+		this.logger = LunaLoggers.create("LunaCore", true);
 		this.dependencyManager = new DependencyManager();
 		this.heartbeatPublisher = null;
 		this.placeholderService = null;
@@ -66,13 +69,13 @@ public final class LunaCoreNeoForgeMod {
 	public void onServerStarted(ServerStartedEvent event) {
 		MinecraftServer server = event.getServer();
 		enforceRequiredDependencies();
-		BackendCoreRuntimeConfig runtimeConfig = BackendCoreConfigLoader.loadRuntimeConfig(CONFIG_PATH, getClass(), logger);
+		BackendCoreRuntimeConfig runtimeConfig = BackendCoreConfigLoader.loadRuntimeConfig(CONFIG_PATH, getClass(), CONFIG_RESOURCE, logger);
 
 		// the same file again, this time as the whole tree: the runtime config is
 		// the slice every platform parses identically, while the modules above the
 		// core read their own keys out of it the way they do from Paper's ConfigStore
-		YamlConfigFile config = YamlConfigFile.load(CONFIG_PATH, getClass(), "config.yml");
-		this.logger = NeoForgeLunaLoggers.create(
+		YamlConfigFile config = YamlConfigFile.load(CONFIG_PATH, getClass(), CONFIG_RESOURCE);
+		this.logger = LunaLoggers.create(
 			"LunaCore",
 			runtimeConfig.ansiLoggingEnabled(),
 			runtimeConfig.debugLoggingEnabled()
@@ -85,20 +88,20 @@ public final class LunaCoreNeoForgeMod {
 		// listeners re-render open menus, so they run on the server thread
 		BackendStatusStore backendStatusStore = new BackendStatusStore(logger, server::execute);
 		heartbeatPublisher = new BackendHeartbeatPublisher(
-			new NeoForgeServerProbe(server),
+			new ServerProbe(server, FMLPaths.CONFIGDIR.get()),
 			logger,
 			runtimeConfig.heartbeatConfig(),
 			backendStatusStore,
 			"luna-neoforge-heartbeat"
 		);
 		BackendIdentity backendIdentity = heartbeatPublisher.identity();
-		placeholderService = new BuiltInNeoForgePlaceholderService(
+		placeholderService = new BuiltInPlaceholderService(
 			logger,
 			server,
 			backendIdentity,
-			NeoForgePlaceholderProviderFactory.createDefault(permissionService)
+			PlaceholderProviderFactory.createDefault(permissionService)
 		);
-		serverSelectorController = new NeoForgeServerSelectorController(server, dependencyManager, logger, permissionService);
+		serverSelectorController = new ServerSelectorController(server, dependencyManager, logger, permissionService);
 		database = DatabaseConnector.connect(config.section("database"), logger);
 		chatPrompts = new ChatPrompts(server);
 
@@ -114,9 +117,9 @@ public final class LunaCoreNeoForgeMod {
 		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(BackendIdentity.class, backendIdentity);
 		dependencyManager.registerSingleton(BackendHeartbeatPublisher.class, heartbeatPublisher);
-		dependencyManager.registerSingleton(NeoForgePlaceholderService.class, placeholderService);
-		dependencyManager.registerSingleton(NeoForgeServerSelectorController.class, serverSelectorController);
-		LunaCoreNeoForge.set(new LunaCoreNeoForgeServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
+		dependencyManager.registerSingleton(PlaceholderService.class, placeholderService);
+		dependencyManager.registerSingleton(ServerSelectorController.class, serverSelectorController);
+		LunaCore.set(new LunaCoreServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
 		heartbeatPublisher.start();
 		serverSelectorController.start(heartbeatPublisher);
 		logger.success("LunaCore NeoForge đã khởi động bootstrap với LuckPerms permission service và heartbeat publisher.");
@@ -125,7 +128,7 @@ public final class LunaCoreNeoForgeMod {
 	@SubscribeEvent
 	public void onRegisterCommands(RegisterCommandsEvent event) {
 		if (serverSelectorController != null) {
-			serverSelectorController.registerCommands(event);
+			serverSelectorController.registerCommands(event.getDispatcher());
 		}
 	}
 
@@ -195,7 +198,7 @@ public final class LunaCoreNeoForgeMod {
 		chatPrompts = null;
 
 		dependencyManager.clear();
-		LunaCoreNeoForge.clear();
+		LunaCore.clear();
 		logger.audit("LunaCore NeoForge đã dọn dẹp bootstrap.");
 	}
 

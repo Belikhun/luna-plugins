@@ -1,13 +1,12 @@
 package dev.belikhun.luna.core.mc.ui;
 
+import dev.belikhun.luna.core.mc.compat.ItemDecor;
 import dev.belikhun.luna.core.mc.compat.ItemLookup;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.ItemLore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,7 +47,7 @@ public final class LunaItems {
 		Item item = resolve(materialName);
 		ItemStack stack = new ItemStack(item == null ? Items.BARRIER : item, Math.max(1, Math.min(64, count)));
 
-		stack.set(DataComponents.CUSTOM_NAME, LunaTextComponents.mini(safe(title)));
+		ItemDecor.name(stack, LunaTextComponents.mini(safe(title)));
 
 		if (loreLines != null && !loreLines.isEmpty()) {
 			List<Component> lore = new ArrayList<>();
@@ -57,11 +56,11 @@ public final class LunaItems {
 				lore.add(LunaTextComponents.mini(safe(line)));
 			}
 
-			stack.set(DataComponents.LORE, new ItemLore(lore));
+			ItemDecor.lore(stack, lore);
 		}
 
 		if (glintOverride != null) {
-			stack.set(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, glintOverride);
+			ItemDecor.glint(stack, glintOverride);
 		}
 
 		return stack;

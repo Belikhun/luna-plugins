@@ -1,6 +1,6 @@
 package dev.belikhun.luna.tabbridge.fabric.runtime;
 
-import dev.belikhun.luna.core.fabric.placeholder.FabricPlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,11 +16,11 @@ public final class FabricTabBridgePlaceholderUpdater implements AutoCloseable {
 	private final MinecraftServer server;
 	private final FabricTabBridgeRuntime runtime;
 	private final FabricTabBridgeRelationalPlaceholderSource relationalPlaceholderSource;
-	private final FabricPlaceholderService placeholderService;
+	private final PlaceholderService placeholderService;
 	private final ScheduledExecutorService refreshExecutor;
 	private volatile boolean closed;
 
-	public FabricTabBridgePlaceholderUpdater(MinecraftServer server, FabricTabBridgeRuntime runtime, FabricTabBridgeRelationalPlaceholderSource relationalPlaceholderSource, FabricPlaceholderService placeholderService) {
+	public FabricTabBridgePlaceholderUpdater(MinecraftServer server, FabricTabBridgeRuntime runtime, FabricTabBridgeRelationalPlaceholderSource relationalPlaceholderSource, PlaceholderService placeholderService) {
 		this.server = Objects.requireNonNull(server, "server");
 		this.runtime = Objects.requireNonNull(runtime, "runtime");
 		this.relationalPlaceholderSource = Objects.requireNonNull(relationalPlaceholderSource, "relationalPlaceholderSource");

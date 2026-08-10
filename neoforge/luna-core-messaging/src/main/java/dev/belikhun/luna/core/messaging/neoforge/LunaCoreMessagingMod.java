@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.messaging.neoforge;
 
+import dev.belikhun.luna.core.messaging.mc.PluginMessagingBus;
 import dev.belikhun.luna.core.api.config.BackendCoreRuntimeConfig;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatPublisher;
@@ -8,10 +9,11 @@ import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.AmqpMessagingConfigCodec;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -26,10 +28,10 @@ public final class LunaCoreMessagingMod {
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private NeoForgePluginMessagingBus pluginMessagingBus;
+	private PluginMessagingBus pluginMessagingBus;
 
 	public LunaCoreMessagingMod(IEventBus modEventBus) {
-		this.logger = NeoForgeLunaLoggers.create("LunaCoreMessagingNeoForge", true).scope("CoreMessagingNeoForge");
+		this.logger = LunaLoggers.create("LunaCoreMessagingNeoForge", true).scope("CoreMessagingNeoForge");
 		NeoForge.EVENT_BUS.register(this);
 		modEventBus.addListener(this::onRegisterPayloadHandlers);
 	}
@@ -38,15 +40,15 @@ public final class LunaCoreMessagingMod {
 		NeoForgePayloadFallbackTransport.registerPayloadHandlers(event);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOW)
 	public void onServerStarted(ServerStartedEvent event) {
-		dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		pluginMessagingBus = new NeoForgePluginMessagingBus(logger, resolveBackendIdentity(), pluginMessagingLoggingEnabled());
-		NeoForgePayloadFallbackTransport.activate(pluginMessagingBus);
+		dependencyManager = LunaCore.services().dependencyManager();
+		pluginMessagingBus = new PluginMessagingBus(logger, resolveBackendIdentity(), pluginMessagingLoggingEnabled());
+		pluginMessagingBus.useFallback(new NeoForgePayloadFallbackTransport());
 
 		attachMessagingConfig();
 
-		dependencyManager.registerSingleton(NeoForgePluginMessagingBus.class, pluginMessagingBus);
+		dependencyManager.registerSingleton(PluginMessagingBus.class, pluginMessagingBus);
 		dependencyManager.registerSingleton(PluginMessageBus.class, pluginMessagingBus);
 		logger.success("Luna Core Messaging NeoForge bus đã sẵn sàng.");
 	}
@@ -66,7 +68,7 @@ public final class LunaCoreMessagingMod {
 			return;
 		}
 
-		NeoForgePluginMessagingBus bus = pluginMessagingBus;
+		PluginMessagingBus bus = pluginMessagingBus;
 		heartbeatPublisher.setMessagingConfigConsumer(payload -> bus.updateAmqpConfig(AmqpMessagingConfigCodec.decode(payload)));
 		heartbeatPublisher.syncMessagingConfigNow();
 	}
@@ -107,7 +109,7 @@ public final class LunaCoreMessagingMod {
 	@SubscribeEvent
 	public void onServerStopping(ServerStoppingEvent event) {
 		if (dependencyManager != null) {
-			dependencyManager.unregister(NeoForgePluginMessagingBus.class);
+			dependencyManager.unregister(PluginMessagingBus.class);
 			dependencyManager.unregister(PluginMessageBus.class);
 		}
 

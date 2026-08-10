@@ -1,6 +1,6 @@
 package dev.belikhun.luna.auth.backend.fabric.mixin;
 
-import dev.belikhun.luna.auth.backend.fabric.runtime.AuthLockHooks;
+import dev.belikhun.luna.auth.backend.mc.runtime.AuthLockHooks;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
@@ -31,7 +31,7 @@ public abstract class PlayerDropMixin {
 		boolean includeThrowerName,
 		CallbackInfoReturnable<ItemEntity> callback
 	) {
-		if (!((Object) this instanceof ServerPlayer player) || !AuthLockHooks.isLocked(player)) {
+		if (!((Object) this instanceof ServerPlayer player) || !AuthLockHooks.refuseDrop(player, stack)) {
 			return;
 		}
 

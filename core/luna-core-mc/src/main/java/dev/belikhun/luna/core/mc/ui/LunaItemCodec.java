@@ -1,10 +1,8 @@
 package dev.belikhun.luna.core.mc.ui;
 
-import com.mojang.serialization.DynamicOps;
+import dev.belikhun.luna.core.mc.compat.ItemIo;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
@@ -18,10 +16,11 @@ import java.util.Base64;
  * write one down.
  *
  * Paper stores these with {@code ItemStack.serializeAsBytes}, which is Bukkit's
- * own wrapper around the same NBT; here it is the game's {@code ItemStack.CODEC}
- * directly, gzipped and base64'd. That is deliberately the one API that has not
- * moved across the supported range: the {@code save}/{@code parse} helpers were
- * dropped in 26.x, the codec was not.
+ * own wrapper around the same NBT; here it is the game's own item tag, gzipped
+ * and base64'd. Writing that tag is the one step that moved across the supported
+ * range - a registry-aware codec from 1.20.5, the plain {@code save}/{@code of}
+ * pair before it - so it is reached through {@code ItemIo} and everything below
+ * stays one implementation.
  *
  * Consequence worth knowing: an items.yml written by a Paper backend cannot be
  * copied to a Fabric one, or the reverse. The payloads describe the same item
@@ -45,8 +44,7 @@ public final class LunaItemCodec {
 		}
 
 		try {
-			DynamicOps<Tag> ops = server.registryAccess().createSerializationContext(NbtOps.INSTANCE);
-			Tag encoded = ItemStack.CODEC.encodeStart(ops, stack.copyWithCount(1)).getOrThrow();
+			Tag encoded = ItemIo.save(server, stack.copyWithCount(1));
 
 			CompoundTag root = new CompoundTag();
 			root.put(ROOT_KEY, encoded);
@@ -67,15 +65,14 @@ public final class LunaItemCodec {
 
 		try {
 			byte[] bytes = Base64.getDecoder().decode(encoded);
-			CompoundTag root = NbtIo.readCompressed(new ByteArrayInputStream(bytes), NbtAccounter.create(MAX_NBT_BYTES));
+			CompoundTag root = ItemIo.readCompressed(new ByteArrayInputStream(bytes), MAX_NBT_BYTES);
 			Tag itemTag = root.get(ROOT_KEY);
 
 			if (itemTag == null) {
 				return ItemStack.EMPTY;
 			}
 
-			DynamicOps<Tag> ops = server.registryAccess().createSerializationContext(NbtOps.INSTANCE);
-			return ItemStack.CODEC.parse(ops, itemTag).result().orElse(ItemStack.EMPTY);
+			return ItemIo.load(server, itemTag);
 		} catch (Exception ignored) {
 			return ItemStack.EMPTY;
 		}

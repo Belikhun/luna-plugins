@@ -11,6 +11,11 @@ sqlite = "3.47.2.0"
 velocity = "3.5.0-SNAPSHOT"
 moddevgradle = "2.0.74"
 neoforge = "21.1.172"
+# Classic forge, one entry per game line luna builds for. Both are the recommended
+# build of their line; moddevgradle's legacyforge plugin drives them the same way it
+# drives neoforge, reobfuscating mojmap sources to SRG on the way into the jar.
+forge201 = "1.20.1-47.4.0"
+forge192 = "1.19.2-43.5.0"
 # newest loom that still targets this repo's gradle (1.16+ requires gradle 9.4+)
 fabricloom = "1.15.5"
 # Compile target for the fabric module. One jar serves 1.20 upward, so this is
@@ -71,4 +76,5 @@ sponge-mixin = { module = "net.fabricmc:sponge-mixin", version.ref = "spongemixi
 
 [plugins]
 moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }
+moddevgradle-legacy = { id = "net.neoforged.moddev.legacyforge", version.ref = "moddevgradle" }
 fabricloom = { id = "fabric-loom", version.ref = "fabricloom" }

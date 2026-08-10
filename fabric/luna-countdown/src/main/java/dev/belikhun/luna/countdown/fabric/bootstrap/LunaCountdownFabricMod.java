@@ -10,12 +10,15 @@ import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
+import dev.belikhun.luna.core.api.countdown.CountdownMessages;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
-import dev.belikhun.luna.countdown.fabric.runtime.FabricCountdownRuntime;
-import dev.belikhun.luna.countdown.fabric.shutdown.FabricShutdownTimer;
+import dev.belikhun.luna.countdown.mc.runtime.CountdownRuntime;
+import dev.belikhun.luna.countdown.mc.runtime.CountdownRuntimeFactory;
+import dev.belikhun.luna.countdown.mc.shutdown.ShutdownTimer;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -41,19 +44,18 @@ import java.util.concurrent.CompletableFuture;
  * One build covers Minecraft 1.20 upward, on the same terms as LunaCore: no
  * subclassing of game types, no mixins, and only API that has held across that
  * range. The action bar is the one place that needed care; see
- * {@code text/Broadcasts}.
+ * the shared runtime in core/luna-countdown-mc.
  */
 public final class LunaCountdownFabricMod implements DedicatedServerModInitializer {
 	public static final String MOD_ID = "lunacountdown";
 	private static final String COUNTDOWN_PERMISSION = "countdown.countdown";
 	private static final String SHUTDOWN_PERMISSION = "countdown.shutdown";
 	private static final String DEFAULT_COUNTDOWN_TITLE = "Sự Kiện Kết Thúc";
-	private static final String NOT_READY = "❌ LunaCountdown chưa sẵn sàng.";
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private FabricCountdownRuntime countdownRuntime;
-	private FabricShutdownTimer shutdownTimer;
+	private CountdownRuntime countdownRuntime;
+	private ShutdownTimer shutdownTimer;
 
 	public LunaCountdownFabricMod() {
 		this.logger = FabricLunaLoggers.create("LunaCountdown", true);
@@ -74,11 +76,11 @@ public final class LunaCountdownFabricMod implements DedicatedServerModInitializ
 
 	private void onServerStarted(MinecraftServer server) {
 		dependencyManager = LunaCoreFabric.services().dependencyManager();
-		countdownRuntime = new FabricCountdownRuntime(logger, server);
-		shutdownTimer = new FabricShutdownTimer(logger, server);
+		countdownRuntime = CountdownRuntimeFactory.create(logger, server);
+		shutdownTimer = new ShutdownTimer(logger, server);
 
-		dependencyManager.registerSingleton(FabricCountdownRuntime.class, countdownRuntime);
-		dependencyManager.registerSingleton(FabricShutdownTimer.class, shutdownTimer);
+		dependencyManager.registerSingleton(CountdownRuntime.class, countdownRuntime);
+		dependencyManager.registerSingleton(ShutdownTimer.class, shutdownTimer);
 
 		if (permissionService() == null) {
 			logger.warn("Không tìm thấy PermissionService. Chỉ console dùng được các lệnh countdown và shutdown.");
@@ -89,8 +91,8 @@ public final class LunaCountdownFabricMod implements DedicatedServerModInitializ
 
 	private void onServerStopping(MinecraftServer server) {
 		if (dependencyManager != null) {
-			dependencyManager.unregister(FabricCountdownRuntime.class);
-			dependencyManager.unregister(FabricShutdownTimer.class);
+			dependencyManager.unregister(CountdownRuntime.class);
+			dependencyManager.unregister(ShutdownTimer.class);
 			dependencyManager = null;
 		}
 
@@ -160,46 +162,30 @@ public final class LunaCountdownFabricMod implements DedicatedServerModInitializ
 	}
 
 	private int sendCountdownUsage(CommandSourceStack source, String root) {
-		return reply(source, CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.required("start|stop|stopall", "action")
-		));
+		return reply(source, CountdownMessages.countdownUsage(root));
 	}
 
 	private int sendCountdownStartUsage(CommandSourceStack source, String root) {
-		return reply(source, CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.literal("start"),
-			CommandStrings.required("length", "time"),
-			CommandStrings.optional("message", "text")
-		));
+		return reply(source, CountdownMessages.countdownStartUsage(root));
 	}
 
 	private int sendCountdownStopUsage(CommandSourceStack source, String root) {
-		return reply(source, CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.literal("stop"),
-			CommandStrings.required("id", "number")
-		));
+		return reply(source, CountdownMessages.countdownStopUsage(root));
 	}
 
 	private int sendShutdownUsage(CommandSourceStack source, String root) {
-		return reply(source, CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.required("length|cancel", "time|action"),
-			CommandStrings.optional("message", "text")
-		));
+		return reply(source, CountdownMessages.shutdownUsage(root));
 	}
 
 	private int executeCountdownStart(CommandSourceStack source, String lengthInput, String title) {
 		if (countdownRuntime == null) {
-			return reply(source, NOT_READY);
+			return reply(source, CountdownMessages.notReady());
 		}
 
 		int length = parseTime(lengthInput);
 
 		if (length <= 0) {
-			return reply(source, "❌ Thời gian không hợp lệ: " + lengthInput);
+			return reply(source, CountdownMessages.invalidTime(lengthInput));
 		}
 
 		String normalizedTitle = title == null || title.isBlank() ? DEFAULT_COUNTDOWN_TITLE : title.trim();
@@ -211,64 +197,64 @@ public final class LunaCountdownFabricMod implements DedicatedServerModInitializ
 
 	private int executeCountdownStop(CommandSourceStack source, int id) {
 		if (countdownRuntime == null) {
-			return reply(source, NOT_READY);
+			return reply(source, CountdownMessages.notReady());
 		}
 
 		if (!countdownRuntime.stop(id, "Đã hủy.")) {
-			return reply(source, "❌ Không tìm thấy countdown với ID " + id + ".");
+			return reply(source, CountdownMessages.countdownNotFound(id));
 		}
 
-		return succeed(source, "✔ Đã dừng countdown #" + id + ".");
+		return succeed(source, CountdownMessages.countdownStopped(id));
 	}
 
 	private int executeCountdownStopAll(CommandSourceStack source) {
 		if (countdownRuntime == null) {
-			return reply(source, NOT_READY);
+			return reply(source, CountdownMessages.notReady());
 		}
 
 		countdownRuntime.stopAll("Đã hủy.");
 
-		return succeed(source, "✔ Đã dừng toàn bộ countdown đang hoạt động.");
+		return succeed(source, CountdownMessages.allCountdownsStopped());
 	}
 
 	private int executeShutdownStart(CommandSourceStack source, String lengthInput, String reason) {
 		if (shutdownTimer == null) {
-			return reply(source, NOT_READY);
+			return reply(source, CountdownMessages.notReady());
 		}
 
 		int length = parseTime(lengthInput);
 
 		if (length <= 0) {
-			return reply(source, "❌ Thời gian không hợp lệ: " + lengthInput);
+			return reply(source, CountdownMessages.invalidTime(lengthInput));
 		}
 
 		if (!shutdownTimer.start(length, reason)) {
-			return reply(source, "❌ Tắt máy chủ đã được lên lịch. Hủy bằng /shutdown cancel.");
+			return reply(source, CountdownMessages.shutdownAlreadyScheduled());
 		}
 
-		return succeed(source, "✔ Đã lên lịch tắt máy chủ sau " + readableTime(length) + ".");
+		return succeed(source, CountdownMessages.shutdownScheduled(readableTime(length)));
 	}
 
 	private int executeShutdownCancel(CommandSourceStack source) {
 		if (shutdownTimer == null) {
-			return reply(source, NOT_READY);
+			return reply(source, CountdownMessages.notReady());
 		}
 
 		if (!shutdownTimer.cancel("Đã hủy tắt máy chủ.")) {
-			return reply(source, "❌ Không có lịch tắt máy chủ.");
+			return reply(source, CountdownMessages.noShutdownScheduled());
 		}
 
-		return succeed(source, "✔ Đã hủy tắt máy chủ.");
+		return succeed(source, CountdownMessages.shutdownCancelled());
 	}
 
 	/** Answer the command source; 0 is brigadier's "did nothing". */
 	private int reply(CommandSourceStack source, String message) {
-		source.sendSystemMessage(Component.literal(message));
+		source.sendSystemMessage(LunaTextComponents.mini(message == null ? "" : message));
 		return 0;
 	}
 
 	private int succeed(CommandSourceStack source, String message) {
-		source.sendSystemMessage(Component.literal(message));
+		source.sendSystemMessage(LunaTextComponents.mini(message == null ? "" : message));
 		return 1;
 	}
 

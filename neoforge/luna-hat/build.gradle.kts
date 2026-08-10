@@ -17,6 +17,14 @@ sourceSets.named("main") {
 	java.exclude("**/hat/fabric/**")
 }
 
+
+// The helmet-slot mixin is per game line, not shared: 1.19-1.20.4 has no
+// ArmorSlot class at all. See core/luna-core-mc/README.md for the convention;
+// the sets live here because this module owns the hat trunk.
+sourceSets.named("main") {
+	java.srcDir(rootProject.layout.projectDirectory.dir("fabric/luna-hat/src/mixin-armorslot/java"))
+}
+
 dependencies {
 	compileOnly(project(":luna-core-api"))
 	compileOnly(project(":luna-core-neoforge"))

@@ -1,6 +1,6 @@
 package dev.belikhun.luna.messenger.paper.command;
 
-import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.messenger.MessengerMessages;
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
@@ -21,12 +21,12 @@ public final class MessengerPokeCommand implements BasicCommand {
 	public void execute(CommandSourceStack source, String[] args) {
 		CommandSender sender = source.getSender();
 		if (!(sender instanceof Player player)) {
-			sender.sendRichMessage("<red>❌ Lệnh này chỉ dùng cho người chơi.</red>");
+			sender.sendRichMessage(MessengerMessages.notAPlayer());
 			return;
 		}
 
 		if (args.length < 1) {
-			player.sendRichMessage(CommandStrings.usage("/poke", CommandStrings.required("người_chơi", "text")));
+			player.sendRichMessage(MessengerMessages.pokeUsage());
 			return;
 		}
 

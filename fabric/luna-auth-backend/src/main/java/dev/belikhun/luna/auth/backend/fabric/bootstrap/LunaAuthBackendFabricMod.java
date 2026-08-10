@@ -3,18 +3,21 @@ package dev.belikhun.luna.auth.backend.fabric.bootstrap;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.belikhun.luna.auth.backend.fabric.compat.UseItemGate;
-import dev.belikhun.luna.auth.backend.fabric.config.AuthBackendFabricConfig;
-import dev.belikhun.luna.auth.backend.fabric.config.AuthBackendFabricConfigLoader;
-import dev.belikhun.luna.auth.backend.fabric.runtime.AuthLockHooks;
-import dev.belikhun.luna.auth.backend.fabric.runtime.AuthRestrictionController;
-import dev.belikhun.luna.auth.backend.fabric.service.BackendAuthSpawnService;
+import dev.belikhun.luna.auth.backend.mc.config.AuthBackendConfig;
+import dev.belikhun.luna.auth.backend.mc.config.AuthBackendConfigLoader;
+import dev.belikhun.luna.auth.backend.mc.runtime.AuthLockHooks;
+import dev.belikhun.luna.auth.backend.mc.runtime.AuthRestrictionController;
+import dev.belikhun.luna.auth.backend.mc.service.BackendAuthSpawnService;
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
 import net.fabricmc.api.DedicatedServerModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -151,12 +154,16 @@ public final class LunaAuthBackendFabricMod implements DedicatedServerModInitial
 		pendingServer = null;
 		dependencyManager = LunaCoreFabric.services().dependencyManager();
 
-		AuthBackendFabricConfig config = AuthBackendFabricConfigLoader.load(getClass(), logger);
+		// fabric names its own config directory; FML names it for the forge family,
+		// so the shared loader is told where to write rather than resolving it
+		AuthBackendConfigLoader.useConfigDirectory(FabricLoader.getInstance().getConfigDir());
+
+		AuthBackendConfig config = AuthBackendConfigLoader.load(getClass(), logger);
 		this.logger = FabricLunaLoggers.create("LunaAuthBackend", true, config.authFlowLogsEnabled());
 
 		PluginMessageBus<ServerPlayer, ServerPlayer> messagingBus = resolveMessagingBus();
 		BackendAuthSpawnService spawnService = new BackendAuthSpawnService(
-			AuthBackendFabricConfigLoader.configPath(),
+			AuthBackendConfigLoader.configPath(),
 			logger.scope("Spawn")
 		);
 
@@ -206,26 +213,19 @@ public final class LunaAuthBackendFabricMod implements DedicatedServerModInitial
 	}
 
 	private int sendLoginUsage(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/login",
-			CommandStrings.required("mat_khau", "text")
-		)));
+		source.sendSystemMessage(LunaTextComponents.mini(AuthMessages.loginUsage()));
 
 		return 0;
 	}
 
 	private int sendRegisterUsage(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/register",
-			CommandStrings.required("mat_khau", "text"),
-			CommandStrings.required("nhap_lai", "text")
-		)));
+		source.sendSystemMessage(LunaTextComponents.mini(AuthMessages.registerUsage()));
 
 		return 0;
 	}
 
 	private int notReady(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal("❌ LunaAuth Backend Fabric chưa sẵn sàng."));
+		source.sendSystemMessage(LunaTextComponents.mini(AuthMessages.commandSendFailed()));
 
 		return 0;
 	}

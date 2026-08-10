@@ -3,14 +3,15 @@ package dev.belikhun.luna.hat.neoforge.bootstrap;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
 import dev.belikhun.luna.hat.mc.runtime.HatHooks;
 import dev.belikhun.luna.hat.mc.runtime.HatService;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -34,15 +35,15 @@ public final class LunaHatNeoForgeMod {
 	private HatService hatService;
 
 	public LunaHatNeoForgeMod(IEventBus modEventBus) {
-		this.logger = NeoForgeLunaLoggers.create("LunaHat", true);
+		this.logger = LunaLoggers.create("LunaHat", true);
 		this.hatService = null;
 		NeoForge.EVENT_BUS.register(this);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
-		PermissionService permissions = LunaCoreNeoForge.isReady()
-			? LunaCoreNeoForge.services().dependencyManager().resolveOptional(PermissionService.class).orElse(null)
+		PermissionService permissions = LunaCore.isReady()
+			? LunaCore.services().dependencyManager().resolveOptional(PermissionService.class).orElse(null)
 			: null;
 
 		if (permissions == null) {

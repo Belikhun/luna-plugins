@@ -8,8 +8,8 @@ import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.mc.ui.ChatPrompts;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
 import dev.belikhun.luna.shop.api.ShopTransactionHistoryMigration;
 import dev.belikhun.luna.shop.api.ShopTransactionStore;
 import dev.belikhun.luna.shop.mc.command.ShopCommands;
@@ -23,6 +23,7 @@ import dev.belikhun.luna.vault.api.LunaVaultApi;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLPaths;
@@ -46,6 +47,9 @@ import java.nio.file.Path;
  */
 @Mod(LunaShopNeoForgeMod.MOD_ID)
 public final class LunaShopNeoForgeMod {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunashop/config.yml";
+
 	public static final String MOD_ID = "lunashop";
 
 	/** Five seconds at a healthy tick rate; long enough for a slow wallet, short enough to report. */
@@ -60,7 +64,7 @@ public final class LunaShopNeoForgeMod {
 	private boolean startupAbandoned;
 
 	public LunaShopNeoForgeMod(IEventBus modEventBus) {
-		this.logger = NeoForgeLunaLoggers.create("LunaShop", true);
+		this.logger = LunaLoggers.create("LunaShop", true);
 		this.commands = new ShopCommands(() -> runtime);
 		this.guiController = null;
 		this.runtime = null;
@@ -70,14 +74,14 @@ public final class LunaShopNeoForgeMod {
 		NeoForge.EVENT_BUS.register(this);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
 		pendingServer = event.getServer();
 	}
 
 	@SubscribeEvent
 	public void onServerTick(ServerTickEvent.Post event) {
-		if (runtime != null || startupAbandoned || pendingServer == null || !LunaCoreNeoForge.isReady()) {
+		if (runtime != null || startupAbandoned || pendingServer == null || !LunaCore.isReady()) {
 			return;
 		}
 
@@ -99,9 +103,9 @@ public final class LunaShopNeoForgeMod {
 
 	/** @return whether everything it needs was there and the shop is now running */
 	private boolean start(MinecraftServer server) {
-		DependencyManager dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		YamlConfigFile coreConfig = LunaCoreNeoForge.services().config();
-		Database database = LunaCoreNeoForge.services().database();
+		DependencyManager dependencyManager = LunaCore.services().dependencyManager();
+		YamlConfigFile coreConfig = LunaCore.services().config();
+		Database database = LunaCore.services().database();
 
 		LunaVaultApi vaultApi = dependencyManager.resolveOptional(LunaVaultApi.class).orElse(null);
 		ChatPrompts chatPrompts = dependencyManager.resolveOptional(ChatPrompts.class).orElse(null);
@@ -111,9 +115,9 @@ public final class LunaShopNeoForgeMod {
 		}
 
 		Path configDirectory = FMLPaths.CONFIGDIR.get().resolve(MOD_ID);
-		YamlConfigFile config = YamlConfigFile.load(configDirectory.resolve("config.yml"), getClass(), "config.yml");
+		YamlConfigFile config = YamlConfigFile.load(configDirectory.resolve("config.yml"), getClass(), CONFIG_RESOURCE);
 
-		logger = NeoForgeLunaLoggers.create("LunaShop", true, config.getBoolean("logging.debug", false));
+		logger = LunaLoggers.create("LunaShop", true, config.getBoolean("logging.debug", false));
 
 		ShopTransactionStore transactionStore = new ShopTransactionStore(database, logger);
 		migrateHistorySchema(database);

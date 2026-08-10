@@ -12,19 +12,26 @@ import org.gradle.jvm.tasks.Jar
 // linked directly, and the loom remap leaves those call sites alone.
 val fabricApiVersion = libs.versions.fabricapi.get()
 
-// src/main/java is the trunk both fabric builds compile; src/mc21/java is this
-// build's half of the one class the two game lines cannot share. luna-core-mc26-fabric
-// takes the trunk by reference and supplies the other half from its own sources.
-//
 // The platform-free half of the luna UI toolkit. It is source-shared rather than
 // a dependency because it is written against net.minecraft, which no plain jar can
-// see: each loader compiles it against its own game. luna-core-neoforge adds the
-// same directory, which is why a screen written once renders on both.
-val lunaCoreMcSources = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src/main/java")
+// see: each loader compiles it against its own game. The neoforge and forge core
+// modules add the same directories, which is why a screen written once renders on
+// all three.
+//
+// The trunk plus this line's compat sets: 1.21 spells the click enum ClickType and
+// builds a ResourceLocation through the factory method. core/luna-core-mc/README.md
+// lists every set and what picks it; src/mc21/java is what is left that is fabric's
+// own rather than the game line's.
+val lunaCoreMc = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src")
 
 sourceSets.named("main") {
 	java.srcDir("src/mc21/java")
-	java.srcDir(lunaCoreMcSources)
+	java.srcDir(lunaCoreMc.dir("main/java"))
+	java.srcDir(lunaCoreMc.dir("player-1x/java"))
+	java.srcDir(lunaCoreMc.dir("menu-clicktype/java"))
+	java.srcDir(lunaCoreMc.dir("registry-namespaced/java"))
+	java.srcDir(lunaCoreMc.dir("decor-components/java"))
+	java.srcDir(lunaCoreMc.dir("itemio-codec/java"))
 }
 
 dependencies {

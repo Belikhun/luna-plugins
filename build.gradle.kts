@@ -112,12 +112,16 @@ subprojects {
     val isApiModule = project.name.endsWith("-api")
     val isNeoForgeModule = project.name.endsWith("-neoforge") || project.name == "luna-core-messaging"
     val isFabricModule = project.name.endsWith("-fabric")
+    // classic forge, as opposed to neoforge; the two are separate loaders with
+    // separate metadata, and `-neoforge` is matched first so it never lands here
+    val isForgeModule = !project.name.endsWith("-neoforge") && project.name.endsWith("-forge")
     // the second build of a fabric module, for the game line that ships unobfuscated
     val isMc26FabricModule = project.name.endsWith("-mc26-fabric")
     val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth" || project.name == "luna-vault" || project.name == "luna-glyph"
-    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule && !isNeoForgeModule && !isFabricModule)
+    val isPaperModule = project.name.endsWith("-paper") || (!isApiModule && !isVelocityModule && !isNeoForgeModule && !isForgeModule && !isFabricModule)
     val platformTarget = when {
         isNeoForgeModule -> "neoforge"
+        isForgeModule -> "forge"
         isFabricModule -> "fabric"
         isVelocityModule -> "velocity"
         isPaperModule -> "paper"
@@ -126,6 +130,7 @@ subprojects {
     val moduleBaseName = when {
         isVelocityModule -> project.name.removeSuffix("-velocity")
         isNeoForgeModule && project.name.endsWith("-neoforge") -> project.name.removeSuffix("-neoforge")
+        isForgeModule -> project.name.removeSuffix("-forge")
         isFabricModule -> project.name.removeSuffix("-fabric")
         project.name.endsWith("-paper") -> project.name.removeSuffix("-paper")
         isApiModule -> project.name
@@ -161,7 +166,29 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.release = 21
+        // The api jars are consumed by every platform, and the oldest JVM in the
+        // fleet sets their floor: a Forge 1.19.2/1.20.1 server runs Java 17 and
+        // cannot load class-file 65. 17-bytecode loads fine everywhere newer, and
+        // the forge modules themselves run on that same JVM.
+        options.release = if (isApiModule || isForgeModule) 17 else 21
+    }
+
+    if (isApiModule) {
+        // Emitting 17 makes gradle look for dependencies a 17 runtime could use, and
+        // paper-api publishes itself as 21-only, so resolution fails before javac is
+        // even reached. javac has no such problem: `--release` governs which *JDK*
+        // API is visible, and a class file on the classpath is read whatever its
+        // version. So the classpath keeps asking for 21 while the output stays 17.
+        //
+        // What that costs is real but already the arrangement: the handful of
+        // paper-facing classes in luna-core-api ship inside every mod jar and would
+        // fail to link if a mod platform ever touched them. Nothing does - they are
+        // reached through the paper bootstrap only.
+        configurations.named("compileClasspath") {
+            attributes {
+                attribute(TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE, 21)
+            }
+        }
     }
 
     dependencies {
@@ -179,6 +206,10 @@ subprojects {
             expand("version" to pluginVersion)
         }
         filesMatching("META-INF/neoforge.mods.toml") {
+            expand("version" to pluginVersion)
+        }
+        // classic forge reads the same descriptor under its pre-fork name
+        filesMatching("META-INF/mods.toml") {
             expand("version" to pluginVersion)
         }
         filesMatching("velocity-plugin.json") {
@@ -210,10 +241,42 @@ subprojects {
             named("main") {
                 java.srcDir(File(sharedDir, "src/main/java"))
 
-                // the platform-free UI toolkit the 1.21 sibling also compiles; see
-                // fabric/luna-core/build.gradle.kts for why it is shared by source
+                // The platform-free UI toolkit the 1.21 sibling also compiles, plus
+                // the compat sets for this line: 26.x renamed the click enum to
+                // ContainerInput and ResourceLocation to Identifier. See
+                // core/luna-core-mc/README.md for why those are sets and not copies.
+                // the hat mixin is per game line; 26.x spells it the same way
+                // 1.21 does, so it takes the sibling's named-class set
+                val mixinSet = File(sharedDir, "src/mixin-armorslot/java")
+
+                if (mixinSet.isDirectory) {
+                    java.srcDir(mixinSet)
+                }
+
+                if (project.name == "luna-countdown-mc26-fabric") {
+                    java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-countdown-mc/src/main/java"))
+                }
+
+                if (project.name == "luna-messenger-mc26-fabric") {
+                    java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-messenger-mc/src/main/java"))
+                }
+
+                if (project.name == "luna-auth-backend-mc26-fabric") {
+                    val lunaAuthMc = rootProject.layout.projectDirectory.dir("core/luna-auth-backend-mc/src")
+
+                    java.srcDir(lunaAuthMc.dir("main/java"))
+                    java.srcDir(lunaAuthMc.dir("player-26/java"))
+                }
+
                 if (project.name == "luna-core-mc26-fabric") {
-                    java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-core-mc/src/main/java"))
+                    val lunaCoreMc = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src")
+
+                    java.srcDir(lunaCoreMc.dir("main/java"))
+                    java.srcDir(lunaCoreMc.dir("player-26/java"))
+                    java.srcDir(lunaCoreMc.dir("menu-containerinput/java"))
+                    java.srcDir(lunaCoreMc.dir("registry-identifier/java"))
+                    java.srcDir(lunaCoreMc.dir("decor-components/java"))
+                    java.srcDir(lunaCoreMc.dir("itemio-codec/java"))
                 }
             }
         }
@@ -252,7 +315,7 @@ subprojects {
             archiveBaseName.set("${moduleBaseName}-$platformTarget")
             archiveVersion.set("")
 
-            if (isNeoForgeModule) {
+            if (isNeoForgeModule || isForgeModule) {
                 configurations = project.provider { emptyList<Configuration>() }
             }
         }

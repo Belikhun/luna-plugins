@@ -1,0 +1,45 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="lunacore"
+version="${version}"
+displayName="LunaCore"
+description='''
+Forge runtime foundation for Luna backend modules.
+'''
+
+# Classic forge spells a dependency's necessity as `mandatory`; neoforge replaced
+# it with `type="required"/"optional"` after the fork. Using neoforge's spelling
+# here is not a warning, it is a hard InvalidModFileException at load.
+[[dependencies.lunacore]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunacore]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="SERVER"
+
+# The bootstrap refuses to start without it, so it is declared here too: a missing
+# permission service should read as a dependency error at load rather than as a
+# stack trace once the server is already up.
+[[dependencies.lunacore]]
+modId="luckperms"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"
+
+[[dependencies.lunacore]]
+modId="voicechat"
+mandatory=false
+versionRange="[2.5.0,)"
+ordering="AFTER"
+side="SERVER"

@@ -5,7 +5,7 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
-import dev.belikhun.luna.core.fabric.placeholder.FabricPlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.tabbridge.fabric.runtime.BuiltInFabricTabBridgeRelationalPlaceholderSource;
 import dev.belikhun.luna.tabbridge.fabric.runtime.FabricTabBridgePlaceholderUpdater;
 import dev.belikhun.luna.tabbridge.fabric.runtime.FabricTabBridgeRelationalPlaceholderSource;
@@ -66,10 +66,10 @@ public final class LunaTabBridgeFabricMod implements DedicatedServerModInitializ
 		tabBridgeRuntime = TabBridgeRuntimeFactory.create(logger, dependencyManager);
 		dependencyManager.registerSingleton(FabricTabBridgeRuntime.class, tabBridgeRuntime);
 
-		FabricPlaceholderService placeholderService = dependencyManager.resolveOptional(FabricPlaceholderService.class).orElse(null);
+		PlaceholderService placeholderService = dependencyManager.resolveOptional(PlaceholderService.class).orElse(null);
 
 		if (placeholderService == null) {
-			logger.warn("Thiếu FabricPlaceholderService từ LunaCore. Tab list sẽ không có placeholder động.");
+			logger.warn("Thiếu PlaceholderService từ LunaCore. Tab list sẽ không có placeholder động.");
 			logger.success("Luna TAB Bridge Fabric runtime đã sẵn sàng (không có placeholder).");
 			return;
 		}

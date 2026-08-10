@@ -1,0 +1,13 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.belikhun.luna.hat.mc.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"refmap": "lunahat.refmap.json",
+	"server": [
+		"InventorySlotMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

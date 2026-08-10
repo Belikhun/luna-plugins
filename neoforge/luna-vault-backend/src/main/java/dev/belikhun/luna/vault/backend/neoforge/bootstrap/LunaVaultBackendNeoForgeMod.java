@@ -11,9 +11,9 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
-import dev.belikhun.luna.core.neoforge.placeholder.NeoForgePlaceholderService;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
 import dev.belikhun.luna.vault.backend.mc.gui.TransactionHistoryScreen;
@@ -24,6 +24,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLPaths;
@@ -45,6 +46,9 @@ import java.util.UUID;
  */
 @Mod(LunaVaultBackendNeoForgeMod.MOD_ID)
 public final class LunaVaultBackendNeoForgeMod {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunavaultbackend/config.yml";
+
 	public static final String MOD_ID = "lunavaultbackend";
 	private static final String PLAYERS_ONLY = "<red>❌ Chỉ người chơi mới dùng lệnh này.</red>";
 	private static final String NOT_READY = "<red>❌ LunaVaultBackend chưa sẵn sàng.</red>";
@@ -57,22 +61,22 @@ public final class LunaVaultBackendNeoForgeMod {
 	private PermissionService permissionService;
 
 	public LunaVaultBackendNeoForgeMod(IEventBus modEventBus) {
-		this.logger = NeoForgeLunaLoggers.create("VaultBackend", true);
+		this.logger = LunaLoggers.create("VaultBackend", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 
 	@SuppressWarnings("unchecked")
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
 		MinecraftServer server = event.getServer();
-		DependencyManager dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		YamlConfigFile coreConfig = LunaCoreNeoForge.services().config();
-		Database database = LunaCoreNeoForge.services().database();
+		DependencyManager dependencyManager = LunaCore.services().dependencyManager();
+		YamlConfigFile coreConfig = LunaCore.services().config();
+		Database database = LunaCore.services().database();
 
 		permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
 
 		Path configPath = FMLPaths.CONFIGDIR.get().resolve(MOD_ID).resolve("config.yml");
-		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), "config.yml");
+		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
 
 		// only the direct-database mode owns these tables; in rpc mode the proxy is
 		// the one that has already migrated them
@@ -112,8 +116,8 @@ public final class LunaVaultBackendNeoForgeMod {
 	}
 
 	private void registerPlaceholders(DependencyManager dependencyManager, YamlConfigFile coreConfig, long timeoutMillis) {
-		NeoForgePlaceholderService placeholderService = dependencyManager
-			.resolveOptional(NeoForgePlaceholderService.class)
+		PlaceholderService placeholderService = dependencyManager
+			.resolveOptional(PlaceholderService.class)
 			.orElse(null);
 
 		if (placeholderService == null) {

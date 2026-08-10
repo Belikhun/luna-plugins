@@ -6,6 +6,7 @@ import dev.belikhun.luna.auth.backend.listener.AuthRestrictionListener;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
 import dev.belikhun.luna.core.api.auth.AuthChannels;
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.auth.BackendAuthStateRegistry;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
@@ -37,6 +38,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	private LunaLogger logger;
 	private boolean authFlowLogsEnabled;
 	private boolean modeSelectorGuiEnabled;
+	private boolean lobbyItemsEnabled;
 
 	@Override
 	public void onEnable() {
@@ -49,6 +51,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		migrateConfig();
 		this.authFlowLogsEnabled = getConfig().getBoolean("logging.auth-flow", true);
 		this.modeSelectorGuiEnabled = getConfig().getBoolean("auth.mode-selector-gui.enabled", true);
+		this.lobbyItemsEnabled = getConfig().getBoolean("auth.lobby-items.enabled", false);
 		this.stateRegistry = new BackendAuthStateRegistry();
 		this.spawnService = new BackendAuthSpawnService(this);
 		this.restrictionListener = new AuthRestrictionListener(
@@ -74,12 +77,15 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			this::requestStateSync,
 			this::sendProbePreference,
 			modeSelectorGuiEnabled,
+			lobbyItemsEnabled,
 			logger.scope("Restriction"),
 			authFlowLogsEnabled
 		);
 		getServer().getPluginManager().registerEvents(restrictionListener, this);
 		getServer().getServicesManager().register(AuthLobbyItemRegistry.class, restrictionListener, this, ServicePriority.Normal);
-		registerDefaultLobbyItems();
+		if (lobbyItemsEnabled) {
+			registerDefaultLobbyItems();
+		}
 		restrictionListener.startPromptTask();
 		flow("Plugin enable complete, authFlowLogs=" + authFlowLogsEnabled + " modeSelectorGuiEnabled=" + modeSelectorGuiEnabled + " allowedCommands=" + readAllowedCommands());
 		LunaCore.services().pluginMessaging().registerOutgoing(AuthChannels.COMMAND_REQUEST);
@@ -102,9 +108,9 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			}
 			boolean updated = spawnService.setSpawn(source.getLocation(), actorName);
 			if (updated) {
-				source.sendRichMessage("<color:" + LunaPalette.SUCCESS_500 + ">✔ Điểm auth-spawn đã được cập nhật bởi " + actorName + ".</color>");
+				source.sendRichMessage(AuthMessages.spawnUpdated(actorName));
 			} else {
-				source.sendRichMessage("<color:" + LunaPalette.DANGER_500 + ">❌ Không thể cập nhật auth-spawn tại vị trí hiện tại.</color>");
+				source.sendRichMessage(AuthMessages.spawnUpdateFailed());
 			}
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -182,7 +188,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 
 			boolean shouldSendResultChat = !success || !authenticated;
 			if (shouldSendResultChat) {
-				source.sendRichMessage((success ? "<green>" : "<red>") + message + (success ? "</green>" : "</red>"));
+				source.sendRichMessage(AuthMessages.commandResult(success, message));
 			}
 			if (authenticated) {
 				stateRegistry.markAuthenticated(playerUuid);
@@ -306,17 +312,13 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 	private void registerDefaultLobbyItems() {
 		ItemStack selectorItem = LunaUi.item(
 			Material.COMPASS,
-			"<gradient:#C6A9FF:#FF8AB9>Chọn máy chủ</gradient>",
-			List.of(
-				LunaUi.mini("<gray>ℹ Cầm item này và nhấn <aqua>chuột phải</aqua> để mở menu</gray>"),
-				LunaUi.mini(""),
-				LunaUi.mini("<dark_gray>> maylocnuoc</dark_gray>")
-			)
+			AuthMessages.lobbySelectorName(),
+			AuthMessages.lobbySelectorLore().stream().map(LunaUi::mini).toList()
 		);
 
 		restrictionListener.registerLobbyItem(new AuthLobbyItemRegistry.LobbyItem(
-			"server_selector",
-			0,
+			AuthMessages.LOBBY_SELECTOR_KEY,
+			AuthMessages.LOBBY_SELECTOR_SLOT,
 			selectorItem,
 			(player, clickType) -> LunaCore.services().dependencyManager()
 				.resolveOptional(PaperServerSelectorController.class)
@@ -336,7 +338,7 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		});
 		flow("TX command_request action=set_probe_preference player=" + player.getName() + " uuid=" + player.getUniqueId() + " mode=" + mode + " sent=" + sent + " at=" + Instant.now());
 		if (!sent) {
-			player.sendRichMessage("<red>❌ Không thể gửi lựa chọn xác thực lên proxy. Vui lòng thử lại sau vài giây.</red>");
+			player.sendRichMessage(AuthMessages.probePreferenceFailed());
 		}
 		return sent;
 	}

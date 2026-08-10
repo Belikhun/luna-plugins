@@ -11,6 +11,14 @@ import org.gradle.api.artifacts.Configuration
 // lunacore jar, and fabric loads every mod through one class loader.
 val fabricApiVersion = libs.versions.fabricapi.get()
 
+// The runtime is core/luna-messenger-mc, compiled by every mod loader; only the
+// bootstrap below is this module's own.
+val lunaMessengerMc = rootProject.layout.projectDirectory.dir("core/luna-messenger-mc/src")
+
+sourceSets.named("main") {
+	java.srcDir(lunaMessengerMc.dir("main/java"))
+}
+
 dependencies {
 	minecraft("com.mojang:minecraft:${libs.versions.fabricminecraft.get()}")
 	mappings(loom.officialMojangMappings())

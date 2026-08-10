@@ -16,7 +16,7 @@ public interface Database {
 
 	default Optional<Map<String, Object>> first(String sql, List<Object> bindings) {
 		List<Map<String, Object>> rows = query(sql, bindings);
-		return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+		return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
 	}
 
 	default QueryBuilder table(String table) {

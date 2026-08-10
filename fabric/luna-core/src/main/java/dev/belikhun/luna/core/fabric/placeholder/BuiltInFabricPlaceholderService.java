@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.fabric.placeholder;
 
 import dev.belikhun.luna.core.mc.placeholder.LunaPlaceholderExtension;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import com.sun.management.OperatingSystemMXBean;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
@@ -57,7 +58,7 @@ import java.util.regex.Pattern;
  * renamed twice inside the supported range, so {@link TickRateMonitor} counts the
  * ticks luna is already being told about instead.
  */
-public final class BuiltInFabricPlaceholderService implements FabricPlaceholderService {
+public final class BuiltInFabricPlaceholderService implements PlaceholderService {
 	static final int DEFAULT_BAR_WIDTH = 25;
 	static final int MIN_BAR_WIDTH = 1;
 	static final int MAX_BAR_WIDTH = 120;

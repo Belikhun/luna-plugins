@@ -1,0 +1,47 @@
+logging:
+  ansi: true
+  level: "INFO"
+  pluginMessaging:
+    enabled: false
+  heartbeatTransport:
+    enabled: false
+
+heartbeat:
+  enabled: true
+  endpoint: "http://127.0.0.1:32452/api/heartbeat"
+  serverName: ""
+  intervalSeconds: 5
+  connectTimeoutMillis: 3000
+  readTimeoutMillis: 3000
+  # Subscribe to the proxy's registry stream so backend status changes arrive as
+  # they happen instead of on the next beat. Turning this off falls back to the
+  # heartbeat poll, which means the server selector can be up to
+  # intervalSeconds stale.
+  streamEnabled: true
+
+# How money reads on screen. The same three keys the paper core carries, so a
+# balance shown by a modded backend is spelled exactly as one shown by a paper
+# backend; copy them across if you change either.
+strings:
+  money:
+    currencySymbol: '<#FCF0A0>⛃</#FCF0A0>'
+    grouping: true
+    format: '<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}'
+
+# The economy and the shop keep their own tables, so a backend running either one
+# needs a database. Only mariadb ships with this mod: a mod jar has no way to
+# fetch a driver at boot the way a paper plugin does, and shipping every driver
+# would put more megabytes of jdbc in the jar than there is mod. Point `type` at
+# mariadb and the same server your paper backends already use; the mariadb driver
+# also speaks to a mysql server.
+database:
+  enabled: false
+  type: "mariadb"
+  host: "127.0.0.1"
+  port: 3306
+  name: "luna"
+  username: "root"
+  password: ""
+  options:
+    useSSL: false
+    serverTimezone: "UTC"

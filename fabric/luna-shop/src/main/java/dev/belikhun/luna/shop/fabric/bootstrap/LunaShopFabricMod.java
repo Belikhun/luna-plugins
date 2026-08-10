@@ -40,6 +40,9 @@ import java.nio.file.Path;
  * chat prompt service for the screens that ask a question.
  */
 public final class LunaShopFabricMod implements DedicatedServerModInitializer {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunashop/config.yml";
+
 	public static final String MOD_ID = "lunashop";
 
 	/** Five seconds at a healthy tick rate; long enough for a slow wallet, short enough to report. */
@@ -125,7 +128,7 @@ public final class LunaShopFabricMod implements DedicatedServerModInitializer {
 		}
 
 		Path configDirectory = FabricLoader.getInstance().getConfigDir().toAbsolutePath().normalize().resolve(MOD_ID);
-		YamlConfigFile config = YamlConfigFile.load(configDirectory.resolve("config.yml"), getClass(), "config.yml");
+		YamlConfigFile config = YamlConfigFile.load(configDirectory.resolve("config.yml"), getClass(), CONFIG_RESOURCE);
 
 		logger = FabricLunaLoggers.create("LunaShop", true, config.getBoolean("logging.debug", false));
 

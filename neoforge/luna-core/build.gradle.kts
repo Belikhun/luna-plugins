@@ -5,14 +5,24 @@ plugins {
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import org.gradle.jvm.tasks.Jar
 
-// The platform-free half of the luna UI toolkit. It is source-shared rather than
-// a dependency because it is written against net.minecraft, which no plain jar can
-// see: each loader compiles it against its own game. luna-core-neoforge adds the
-// same directory, which is why a screen written once renders on both.
-val lunaCoreMcSources = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src/main/java")
+// The platform-free half of the luna UI toolkit, shared by source because it is
+// written against net.minecraft and no plain jar can see that; see
+// core/luna-core-mc/README.md.
+//
+// NeoForge 21.1 is Minecraft 1.21, so it takes the same compat sets as the 1.21
+// fabric build: ClickType for the menu override, the factory method for a
+// ResourceLocation. The forge modules differ only in this list.
+val lunaCoreMc = rootProject.layout.projectDirectory.dir("core/luna-core-mc/src")
 
 sourceSets.named("main") {
-	java.srcDir(lunaCoreMcSources)
+	java.srcDir(lunaCoreMc.dir("main/java"))
+	java.srcDir(lunaCoreMc.dir("player-1x/java"))
+	java.srcDir(lunaCoreMc.dir("menu-clicktype/java"))
+	java.srcDir(lunaCoreMc.dir("registry-namespaced/java"))
+	java.srcDir(lunaCoreMc.dir("decor-components/java"))
+	java.srcDir(lunaCoreMc.dir("itemio-codec/java"))
+	java.srcDir(lunaCoreMc.dir("text-codec/java"))
+	java.srcDir(lunaCoreMc.dir("services/java"))
 }
 
 dependencies {

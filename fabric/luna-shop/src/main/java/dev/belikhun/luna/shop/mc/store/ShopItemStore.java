@@ -1,16 +1,15 @@
 package dev.belikhun.luna.shop.mc.store;
 
+import dev.belikhun.luna.core.mc.compat.ItemDecor;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.YamlConfigFile;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.api.ShopItemIds;
 import dev.belikhun.luna.shop.mc.model.ShopCategory;
 import dev.belikhun.luna.shop.mc.model.ShopItem;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.ItemLore;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -157,7 +156,7 @@ public final class ShopItemStore {
 		ItemStack normalized = itemStack.copyWithCount(1);
 
 		for (ShopItem item : items.values()) {
-			if (ItemStack.isSameItemSameComponents(item.itemStack(server), normalized)) {
+			if (ItemDecor.sameItemAndData(item.itemStack(server), normalized)) {
 				return Optional.of(item);
 			}
 		}
@@ -355,7 +354,7 @@ public final class ShopItemStore {
 			return "";
 		}
 
-		Component customName = stack.get(DataComponents.CUSTOM_NAME);
+		Component customName = ItemDecor.readName(stack);
 
 		if (customName != null) {
 			return customName.getString();
@@ -392,15 +391,15 @@ public final class ShopItemStore {
 			return List.of();
 		}
 
-		ItemLore lore = stack.get(DataComponents.LORE);
+		List<Component> lore = ItemDecor.readLore(stack);
 
-		if (lore == null || lore.lines().isEmpty()) {
+		if (lore.isEmpty()) {
 			return List.of();
 		}
 
 		ArrayList<String> lines = new ArrayList<>();
 
-		for (Component line : lore.lines()) {
+		for (Component line : lore) {
 			lines.add(line.getString());
 		}
 

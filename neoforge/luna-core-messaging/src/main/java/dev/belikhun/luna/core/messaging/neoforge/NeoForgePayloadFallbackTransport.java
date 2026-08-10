@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.messaging.neoforge;
 
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
+import dev.belikhun.luna.core.messaging.mc.PayloadFallback;
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannelCatalogue;
 import dev.belikhun.luna.core.api.messaging.PluginMessageTransportType;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -16,13 +17,13 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-final class NeoForgePayloadFallbackTransport {
+public final class NeoForgePayloadFallbackTransport implements PayloadFallback {
 	private static final int MAX_PAYLOAD_BYTES = 1024 * 1024;
 	private static final Map<PluginMessageChannel, RegisteredChannel> REGISTERED_CHANNELS = createRegisteredChannels();
 
-	private static volatile NeoForgePluginMessagingBus activeBus;
+	private static volatile PayloadFallback.InboundSink activeSink;
 
-	private NeoForgePayloadFallbackTransport() {
+	public NeoForgePayloadFallbackTransport() {
 	}
 
 	static void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
@@ -32,21 +33,23 @@ final class NeoForgePayloadFallbackTransport {
 		}
 	}
 
-	static void activate(NeoForgePluginMessagingBus bus) {
-		activeBus = bus;
+	@Override
+	public void attach(PayloadFallback.InboundSink sink) {
+		activeSink = sink;
 	}
 
-	static void deactivate(NeoForgePluginMessagingBus bus) {
-		if (activeBus == bus) {
-			activeBus = null;
-		}
+	@Override
+	public void detach() {
+		activeSink = null;
 	}
 
-	static boolean supports(PluginMessageChannel channel) {
+	@Override
+	public boolean supports(PluginMessageChannel channel) {
 		return channel != null && REGISTERED_CHANNELS.containsKey(channel);
 	}
 
-	static boolean send(ServerPlayer target, PluginMessageChannel channel, byte[] payload) {
+	@Override
+	public boolean send(ServerPlayer target, PluginMessageChannel channel, byte[] payload) {
 		if (target == null || channel == null || payload == null) {
 			return false;
 		}
@@ -61,13 +64,13 @@ final class NeoForgePayloadFallbackTransport {
 	}
 
 	private static void handleServerbound(RegisteredPluginPayload payload, IPayloadContext context) {
-		NeoForgePluginMessagingBus bus = activeBus;
-		if (bus == null) {
+		PayloadFallback.InboundSink sink = activeSink;
+		if (sink == null) {
 			return;
 		}
 
 		ServerPlayer sender = context.player() instanceof ServerPlayer player ? player : null;
-		bus.dispatchIncoming(sender, payload.channel(), payload.data());
+		sink.accept(sender, payload.channel(), payload.data());
 	}
 
 	private static Map<PluginMessageChannel, RegisteredChannel> createRegisteredChannels() {

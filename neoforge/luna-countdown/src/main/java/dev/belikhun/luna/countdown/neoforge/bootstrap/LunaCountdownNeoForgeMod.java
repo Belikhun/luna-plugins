@@ -9,16 +9,19 @@ import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.string.CommandCompletions;
+import dev.belikhun.luna.core.api.countdown.CountdownMessages;
 import dev.belikhun.luna.core.api.string.CommandStrings;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
-import dev.belikhun.luna.countdown.neoforge.runtime.NeoForgeCountdownRuntime;
-import dev.belikhun.luna.countdown.neoforge.runtime.NeoForgeCountdownRuntimeFactory;
-import dev.belikhun.luna.countdown.neoforge.shutdown.NeoForgeShutdownTimer;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import dev.belikhun.luna.countdown.mc.runtime.CountdownRuntime;
+import dev.belikhun.luna.countdown.mc.runtime.CountdownRuntimeFactory;
+import dev.belikhun.luna.countdown.mc.shutdown.ShutdownTimer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -39,20 +42,20 @@ public final class LunaCountdownNeoForgeMod {
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private NeoForgeCountdownRuntime countdownRuntime;
-	private NeoForgeShutdownTimer shutdownTimer;
+	private CountdownRuntime countdownRuntime;
+	private ShutdownTimer shutdownTimer;
 
 	public LunaCountdownNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaCountdown", true);
+		this.logger = LunaLoggers.create("LunaCountdown", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
-		dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		countdownRuntime = NeoForgeCountdownRuntimeFactory.create(logger);
-		dependencyManager.registerSingleton(NeoForgeCountdownRuntime.class, countdownRuntime);
-		shutdownTimer = new NeoForgeShutdownTimer(logger, event.getServer());
+		dependencyManager = LunaCore.services().dependencyManager();
+		countdownRuntime = CountdownRuntimeFactory.create(logger, event.getServer());
+		dependencyManager.registerSingleton(CountdownRuntime.class, countdownRuntime);
+		shutdownTimer = new ShutdownTimer(logger, event.getServer());
 		logger.success("Luna Countdown NeoForge runtime đã sẵn sàng.");
 	}
 
@@ -67,7 +70,7 @@ public final class LunaCountdownNeoForgeMod {
 	@SubscribeEvent
 	public void onServerStopping(ServerStoppingEvent event) {
 		if (dependencyManager != null) {
-			dependencyManager.unregister(NeoForgeCountdownRuntime.class);
+			dependencyManager.unregister(CountdownRuntime.class);
 		}
 
 		if (countdownRuntime != null) {
@@ -140,50 +143,34 @@ public final class LunaCountdownNeoForgeMod {
 	}
 
 	private int sendCountdownUsage(CommandSourceStack source, String root) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.required("start|stop|stopall", "action")
-		)));
+		source.sendSystemMessage(mini(CountdownMessages.countdownUsage(root)));
 		return 0;
 	}
 
 	private int sendCountdownStartUsage(CommandSourceStack source, String root) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.literal("start"),
-			CommandStrings.required("length", "time"),
-			CommandStrings.optional("message", "text")
-		)));
+		source.sendSystemMessage(mini(CountdownMessages.countdownStartUsage(root)));
 		return 0;
 	}
 
 	private int sendCountdownStopUsage(CommandSourceStack source, String root) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.literal("stop"),
-			CommandStrings.required("id", "number")
-		)));
+		source.sendSystemMessage(mini(CountdownMessages.countdownStopUsage(root)));
 		return 0;
 	}
 
 	private int sendShutdownUsage(CommandSourceStack source, String root) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/" + root,
-			CommandStrings.required("length|cancel", "time|action"),
-			CommandStrings.optional("message", "text")
-		)));
+		source.sendSystemMessage(mini(CountdownMessages.shutdownUsage(root)));
 		return 0;
 	}
 
 	private int executeCountdownStart(CommandSourceStack source, String root, String lengthInput, String title) {
 		if (countdownRuntime == null) {
-			source.sendSystemMessage(Component.literal("❌ LunaCountdown NeoForge chưa sẵn sàng."));
+			source.sendSystemMessage(mini(CountdownMessages.notReady()));
 			return 0;
 		}
 
 		int length = parseTime(lengthInput);
 		if (length <= 0) {
-			source.sendSystemMessage(Component.literal("❌ Thời gian không hợp lệ: " + safe(lengthInput)));
+			source.sendSystemMessage(mini(CountdownMessages.invalidTime(lengthInput)));
 			return 0;
 		}
 
@@ -197,63 +184,63 @@ public final class LunaCountdownNeoForgeMod {
 
 	private int executeCountdownStop(CommandSourceStack source, int id) {
 		if (countdownRuntime == null) {
-			source.sendSystemMessage(Component.literal("❌ LunaCountdown NeoForge chưa sẵn sàng."));
+			source.sendSystemMessage(mini(CountdownMessages.notReady()));
 			return 0;
 		}
 
 		if (!countdownRuntime.stop(id, "Đã hủy.")) {
-			source.sendSystemMessage(Component.literal("❌ Không tìm thấy countdown với ID " + id + "."));
+			source.sendSystemMessage(mini(CountdownMessages.countdownNotFound(id)));
 			return 0;
 		}
 
-		source.sendSystemMessage(Component.literal("✔ Đã dừng countdown #" + id + "."));
+		source.sendSystemMessage(mini(CountdownMessages.countdownStopped(id)));
 		return 1;
 	}
 
 	private int executeCountdownStopAll(CommandSourceStack source) {
 		if (countdownRuntime == null) {
-			source.sendSystemMessage(Component.literal("❌ LunaCountdown NeoForge chưa sẵn sàng."));
+			source.sendSystemMessage(mini(CountdownMessages.notReady()));
 			return 0;
 		}
 
 		countdownRuntime.stopAll("Đã hủy.");
-		source.sendSystemMessage(Component.literal("✔ Đã dừng toàn bộ countdown đang hoạt động."));
+		source.sendSystemMessage(mini(CountdownMessages.allCountdownsStopped()));
 		return 1;
 	}
 
 	private int executeShutdownStart(CommandSourceStack source, String lengthInput, String reason) {
 		if (shutdownTimer == null) {
-			source.sendSystemMessage(Component.literal("❌ LunaCountdown NeoForge chưa sẵn sàng."));
+			source.sendSystemMessage(mini(CountdownMessages.notReady()));
 			return 0;
 		}
 
 		int length = parseTime(lengthInput);
 		if (length <= 0) {
-			source.sendSystemMessage(Component.literal("❌ Thời gian không hợp lệ: " + safe(lengthInput)));
+			source.sendSystemMessage(mini(CountdownMessages.invalidTime(lengthInput)));
 			return 0;
 		}
 
 		if (!shutdownTimer.start(length, reason)) {
-			source.sendSystemMessage(Component.literal("❌ Tắt máy chủ đã được lên lịch. Hủy bằng /shutdown cancel."));
+			source.sendSystemMessage(mini(CountdownMessages.shutdownAlreadyScheduled()));
 			return 0;
 		}
 
-		source.sendSystemMessage(Component.literal("✔ Đã lên lịch tắt máy chủ sau " + readableTime(length) + "."));
+		source.sendSystemMessage(mini(CountdownMessages.shutdownScheduled(readableTime(length))));
 		return 1;
 	}
 
 	private int executeShutdownCancel(CommandSourceStack source) {
 		if (shutdownTimer == null) {
-			source.sendSystemMessage(Component.literal("❌ LunaCountdown NeoForge chưa sẵn sàng."));
+			source.sendSystemMessage(mini(CountdownMessages.notReady()));
 			return 0;
 		}
 
 		if (!shutdownTimer.cancel("Đã hủy tắt máy chủ.")) {
-			source.sendSystemMessage(Component.literal("❌ Không có lịch tắt máy chủ."));
+			source.sendSystemMessage(mini(CountdownMessages.noShutdownScheduled()));
 			return 0;
 		}
 
-		source.sendSystemMessage(Component.literal("✔ Đã hủy tắt máy chủ."));
+		source.sendSystemMessage(mini(CountdownMessages.shutdownCancelled()));
 		return 1;
 	}
 
@@ -299,7 +286,7 @@ public final class LunaCountdownNeoForgeMod {
 			return true;
 		}
 
-		PermissionService permissionService = LunaCoreNeoForge.services().dependencyManager()
+		PermissionService permissionService = LunaCore.services().dependencyManager()
 			.resolveOptional(PermissionService.class)
 			.orElse(null);
 		return permissionService != null && permissionService.hasPermission(player.getUUID(), permission);
@@ -343,4 +330,10 @@ public final class LunaCountdownNeoForgeMod {
 			builder
 		);
 	}
+
+	/** Render one of the shared countdown strings; they are all MiniMessage. */
+	private Component mini(String miniMessage) {
+		return LunaTextComponents.mini(miniMessage == null ? "" : miniMessage);
+	}
+
 }

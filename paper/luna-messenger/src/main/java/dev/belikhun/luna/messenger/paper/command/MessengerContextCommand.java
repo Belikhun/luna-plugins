@@ -1,7 +1,7 @@
 package dev.belikhun.luna.messenger.paper.command;
 
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
-import dev.belikhun.luna.core.api.string.CommandStrings;
+import dev.belikhun.luna.core.api.messenger.MessengerMessages;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.command.CommandSender;
@@ -30,7 +30,7 @@ public final class MessengerContextCommand implements BasicCommand {
 	public void execute(CommandSourceStack source, String[] args) {
 		CommandSender sender = source.getSender();
 		if (!(sender instanceof Player player)) {
-			sender.sendRichMessage("<red>❌ Lệnh này chỉ dùng cho người chơi.</red>");
+			sender.sendRichMessage(MessengerMessages.notAPlayer());
 			return;
 		}
 
@@ -39,7 +39,7 @@ public final class MessengerContextCommand implements BasicCommand {
 			case SERVER -> gateway.switchServer(player);
 			case DIRECT -> {
 				if (args.length < 1) {
-					player.sendRichMessage(CommandStrings.usage("/msg", CommandStrings.required("người_chơi", "text")));
+					player.sendRichMessage(MessengerMessages.directUsage());
 					return;
 				}
 				if (args.length == 1) {
@@ -51,7 +51,7 @@ public final class MessengerContextCommand implements BasicCommand {
 			}
 			case REPLY -> {
 				if (args.length < 1) {
-					player.sendRichMessage(CommandStrings.usage("/r", CommandStrings.required("nội_dung", "text")));
+					player.sendRichMessage(MessengerMessages.replyUsage());
 					return;
 				}
 				gateway.sendReply(player, String.join(" ", args));

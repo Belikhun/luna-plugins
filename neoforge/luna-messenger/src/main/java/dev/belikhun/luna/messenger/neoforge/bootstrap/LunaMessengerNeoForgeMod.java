@@ -6,16 +6,20 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messenger.MessengerMessages;
 import dev.belikhun.luna.core.api.string.CommandStrings;
-import dev.belikhun.luna.core.neoforge.LunaCoreNeoForge;
-import dev.belikhun.luna.core.neoforge.logging.NeoForgeLunaLoggers;
-import dev.belikhun.luna.messenger.neoforge.runtime.NeoForgeMessengerRuntime;
-import dev.belikhun.luna.messenger.neoforge.runtime.NeoForgeMessengerRuntimeFactory;
+import dev.belikhun.luna.core.mc.LunaCore;
+import dev.belikhun.luna.core.mc.command.VanillaCommands;
+import dev.belikhun.luna.core.mc.text.LunaTextComponents;
+import dev.belikhun.luna.core.mc.logging.LunaLoggers;
+import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntime;
+import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntimeFactory;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -31,20 +35,21 @@ import java.util.concurrent.CompletableFuture;
 public final class LunaMessengerNeoForgeMod {
 	public static final String MOD_ID = "lunamessenger";
 
+
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
-	private NeoForgeMessengerRuntime messengerRuntime;
+	private MessengerRuntime messengerRuntime;
 
 	public LunaMessengerNeoForgeMod() {
-		this.logger = NeoForgeLunaLoggers.create("LunaMessenger", true);
+		this.logger = LunaLoggers.create("LunaMessenger", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 
-	@SubscribeEvent
+	@SubscribeEvent(priority = EventPriority.LOWEST)
 	public void onServerStarted(ServerStartedEvent event) {
-		dependencyManager = LunaCoreNeoForge.services().dependencyManager();
-		messengerRuntime = NeoForgeMessengerRuntimeFactory.create(logger, dependencyManager);
-		dependencyManager.registerSingleton(NeoForgeMessengerRuntime.class, messengerRuntime);
+		dependencyManager = LunaCore.services().dependencyManager();
+		messengerRuntime = MessengerRuntimeFactory.create(logger, event.getServer(), dependencyManager);
+		dependencyManager.registerSingleton(MessengerRuntime.class, messengerRuntime);
 		logger.success("Luna Messenger NeoForge runtime đã sẵn sàng.");
 	}
 
@@ -56,7 +61,7 @@ public final class LunaMessengerNeoForgeMod {
 				dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_NETWORK,
 				"",
 				null,
-				"❌ Không thể chuyển sang kênh mạng lúc này."
+				MessengerMessages.networkSwitchFailed()
 			)));
 
 		event.getDispatcher().register(Commands.literal("sv")
@@ -65,7 +70,7 @@ public final class LunaMessengerNeoForgeMod {
 				dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_SERVER,
 				"",
 				null,
-				"❌ Không thể chuyển sang kênh máy chủ lúc này."
+				MessengerMessages.serverSwitchFailed()
 			)));
 
 		event.getDispatcher().register(Commands.literal("poke")
@@ -77,31 +82,42 @@ public final class LunaMessengerNeoForgeMod {
 					StringArgumentType.getString(context, "target")
 				))));
 
-		event.getDispatcher().register(Commands.literal("msg")
-			.executes(context -> sendDirectUsage(context.getSource()))
-			.then(Commands.argument("target", StringArgumentType.word())
-				.suggests(this::suggestDirectTargets)
-				.executes(context -> executeContextSwitch(
-					context.getSource(),
-					dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_DIRECT,
-					StringArgumentType.getString(context, "target"),
-					StringArgumentType.getString(context, "target"),
-					"❌ Không thể chuyển sang nhắn tin trực tiếp lúc này."
-				))
-				.then(Commands.argument("message", StringArgumentType.greedyString())
-					.executes(context -> executeDirectMessage(
-						context.getSource(),
-						StringArgumentType.getString(context, "target"),
-						StringArgumentType.getString(context, "message")
-					)))));
+		// vanilla owns msg/tell/w as aliases of /tell, and brigadier merges a
+		// same-named literal instead of replacing it, so its <targets> argument
+		// would still match first; the paper build wins these outright
+		if (!VanillaCommands.remove(event.getDispatcher(), "msg", "tell", "w")) {
+			logger.warn("Không gỡ được lệnh /msg gốc của Minecraft. Lệnh nhắn tin của Luna có thể không hoạt động.");
+		}
 
-		event.getDispatcher().register(Commands.literal("r")
-			.executes(context -> sendReplyUsage(context.getSource()))
-			.then(Commands.argument("message", StringArgumentType.greedyString())
-				.executes(context -> executeReply(
-					context.getSource(),
-					StringArgumentType.getString(context, "message")
-				))));
+		for (String alias : MessengerMessages.DIRECT_COMMANDS) {
+			event.getDispatcher().register(Commands.literal(alias)
+				.executes(context -> sendDirectUsage(context.getSource()))
+				.then(Commands.argument("target", StringArgumentType.word())
+					.suggests(this::suggestDirectTargets)
+					.executes(context -> executeContextSwitch(
+						context.getSource(),
+						dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_DIRECT,
+						StringArgumentType.getString(context, "target"),
+						StringArgumentType.getString(context, "target"),
+						MessengerMessages.directSwitchFailed()
+					))
+					.then(Commands.argument("message", StringArgumentType.greedyString())
+						.executes(context -> executeDirectMessage(
+							context.getSource(),
+							StringArgumentType.getString(context, "target"),
+							StringArgumentType.getString(context, "message")
+						)))));
+		}
+
+		for (String alias : MessengerMessages.REPLY_COMMANDS) {
+			event.getDispatcher().register(Commands.literal(alias)
+				.executes(context -> sendReplyUsage(context.getSource()))
+				.then(Commands.argument("message", StringArgumentType.greedyString())
+					.executes(context -> executeReply(
+						context.getSource(),
+						StringArgumentType.getString(context, "message")
+					))));
+		}
 	}
 
 	@SubscribeEvent
@@ -145,14 +161,14 @@ public final class LunaMessengerNeoForgeMod {
 			message.trim()
 		);
 		if (!sent) {
-			player.sendSystemMessage(Component.literal("❌ Không thể gửi chat messenger lúc này."));
+			player.sendSystemMessage(mini(MessengerMessages.chatFailed()));
 		}
 	}
 
 	@SubscribeEvent
 	public void onServerStopping(ServerStoppingEvent event) {
 		if (dependencyManager != null) {
-			dependencyManager.unregister(NeoForgeMessengerRuntime.class);
+			dependencyManager.unregister(MessengerRuntime.class);
 		}
 
 		if (messengerRuntime != null) {
@@ -164,47 +180,40 @@ public final class LunaMessengerNeoForgeMod {
 	}
 
 	private int sendPokeUsage(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage("/poke", CommandStrings.required("người_chơi", "text"))));
+		source.sendSystemMessage(mini(MessengerMessages.pokeUsage()));
 		return 0;
 	}
 
 	private int sendDirectUsage(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/msg",
-			CommandStrings.required("người_chơi", "text"),
-			CommandStrings.required("nội_dung", "text")
-		)));
+		source.sendSystemMessage(mini(MessengerMessages.directUsage()));
 		return 0;
 	}
 
 	private int sendReplyUsage(CommandSourceStack source) {
-		source.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-			"/r",
-			CommandStrings.required("nội_dung", "text")
-		)));
+		source.sendSystemMessage(mini(MessengerMessages.replyUsage()));
 		return 0;
 	}
 
 	private int executePoke(CommandSourceStack source, String targetName) {
 		if (!(source.getEntity() instanceof ServerPlayer player)) {
-			source.sendSystemMessage(Component.literal("❌ Lệnh này chỉ dùng cho người chơi."));
+			source.sendSystemMessage(mini(MessengerMessages.notAPlayer()));
 			return 0;
 		}
 
 		if (messengerRuntime == null) {
-			player.sendSystemMessage(Component.literal("❌ LunaMessenger NeoForge chưa sẵn sàng."));
+			player.sendSystemMessage(mini(MessengerMessages.notReady()));
 			return 0;
 		}
 
 		String normalizedTarget = targetName == null ? "" : targetName.trim();
 		if (normalizedTarget.isEmpty()) {
-			player.sendSystemMessage(Component.literal(CommandStrings.plainUsage("/poke", CommandStrings.required("người_chơi", "text"))));
+			player.sendSystemMessage(mini(MessengerMessages.pokeUsage()));
 			return 0;
 		}
 
 		boolean sent = messengerRuntime.sendCommand(player, dev.belikhun.luna.core.api.messenger.MessengerCommandType.SEND_POKE, normalizedTarget, normalizedTarget);
 		if (!sent) {
-			player.sendSystemMessage(Component.literal("❌ Không thể gửi yêu cầu chọc lúc này."));
+			player.sendSystemMessage(mini(MessengerMessages.pokeFailed()));
 			return 0;
 		}
 
@@ -213,23 +222,19 @@ public final class LunaMessengerNeoForgeMod {
 
 	private int executeDirectMessage(CommandSourceStack source, String targetName, String message) {
 		if (!(source.getEntity() instanceof ServerPlayer player)) {
-			source.sendSystemMessage(Component.literal("❌ Lệnh này chỉ dùng cho người chơi."));
+			source.sendSystemMessage(mini(MessengerMessages.notAPlayer()));
 			return 0;
 		}
 
 		if (messengerRuntime == null) {
-			player.sendSystemMessage(Component.literal("❌ LunaMessenger NeoForge chưa sẵn sàng."));
+			player.sendSystemMessage(mini(MessengerMessages.notReady()));
 			return 0;
 		}
 
 		String normalizedTarget = targetName == null ? "" : targetName.trim();
 		String normalizedMessage = message == null ? "" : message.trim();
 		if (normalizedTarget.isEmpty() || normalizedMessage.isEmpty()) {
-			player.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-				"/msg",
-				CommandStrings.required("người_chơi", "text"),
-				CommandStrings.required("nội_dung", "text")
-			)));
+			player.sendSystemMessage(mini(MessengerMessages.directSendUsage()));
 			return 0;
 		}
 
@@ -240,7 +245,7 @@ public final class LunaMessengerNeoForgeMod {
 			normalizedTarget
 		);
 		if (!sent) {
-			player.sendSystemMessage(Component.literal("❌ Không thể gửi tin nhắn lúc này."));
+			player.sendSystemMessage(mini(MessengerMessages.directFailed()));
 			return 0;
 		}
 
@@ -249,21 +254,18 @@ public final class LunaMessengerNeoForgeMod {
 
 	private int executeReply(CommandSourceStack source, String message) {
 		if (!(source.getEntity() instanceof ServerPlayer player)) {
-			source.sendSystemMessage(Component.literal("❌ Lệnh này chỉ dùng cho người chơi."));
+			source.sendSystemMessage(mini(MessengerMessages.notAPlayer()));
 			return 0;
 		}
 
 		if (messengerRuntime == null) {
-			player.sendSystemMessage(Component.literal("❌ LunaMessenger NeoForge chưa sẵn sàng."));
+			player.sendSystemMessage(mini(MessengerMessages.notReady()));
 			return 0;
 		}
 
 		String normalizedMessage = message == null ? "" : message.trim();
 		if (normalizedMessage.isEmpty()) {
-			player.sendSystemMessage(Component.literal(CommandStrings.plainUsage(
-				"/r",
-				CommandStrings.required("nội_dung", "text")
-			)));
+			player.sendSystemMessage(mini(MessengerMessages.replyUsage()));
 			return 0;
 		}
 
@@ -273,7 +275,7 @@ public final class LunaMessengerNeoForgeMod {
 			normalizedMessage
 		);
 		if (!sent) {
-			player.sendSystemMessage(Component.literal("❌ Không thể gửi tin nhắn trả lời lúc này."));
+			player.sendSystemMessage(mini(MessengerMessages.replyFailed()));
 			return 0;
 		}
 
@@ -288,18 +290,18 @@ public final class LunaMessengerNeoForgeMod {
 		String failureMessage
 	) {
 		if (!(source.getEntity() instanceof ServerPlayer player)) {
-			source.sendSystemMessage(Component.literal("❌ Lệnh này chỉ dùng cho người chơi."));
+			source.sendSystemMessage(mini(MessengerMessages.notAPlayer()));
 			return 0;
 		}
 
 		if (messengerRuntime == null) {
-			player.sendSystemMessage(Component.literal("❌ LunaMessenger NeoForge chưa sẵn sàng."));
+			player.sendSystemMessage(mini(MessengerMessages.notReady()));
 			return 0;
 		}
 
 		boolean sent = messengerRuntime.sendCommand(player, commandType, argument, targetName);
 		if (!sent) {
-			player.sendSystemMessage(Component.literal(failureMessage));
+			player.sendSystemMessage(mini(failureMessage));
 			return 0;
 		}
 
@@ -316,4 +318,10 @@ public final class LunaMessengerNeoForgeMod {
 			builder
 		);
 	}
+
+	/** Render one of the shared messenger strings; they are all MiniMessage. */
+	private Component mini(String miniMessage) {
+		return LunaTextComponents.mini(miniMessage == null ? "" : miniMessage);
+	}
+
 }

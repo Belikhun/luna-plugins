@@ -21,7 +21,7 @@ import dev.belikhun.luna.core.fabric.heartbeat.FabricServerProbe;
 import dev.belikhun.luna.core.fabric.heartbeat.TickRateMonitor;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
 import dev.belikhun.luna.core.fabric.placeholder.BuiltInFabricPlaceholderService;
-import dev.belikhun.luna.core.fabric.placeholder.FabricPlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.core.fabric.serverselector.FabricServerSelectorController;
 import dev.belikhun.luna.core.fabric.ui.FabricChatPrompts;
 import dev.belikhun.luna.core.mc.ui.ChatPrompts;
@@ -49,6 +49,9 @@ import java.nio.file.Path;
  * {@code compat/Guarded} for how a call the game later drops is contained.
  */
 public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
+	/** This mod's own default config inside its jar; see the note on the name. */
+	private static final String CONFIG_RESOURCE = "lunacore/config.yml";
+
 	public static final String MOD_ID = "lunacore";
 	private static final String LUCKPERMS_MOD_ID = "luckperms";
 
@@ -60,7 +63,7 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 	private final TickRateMonitor tickRate;
 	private BackendHeartbeatPublisher heartbeatPublisher;
 	private FabricServerSelectorController serverSelectorController;
-	private FabricPlaceholderService placeholderService;
+	private PlaceholderService placeholderService;
 	private ChatPrompts chatPrompts;
 	private Database database;
 	private int ticksSincePlaceholderRefresh;
@@ -125,12 +128,12 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 	private void onServerStarted(MinecraftServer server) {
 		Path configPath = FabricLoader.getInstance().getConfigDir().toAbsolutePath().normalize()
 			.resolve(MOD_ID).resolve("config.yml");
-		BackendCoreRuntimeConfig runtimeConfig = BackendCoreConfigLoader.loadRuntimeConfig(configPath, getClass(), logger);
+		BackendCoreRuntimeConfig runtimeConfig = BackendCoreConfigLoader.loadRuntimeConfig(configPath, getClass(), CONFIG_RESOURCE, logger);
 
 		// the same file again, this time as the whole tree: the runtime config is
 		// the slice every platform parses identically, while the modules above the
 		// core read their own keys out of it the way they do from Paper's ConfigStore
-		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), "config.yml");
+		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
 
 		this.logger = FabricLunaLoggers.create(
 			"LunaCore",
@@ -193,7 +196,7 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 			backendIdentity,
 			permissionService
 		);
-		dependencyManager.registerSingleton(FabricPlaceholderService.class, placeholderService);
+		dependencyManager.registerSingleton(PlaceholderService.class, placeholderService);
 		placeholderService.refreshSharedSnapshot();
 
 		LunaCoreFabric.set(new LunaCoreFabricServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));

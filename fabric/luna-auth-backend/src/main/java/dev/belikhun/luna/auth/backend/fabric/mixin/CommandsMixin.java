@@ -1,7 +1,7 @@
 package dev.belikhun.luna.auth.backend.fabric.mixin;
 
 import com.mojang.brigadier.ParseResults;
-import dev.belikhun.luna.auth.backend.fabric.runtime.AuthLockHooks;
+import dev.belikhun.luna.auth.backend.mc.runtime.AuthLockHooks;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;

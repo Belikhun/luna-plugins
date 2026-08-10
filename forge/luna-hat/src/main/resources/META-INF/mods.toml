@@ -1,0 +1,35 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="lunahat"
+version="${version}"
+displayName="LunaHat"
+description='''
+Wear anything on your head: the /hat command, and a helmet slot that accepts items the game would refuse.
+'''
+
+[[mixins]]
+config="lunahat.mixins.json"
+
+[[dependencies.lunahat]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunahat]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.lunahat]]
+modId="lunacore"
+mandatory=true
+versionRange="[0,)"
+ordering="AFTER"
+side="SERVER"

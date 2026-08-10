@@ -14,16 +14,19 @@ import java.util.Map;
  * FMLPaths, Fabric from the loader's config directory.
  */
 public final class BackendCoreConfigLoader {
-	private static final String CONFIG_RESOURCE = "config.yml";
-
 	private BackendCoreConfigLoader() {
 	}
 
-	public static BackendCoreRuntimeConfig loadRuntimeConfig(Path configPath, Class<?> resourceAnchor, LunaLogger logger) {
+	/**
+	 * @param resourceName the default's path inside the anchor's jar. Scope it by
+	 *        mod id: every mod loader shares one class loader, so a bare
+	 *        "config.yml" resolves to whichever luna jar comes first.
+	 */
+	public static BackendCoreRuntimeConfig loadRuntimeConfig(Path configPath, Class<?> resourceAnchor, String resourceName, LunaLogger logger) {
 		try {
-			LunaYamlConfig.ensureFile(configPath, () -> resourceAnchor.getClassLoader().getResourceAsStream(CONFIG_RESOURCE));
+			LunaYamlConfig.ensureFile(configPath, () -> resourceAnchor.getClassLoader().getResourceAsStream(resourceName));
 			Map<String, Object> current = new LinkedHashMap<>(LunaYamlConfig.loadMap(configPath));
-			Map<String, Object> defaults = loadDefaults(resourceAnchor);
+			Map<String, Object> defaults = loadDefaults(resourceAnchor, resourceName);
 			if (LunaYamlConfig.mergeMissing(current, defaults)) {
 				LunaYamlConfig.dumpMap(configPath, current);
 				logger.audit("Đã cập nhật config mặc định tại " + configPath.toAbsolutePath() + ".");
@@ -82,8 +85,8 @@ public final class BackendCoreConfigLoader {
 		);
 	}
 
-	private static Map<String, Object> loadDefaults(Class<?> resourceAnchor) {
-		try (InputStream stream = resourceAnchor.getClassLoader().getResourceAsStream(CONFIG_RESOURCE)) {
+	private static Map<String, Object> loadDefaults(Class<?> resourceAnchor, String resourceName) {
+		try (InputStream stream = resourceAnchor.getClassLoader().getResourceAsStream(resourceName)) {
 			if (stream == null) {
 				return Map.of();
 			}
