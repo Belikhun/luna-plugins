@@ -214,8 +214,22 @@ public final class VaultGateway implements LunaVaultApi {
 			return existing;
 		}
 
-		return inFlightSnapshots.computeIfAbsent(playerId, ignored ->
-			send(selectCarrier(playerId), new VaultRpcRequest(
+		// The in-flight entry is claimed before the work starts, never inside a
+		// computeIfAbsent mapping function.
+		//
+		// That is not style. The chain below can complete *synchronously* - with no
+		// carrier online, `send` answers with an already-failed future - and its
+		// `whenComplete` then runs on this thread. Removing the key from inside the
+		// mapping function at that moment deadlocks the map against its own bin lock,
+		// which on a server thread is a hung tick and a watchdog kill.
+		CompletableFuture<VaultPlayerSnapshot> pending = new CompletableFuture<>();
+		CompletableFuture<VaultPlayerSnapshot> running = inFlightSnapshots.putIfAbsent(playerId, pending);
+
+		if (running != null) {
+			return running;
+		}
+
+		send(selectCarrier(playerId), new VaultRpcRequest(
 				UUID.randomUUID(),
 				VaultRpcAction.SNAPSHOT,
 				null,
@@ -240,8 +254,17 @@ public final class VaultGateway implements LunaVaultApi {
 				}
 				return VaultPlayerSnapshot.empty(playerId, playerName);
 			}).exceptionally(exception -> VaultPlayerSnapshot.empty(playerId, playerName))
-				.whenComplete((snapshot, throwable) -> inFlightSnapshots.remove(playerId))
-		);
+				.whenComplete((snapshot, throwable) -> {
+				inFlightSnapshots.remove(playerId);
+
+				// `exceptionally` above already mapped every failure to an empty
+				// snapshot, so a throwable here means the handler itself broke
+				pending.complete(throwable == null && snapshot != null
+					? snapshot
+					: VaultPlayerSnapshot.empty(playerId, playerName));
+			});
+
+		return pending;
 	}
 
 	/**

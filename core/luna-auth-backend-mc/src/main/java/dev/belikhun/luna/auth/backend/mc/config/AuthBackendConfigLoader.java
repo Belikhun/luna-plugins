@@ -1,5 +1,6 @@
 package dev.belikhun.luna.auth.backend.mc.config;
 
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -97,12 +98,12 @@ public final class AuthBackendConfigLoader {
 			ConfigValues.booleanValue(lobbyItemsConfig, "enabled", false),
 			ConfigValues.booleanValue(authConfig, "teleport-to-spawn-on-connect", true),
 			readAllowedCommands(rootConfig.get("allowedCommands")),
-			prompt(promptConfig, "pending"),
-			prompt(promptConfig, "login"),
-			prompt(promptConfig, "register"),
+			prompt(promptConfig, "pending", AuthMessages.pendingPrompt()),
+			prompt(promptConfig, "login", AuthMessages.loginPrompt()),
+			prompt(promptConfig, "register", AuthMessages.registerPrompt()),
 			new AuthBackendConfig.AuthenticatedPrompt(
-				ConfigValues.stringPreserveWhitespace(authenticatedConfig.get("actionbar"), "<green>✔ Đã xác thực thành công</green>"),
-				ConfigValues.stringPreserveWhitespace(authenticatedConfig.get("chat"), "<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>"),
+				ConfigValues.stringPreserveWhitespace(authenticatedConfig.get("actionbar"), AuthMessages.authenticatedPrompt().actionbar()),
+				ConfigValues.stringPreserveWhitespace(authenticatedConfig.get("chat"), AuthMessages.authenticatedPrompt().chat()),
 				byMethod
 			)
 		);
@@ -115,36 +116,40 @@ public final class AuthBackendConfigLoader {
 			false,
 			true,
 			Set.of("login", "register", "l", "reg", "help"),
-			new AuthBackendConfig.PromptTemplate(
-				"<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>",
-				"<yellow>Đang kiểm tra trạng thái tài khoản...</yellow>",
-				"<yellow>ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</yellow>"
-			),
-			new AuthBackendConfig.PromptTemplate(
-				"<yellow><b>⚠ Vui lòng đăng nhập để tiếp tục</b></yellow>",
-				"<yellow>Dùng <white>/login <mật_khẩu></white> để đăng nhập</yellow>",
-				"<yellow>ℹ Tài khoản đã đăng ký. Dùng <white>/login <mật_khẩu></white> để tiếp tục.</yellow>"
-			),
-			new AuthBackendConfig.PromptTemplate(
-				"<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>",
-				"<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>",
-				"<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>"
-			),
+			template(AuthMessages.pendingPrompt()),
+			template(AuthMessages.loginPrompt()),
+			template(AuthMessages.registerPrompt()),
 			new AuthBackendConfig.AuthenticatedPrompt(
-				"<green>✔ Đã xác thực thành công</green>",
-				"<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>",
+				AuthMessages.authenticatedPrompt().actionbar(),
+				AuthMessages.authenticatedPrompt().chat(),
 				Map.of()
 			)
 		);
 	}
 
-	private static AuthBackendConfig.PromptTemplate prompt(Map<String, Object> promptConfig, String key) {
+	/** The shared text as this module's own prompt type. */
+	private static AuthBackendConfig.PromptTemplate template(AuthMessages.PromptText text) {
+		return new AuthBackendConfig.PromptTemplate(text.bossbar(), text.actionbar(), text.chat());
+	}
+
+	/**
+	 * One prompt from the config, falling back to the shared text per surface.
+	 *
+	 * A missing key used to yield `""`, which shows the player nothing at all -
+	 * while paper, reading the same gap, showed them its own hardcoded default.
+	 * Both sides now land on {@link AuthMessages}.
+	 */
+	private static AuthBackendConfig.PromptTemplate prompt(
+		Map<String, Object> promptConfig,
+		String key,
+		AuthMessages.PromptText fallback
+	) {
 		Map<String, Object> values = ConfigValues.map(promptConfig, key);
 
 		return new AuthBackendConfig.PromptTemplate(
-			ConfigValues.stringPreserveWhitespace(values.get("bossbar"), ""),
-			ConfigValues.stringPreserveWhitespace(values.get("actionbar"), ""),
-			ConfigValues.stringPreserveWhitespace(values.get("chat"), "")
+			ConfigValues.stringPreserveWhitespace(values.get("bossbar"), fallback.bossbar()),
+			ConfigValues.stringPreserveWhitespace(values.get("actionbar"), fallback.actionbar()),
+			ConfigValues.stringPreserveWhitespace(values.get("chat"), fallback.chat())
 		);
 	}
 

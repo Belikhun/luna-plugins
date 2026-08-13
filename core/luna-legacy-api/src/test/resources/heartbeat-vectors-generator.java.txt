@@ -1,0 +1,33 @@
+import dev.belikhun.luna.core.api.heartbeat.*;
+import java.util.*;
+
+/** Prints the bytes the Java 21 encoder produces, to be pinned by the Java 8 build. */
+public class Gen {
+	public static void main(String[] args) {
+		BackendHeartbeatStats stats = new BackendHeartbeatStats(
+			"forge", "1.12.2", 32566, 123456789L, 19.997, 3, 64,
+			"A Luna Minecraft Server", false,
+			42.550040849673195, 0.0, 395202048L, 1752281600L, 2147483648L, 1L
+		);
+
+		System.out.println("STATS\t" + HeartbeatFormCodec.encodeToString(HeartbeatFormCodec.encodeStats(stats)));
+
+		// a display name with markup and non-ASCII, which is what the encoder's
+		// charset handling actually has to survive
+		BackendServerStatus status = new BackendServerStatus(
+			"forge12test",
+			"<gradient:#5FE2C5:#9BC1F9>FORGE 1.12.2</gradient> · Máy chủ",
+			"#5FE2C5", true, 1786345809152L, stats
+		);
+
+		byte[] rows = HeartbeatFormCodec.encodeRows(
+			List.of(new BackendStatusRow(status, 22232L, true)),
+			22232L, "ed70dc3e-01a6-4525-8eba-49f20b40e7bf", false,
+			"forge12test",
+			new BackendMetadata("forge12test", "FORGE 1.12.2", "#5FE2C5", "dev")
+		);
+
+		System.out.println("ROWS\t" + new String(rows, java.nio.charset.StandardCharsets.UTF_8));
+		System.out.println("PROTOCOL\t" + HeartbeatFormCodec.PROTOCOL_VERSION);
+	}
+}

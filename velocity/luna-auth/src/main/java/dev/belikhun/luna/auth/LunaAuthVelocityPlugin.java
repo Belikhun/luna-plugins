@@ -24,6 +24,7 @@ import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.command.LogoutCommand;
 import dev.belikhun.luna.auth.http.AuthHttpEndpoints;
 import dev.belikhun.luna.core.api.auth.AuthChannels;
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.auth.service.AuthRepository;
 import dev.belikhun.luna.auth.service.AuthService;
 import dev.belikhun.luna.auth.service.MojangPremiumCheckService;
@@ -43,6 +44,7 @@ import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.net.InetSocketAddress;
 import java.io.InputStream;
@@ -589,7 +591,7 @@ public final class LunaAuthVelocityPlugin {
 		boolean delivered = deliverBackendSync(player, connection);
 
 		if (delivered && authService.isAuthenticated(playerUuid)) {
-			player.sendActionBar(Component.text("Bạn đã xác thực."));
+			player.sendActionBar(MiniMessage.miniMessage().deserialize(AuthMessages.alreadyAuthenticated()));
 		}
 
 		if (!delivered) {
@@ -715,7 +717,7 @@ public final class LunaAuthVelocityPlugin {
 		boolean authenticated = authService.isAuthenticated(player.getUniqueId());
 		flow("syncAuthState player=" + player.getUsername() + " authenticated=" + authenticated);
 		if (authenticated) {
-			player.sendActionBar(Component.text("Bạn đã xác thực."));
+			player.sendActionBar(MiniMessage.miniMessage().deserialize(AuthMessages.alreadyAuthenticated()));
 		}
 		player.getCurrentServer().ifPresent(connection -> sendAuthState(connection, player, authenticated));
 	}

@@ -1,0 +1,27 @@
+import com.velocitypowered.api.network.ProtocolVersion;
+import com.velocitypowered.api.util.GameProfile;
+import com.velocitypowered.proxy.connection.PlayerDataForwarding;
+import io.netty.buffer.ByteBuf;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
+
+public class GenVector {
+	public static void main(String[] args) {
+		String secret = "01jO4qNY6QGbRUhR";
+		UUID id = UUID.fromString("91acb76d-4c4b-4899-9e19-d9d2fd4b0711");
+		GameProfile profile = new GameProfile(id, "Belikhun", List.of(
+			new GameProfile.Property("textures", "eyJ0aW1lc3RhbXAiOjE3ODYzNjE0Mjl9", "sig-abc"),
+			new GameProfile.Property("unsigned", "giá-trị-tiếng-việt", "")
+		));
+		ByteBuf out = PlayerDataForwarding.createForwardingData(
+			secret.getBytes(StandardCharsets.UTF_8),
+			"203.0.113.42",
+			ProtocolVersion.MINECRAFT_1_12_2,
+			profile, null, PlayerDataForwarding.MODERN_DEFAULT
+		);
+		StringBuilder hex = new StringBuilder();
+		while (out.isReadable()) { hex.append(String.format("%02x", out.readByte())); }
+		System.out.println(hex);
+	}
+}

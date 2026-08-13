@@ -21,6 +21,9 @@ import net.luckperms.api.node.types.InheritanceNode;
 import net.luckperms.api.node.types.PrefixNode;
 import net.luckperms.api.node.types.SuffixNode;
 import net.luckperms.api.node.types.WeightNode;
+import net.luckperms.api.cacheddata.CachedMetaData;
+import net.luckperms.api.cacheddata.CachedPermissionData;
+import net.luckperms.api.query.QueryOptions;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -216,6 +219,13 @@ public final class VelocityPermissionHttpEndpoints {
 			payload.put("groups", userGroups(user));
 			payload.put("nodes", buildNodes(user.getNodes()));
 			return LunaJson.envelope(200, payload, startedAt);
+		}));
+
+		router.get("/permissions/resolve/{player}", request -> withUser(request, "resolve user", (api, user, startedAt) -> {
+			String server = request.queryParam("server", "").trim();
+			QueryOptions options = queryOptionsFor(server);
+
+			return resolvedSnapshot(user, options);
 		}));
 
 		router.post("/permissions/users/{player}/nodes", request -> withUser(request, "edit user nodes", (api, user, startedAt) -> {
@@ -429,6 +439,85 @@ public final class VelocityPermissionHttpEndpoints {
 		summary.put("nodeCount", group.getNodes().size());
 		summary.put("memberCount", memberCounts.getOrDefault(group.getName(), 0L));
 		return summary;
+	}
+
+	// ------------------------------------------------------------------ the resolved mirror
+
+	/**
+	 * A backend's view of one player, already resolved.
+	 *
+	 * The editor routes above return what a user *has set* - their own nodes, their own
+	 * group memberships - because that is what an editor edits. A backend asking
+	 * "may this player do X" needs the opposite: inheritance walked, contexts applied,
+	 * and a flat map it can answer from without a round trip per check. That is what
+	 * this returns, and it exists for the 1.12.2 line, where no build of LuckPerms
+	 * exists to ask locally.
+	 *
+	 * **Form-encoded, not JSON**, because the caller is `luna-legacy-api` on Java 8 and
+	 * carries no JSON parser. `HeartbeatFormCodec` is already the shared encoding
+	 * between a backend and this proxy; `PermissionSnapshotCodec` on the other side
+	 * decodes exactly these field names.
+	 */
+	private HttpResponse resolvedSnapshot(User user, QueryOptions options) {
+		CachedPermissionData permissionData = user.getCachedData().getPermissionData(options);
+		CachedMetaData metaData = user.getCachedData().getMetaData(options);
+
+		Map<String, String> out = new LinkedHashMap<>();
+		out.put("protocol", "1");
+		out.put("uuid", user.getUniqueId().toString());
+		out.put("username", user.getUsername() == null ? "" : user.getUsername());
+		out.put("primaryGroup", metaData.getPrimaryGroup() == null ? user.getPrimaryGroup() : metaData.getPrimaryGroup());
+		out.put("prefix", metaData.getPrefix() == null ? "" : metaData.getPrefix());
+		out.put("suffix", metaData.getSuffix() == null ? "" : metaData.getSuffix());
+		out.put("generatedAtEpochMillis", String.valueOf(System.currentTimeMillis()));
+
+		// the inherited set, not the user's own nodes: a backend needs the groups the
+		// player effectively is in, including the ones reached through another group
+		List<String> groups = new ArrayList<>();
+		for (Group group : user.getInheritedGroups(options)) {
+			groups.add(group.getName());
+		}
+
+		out.put("groupCount", String.valueOf(groups.size()));
+		for (int index = 0; index < groups.size(); index += 1) {
+			out.put("group." + index, groups.get(index));
+		}
+
+		// sorted so two fetches of an unchanged player produce identical bytes, which
+		// is what lets the fixtures under luna-legacy-api's tests mean anything
+		Map<String, Boolean> permissions = new TreeMap<>(permissionData.getPermissionMap());
+		out.put("permissionCount", String.valueOf(permissions.size()));
+
+		int index = 0;
+		for (Map.Entry<String, Boolean> entry : permissions.entrySet()) {
+			out.put("perm." + index + ".key", entry.getKey());
+			out.put("perm." + index + ".value", String.valueOf(entry.getValue()));
+			index += 1;
+		}
+
+		byte[] body = HeartbeatFormCodec.encode(out);
+		return HttpResponse.bytes(200, body, "application/x-www-form-urlencoded; charset=utf-8");
+	}
+
+	/**
+	 * Resolve as the named backend would see it.
+	 *
+	 * LuckPerms scopes nodes by a `server` context, and this proxy's own context is
+	 * "the proxy" - so resolving without an override would hand a backend the proxy's
+	 * permissions and quietly drop every node an operator scoped to that server.
+	 *
+	 * **Not `QueryOptions.nonContextual()` for the unnamed case**, which reads like the
+	 * neutral choice and is the opposite: non-contextual mode ignores contexts
+	 * altogether, so it returns every node including ones scoped to *other* servers. A
+	 * caller that names no server gets contextual mode with an empty set instead -
+	 * context-free nodes only, which is the answer that cannot over-grant.
+	 */
+	private QueryOptions queryOptionsFor(String serverName) {
+		if (serverName.isBlank()) {
+			return QueryOptions.contextual(ImmutableContextSet.empty());
+		}
+
+		return QueryOptions.contextual(ImmutableContextSet.of("server", serverName.toLowerCase(Locale.ROOT)));
 	}
 
 	private Map<String, Object> nodesPayload(Collection<Node> nodes) {

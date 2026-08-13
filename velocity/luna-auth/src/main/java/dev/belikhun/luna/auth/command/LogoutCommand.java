@@ -4,6 +4,7 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.auth.service.AuthService;
+import dev.belikhun.luna.core.api.auth.AuthMessages;
 import net.kyori.adventure.text.Component;
 
 import java.util.List;
@@ -22,7 +23,7 @@ public final class LogoutCommand implements SimpleCommand {
 	public void execute(Invocation invocation) {
 		CommandSource source = invocation.source();
 		if (!(source instanceof Player player)) {
-			source.sendRichMessage("<red>❌ Lệnh này chỉ dùng trong game.</red>");
+			source.sendRichMessage(AuthMessages.notAPlayer());
 			return;
 		}
 

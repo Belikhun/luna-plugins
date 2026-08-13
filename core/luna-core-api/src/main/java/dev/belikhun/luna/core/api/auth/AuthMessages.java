@@ -1,7 +1,7 @@
 package dev.belikhun.luna.core.api.auth;
 
 import dev.belikhun.luna.core.api.string.CommandStrings;
-import dev.belikhun.luna.core.api.ui.LunaPalette;
+import dev.belikhun.luna.core.api.ui.LunaGuiTitle;
 
 import java.util.List;
 
@@ -28,9 +28,6 @@ public final class AuthMessages {
 	/** The slots filled with the framing pane, left to right. */
 	public static final List<Integer> MODE_SELECTOR_FRAME_SLOTS = List.of(0, 1, 2, 6, 8);
 
-	/** Plain text: a container title is not rendered through MiniMessage. */
-	public static final String MODE_SELECTOR_TITLE = "Chọn kiểu tài khoản";
-
 	public static final String ITEM_FRAME = "gray_stained_glass_pane";
 	public static final String ITEM_INFO = "book";
 	public static final String ITEM_PREMIUM = "nether_star";
@@ -43,6 +40,88 @@ public final class AuthMessages {
 	public static final String ITEM_LOBBY_SELECTOR = "compass";
 
 	private AuthMessages() {
+	}
+
+	/**
+	 * One prompt, on all three surfaces a locked player can be told something.
+	 *
+	 * @param bossbar   the bar across the top, present for as long as the lock is
+	 * @param actionbar the line above the hotbar, repeated on a throttle
+	 * @param chat      said once, when the state changes
+	 */
+	public record PromptText(String bossbar, String actionbar, String chat) {
+	}
+
+	/**
+	 * The prompts, and the only copy of them.
+	 *
+	 * These used to live in three places at once: paper's plugin class, the loader
+	 * platforms' config loader, and the shipped `config.yml` - in two different
+	 * colour styles. A player logging into a paper backend was told to log in in
+	 * amber and, on a fabric backend, the same sentence in yellow; delete a key
+	 * from the file and paper fell back to its own wording while the loaders fell
+	 * back to a *different* wording, or to nothing at all.
+	 *
+	 * So the code default and the shipped file now say the same thing by
+	 * construction. `config.yml` remains the operator's override; what it
+	 * overrides is this.
+	 */
+	public static PromptText pendingPrompt() {
+		return new PromptText(
+			"<yellow><b>⏳ Đang tải trạng thái xác thực...</b></yellow>",
+			"<yellow>Đang kiểm tra trạng thái tài khoản...</yellow>",
+			"<yellow>ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</yellow>"
+		);
+	}
+
+	public static PromptText loginPrompt() {
+		return new PromptText(
+			"<yellow><b>⚠ Vui lòng đăng nhập để tiếp tục</b></yellow>",
+			"<yellow>Dùng <white>/login <mật_khẩu></white> để đăng nhập</yellow>",
+			"<yellow>ℹ Tài khoản đã đăng ký. Dùng <white>/login <mật_khẩu></white> để tiếp tục.</yellow>"
+		);
+	}
+
+	public static PromptText registerPrompt() {
+		return new PromptText(
+			"<yellow><b>⚠ Tài khoản chưa đăng ký</b></yellow>",
+			"<yellow>Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tạo tài khoản</yellow>",
+			"<yellow>ℹ Tài khoản chưa đăng ký. Dùng <white>/register <mật_khẩu> <nhập_lại></white> để tiếp tục.</yellow>"
+		);
+	}
+
+	/** No bossbar: the lock is gone, so the bar it belonged to is gone with it. */
+	public static PromptText authenticatedPrompt() {
+		return new PromptText(
+			"",
+			"<green>✔ Đã xác thực thành công</green>",
+			"<green>✔ Bạn đã xác thực thành công. Chúc bạn chơi vui vẻ!</green>"
+		);
+	}
+
+	/**
+	 * The mode selector's window title, as MiniMessage.
+	 *
+	 * A breadcrumb like every other luna screen, and rendered rather than plain:
+	 * this used to be a bare string on the theory that a container title is not
+	 * MiniMessage, which is not true of any platform luna runs on - it made the
+	 * one screen a player meets before they have even logged in the only one that
+	 * did not look like luna.
+	 */
+	public static String modeSelectorTitle() {
+		return LunaGuiTitle.breadcrumb("LunaAuth", "Chọn Chế Độ");
+	}
+
+	/**
+	 * Shown on the action bar when a player reaches a backend already authenticated.
+	 *
+	 * Sent by the proxy, not a backend, which is why it is the *only* auth feedback
+	 * on a game version with no auth mod yet. It used to be a bare `Component.text`
+	 * - no colour, no glyph, bypassing this class entirely - and so looked nothing
+	 * like the same event announced anywhere else.
+	 */
+	public static String alreadyAuthenticated() {
+		return success("✔ Bạn đã xác thực.");
 	}
 
 	/** A console or command block ran a command only a player can run. */
@@ -78,13 +157,11 @@ public final class AuthMessages {
 	public static String commandResult(boolean success, String message) {
 		String text = message == null ? "" : message;
 
-		return success
-			? "<color:" + LunaPalette.SUCCESS_500 + ">" + text + "</color>"
-			: danger(text);
+		return success ? success(text) : danger(text);
 	}
 
 	public static String spawnUpdated(String actorName) {
-		return "<color:" + LunaPalette.SUCCESS_500 + ">✔ Điểm auth-spawn đã được cập nhật bởi " + actorName + ".</color>";
+		return success("✔ Điểm auth-spawn đã được cập nhật bởi " + actorName + ".");
 	}
 
 	public static String spawnUpdateFailed() {
@@ -101,22 +178,29 @@ public final class AuthMessages {
 		return danger("Không gửi được lựa chọn. Vui lòng thử lại.");
 	}
 
+	/**
+	 * Premium chosen: a warning, because the player is about to be disconnected.
+	 *
+	 * Its sibling below is a success. That is the one place these two deliberately
+	 * differ: picking offline carries on where you are, picking premium ends the
+	 * connection, and the colour is what says so before it happens.
+	 */
 	public static String modePremiumChosen(boolean remember) {
-		return "<color:" + LunaPalette.WARNING_300 + ">" + (remember
+		return warning("⚠ " + (remember
 			? "Đã chọn Premium (ghi nhớ vĩnh viễn). Bạn sẽ được kết nối lại để xác thực online."
-			: "Đã chọn Premium (24h). Bạn sẽ được kết nối lại để xác thực online.") + "</color>";
+			: "Đã chọn Premium (24h). Bạn sẽ được kết nối lại để xác thực online."));
 	}
 
 	public static String modeOfflineChosen(boolean remember) {
-		return "<color:" + LunaPalette.SUCCESS_500 + ">" + (remember
+		return success("✔ " + (remember
 			? "Đã chọn Offline (ghi nhớ vĩnh viễn). Tiếp tục đăng nhập bằng mật khẩu server."
-			: "Đã chọn Offline (24h). Tiếp tục đăng nhập bằng mật khẩu server.") + "</color>";
+			: "Đã chọn Offline (24h). Tiếp tục đăng nhập bằng mật khẩu server."));
 	}
 
 	public static String rememberToggled(boolean remember) {
 		return remember
-			? "<color:" + LunaPalette.WARNING_500 + ">Đã bật ghi nhớ lựa chọn vĩnh viễn.</color>"
-			: "<color:" + LunaPalette.WARNING_300 + ">Đã tắt ghi nhớ vĩnh viễn (chỉ 24h).</color>";
+			? success("✔ Đã bật ghi nhớ lựa chọn vĩnh viễn.")
+			: "<gray>● Đã tắt ghi nhớ vĩnh viễn (chỉ 24h).</gray>";
 	}
 
 	public static String frameItemName() {
@@ -149,7 +233,7 @@ public final class AuthMessages {
 			"<gray>Dùng launcher Microsoft.</gray>",
 			"<gray>Sẽ probe xác thực online.</gray>",
 			"",
-			"<yellow>▶ Ấn để chọn.</yellow>"
+			"<yellow>Nhấn để chọn</yellow>"
 		);
 	}
 
@@ -162,7 +246,7 @@ public final class AuthMessages {
 			"<gray>Dùng launcher cracked.</gray>",
 			"<gray>Không ép xác thực online.</gray>",
 			"",
-			"<yellow>▶ Ấn để chọn.</yellow>"
+			"<yellow>Nhấn để chọn</yellow>"
 		);
 	}
 
@@ -177,7 +261,7 @@ public final class AuthMessages {
 			remember
 				? "<gray>Lựa chọn sẽ được giữ vĩnh viễn.</gray>"
 				: "<gray>Lựa chọn chỉ có hiệu lực 24 giờ.</gray>",
-			"<yellow>▶ Ấn để chuyển trạng thái.</yellow>"
+			"<yellow>Nhấn để chuyển trạng thái</yellow>"
 		);
 	}
 
@@ -193,7 +277,23 @@ public final class AuthMessages {
 		);
 	}
 
+	/**
+	 * The fleet's chat colours are the named tags, not palette hex.
+	 *
+	 * These used to be `<color:#ef4444>` and friends, which put the backend's half
+	 * of a refusal in a slightly different red from the proxy's half of the same
+	 * refusal - `luna-auth` is the one module a player reads from both sides in a
+	 * single sitting, so the mismatch showed.
+	 */
 	private static String danger(String text) {
-		return "<color:" + LunaPalette.DANGER_500 + ">" + text + "</color>";
+		return "<red>" + text + "</red>";
+	}
+
+	private static String success(String text) {
+		return "<green>" + text + "</green>";
+	}
+
+	private static String warning(String text) {
+		return "<yellow>" + text + "</yellow>";
 	}
 }

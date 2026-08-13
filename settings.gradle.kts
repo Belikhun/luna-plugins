@@ -10,6 +10,9 @@ pluginManagement {
     repositories {
         // fabric-loom is published here only, never to the plugin portal
         maven("https://maven.fabricmc.net/")
+        // RetroFuturaGradle, which builds the 1.12.2 line, is published only to
+        // GTNewHorizons' own nexus - it is on neither the plugin portal nor central
+        maven("https://nexus.gtnewhorizons.com/repository/public/")
         gradlePluginPortal()
         mavenCentral()
     }
@@ -26,6 +29,13 @@ rootProject.name = "luna"
 include("luna-core-api")
 include("luna-vault-api")
 include("luna-shop-api")
+
+// The same surface again, at Java 8, for the 1.12.2 line. It is a separate module
+// rather than a source set because luna-core-api is Java 17 bytecode with records in
+// 45 of its files; a legacy server runs Java 8 and can load neither. What it carries
+// is the platform-free half - the wire formats, which are the real shared trunk: a
+// 1.12.2 backend speaks the same frames to the same velocity plugins.
+include("luna-legacy-api")
 
 // Paper backends, plus the plugins that only ever run on one.
 include("luna-core-paper")
@@ -58,7 +68,26 @@ include("luna-auth-backend-neoforge")
 
 // Classic forge backends. A `-mc19` module is the 1.19.2 build of its sibling;
 // the plain module targets 1.20.1.
+//
+// A `-mc12` module is the 1.12.2 build, and it is not a sibling in the same sense:
+// that line predates ModLauncher, Brigadier and mojmap, so it shares no source with
+// the others and carries its own MCP-named trunk. What it does share is the pool
+// entry - control reads `-mc12` as a game-line tag and pools the jar as a variant of
+// `luna-core@forge.jar`, picking per instance by MC version, exactly as fabric's
+// `-mc26` line works. That is why the suffix is `-forge` like its siblings.
 include("luna-core-forge")
+include("luna-core-mc12-forge")
+// A java agent that patches two constants in Velocity at class-load so a pre-1.13
+// backend can speak modern forwarding - and a velocity plugin in the same jar, so
+// luna pools, updates and deploys it like any other addon.
+include("luna-forwarding-agent-velocity")
+include("luna-hat-mc12-forge")
+include("luna-countdown-mc12-forge")
+include("luna-core-messaging-mc12-forge")
+include("luna-messenger-mc12-forge")
+include("luna-vault-backend-mc12-forge")
+include("luna-auth-backend-mc12-forge")
+include("luna-shop-mc12-forge")
 include("luna-hat-forge")
 include("luna-vault-backend-forge")
 include("luna-shop-forge")

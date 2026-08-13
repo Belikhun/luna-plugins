@@ -10,7 +10,6 @@ import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.auth.BackendAuthStateRegistry;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
-import dev.belikhun.luna.core.api.ui.LunaPalette;
 import dev.belikhun.luna.core.api.ui.LunaUi;
 import dev.belikhun.luna.core.paper.serverselector.PaperServerSelectorController;
 import dev.belikhun.luna.core.paper.LunaCore;
@@ -58,21 +57,9 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 			this,
 			stateRegistry,
 			spawnService,
-			new AuthRestrictionListener.PromptTemplate(
-				getConfig().getString("prompt.login.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⚠ Vui lòng đăng nhập để tiếp tục</b></color>"),
-				getConfig().getString("prompt.login.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login <mật_khẩu></color> để đăng nhập</color>"),
-				getConfig().getString("prompt.login.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Tài khoản đã đăng ký. Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/login <mật_khẩu></color> để tiếp tục.</color>")
-			),
-			new AuthRestrictionListener.PromptTemplate(
-				getConfig().getString("prompt.register.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⚠ Tài khoản chưa đăng ký</b></color>"),
-				getConfig().getString("prompt.register.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/register <mật_khẩu> <nhập_lại></color> để tạo tài khoản</color>"),
-				getConfig().getString("prompt.register.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Tài khoản chưa đăng ký. Dùng <color:" + LunaPalette.NEUTRAL_50 + ">/register <mật_khẩu> <nhập_lại></color> để tiếp tục.</color>")
-			),
-			new AuthRestrictionListener.PromptTemplate(
-				getConfig().getString("prompt.pending.bossbar", "<color:" + LunaPalette.WARNING_500 + "><b>⏳ Đang tải trạng thái xác thực...</b></color>"),
-				getConfig().getString("prompt.pending.actionbar", "<color:" + LunaPalette.WARNING_300 + ">Đang kiểm tra trạng thái tài khoản...</color>"),
-				getConfig().getString("prompt.pending.chat", "<color:" + LunaPalette.INFO_500 + ">ℹ Đang kiểm tra trạng thái xác thực, vui lòng chờ một chút.</color>")
-			),
+			promptTemplate("login", AuthMessages.loginPrompt()),
+			promptTemplate("register", AuthMessages.registerPrompt()),
+			promptTemplate("pending", AuthMessages.pendingPrompt()),
 			readAllowedCommands(),
 			this::requestStateSync,
 			this::sendProbePreference,
@@ -229,6 +216,21 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		}
 	}
 
+	/**
+	 * One prompt, read from the config with the shared text behind it.
+	 *
+	 * The fallback is {@link AuthMessages}, not a literal, so a key missing from
+	 * this backend's `config.yml` produces exactly what a fabric or forge backend
+	 * would produce for the same gap.
+	 */
+	private AuthRestrictionListener.PromptTemplate promptTemplate(String key, AuthMessages.PromptText fallback) {
+		return new AuthRestrictionListener.PromptTemplate(
+			getConfig().getString("prompt." + key + ".bossbar", fallback.bossbar()),
+			getConfig().getString("prompt." + key + ".actionbar", fallback.actionbar()),
+			getConfig().getString("prompt." + key + ".chat", fallback.chat())
+		);
+	}
+
 	private Set<String> readAllowedCommands() {
 		List<String> configured = getConfig().getStringList("allowedCommands");
 		Set<String> allowed = new HashSet<>();
@@ -269,11 +271,11 @@ public final class LunaAuthBackendPlugin extends JavaPlugin {
 		String methodBasePath = "prompt.authenticated.by-method." + normalizedMethod;
 		String chat = getConfig().getString(methodBasePath + ".chat");
 		if (chat == null || chat.isBlank()) {
-			chat = getConfig().getString("prompt.authenticated.chat", "<green>✔ Bạn đã xác thực thành công.</green>");
+			chat = getConfig().getString("prompt.authenticated.chat", AuthMessages.authenticatedPrompt().chat());
 		}
 		String actionbar = getConfig().getString(methodBasePath + ".actionbar");
 		if (actionbar == null || actionbar.isBlank()) {
-			actionbar = getConfig().getString("prompt.authenticated.actionbar", "<green>✔ Đã xác thực</green>");
+			actionbar = getConfig().getString("prompt.authenticated.actionbar", AuthMessages.authenticatedPrompt().actionbar());
 		}
 		flow("SendAuthenticatedFeedback player=" + player.getName() + " uuid=" + player.getUniqueId() + " authMethod=" + normalizedMethod);
 		player.sendRichMessage(chat);

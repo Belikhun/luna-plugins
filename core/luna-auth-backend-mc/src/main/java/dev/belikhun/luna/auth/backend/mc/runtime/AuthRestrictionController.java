@@ -89,6 +89,7 @@ public final class AuthRestrictionController {
 	private final ConcurrentMap<UUID, Long> lastChatRestrictionLog;
 	private final ConcurrentMap<UUID, Long> lastSyncRequestLog;
 	private final ConcurrentMap<UUID, Long> lastPromptActionbarLog;
+	private final ConcurrentMap<UUID, BackendAuthStateRegistry.PromptMode> announcedPromptMode;
 	private final ConcurrentMap<UUID, Long> lastLockEffectRefreshLog;
 	private final ConcurrentMap<UUID, Boolean> modeSelectorEligible;
 	private final ConcurrentMap<UUID, Boolean> modePreferencePresent;
@@ -122,6 +123,7 @@ public final class AuthRestrictionController {
 		this.lastChatRestrictionLog = new ConcurrentHashMap<>();
 		this.lastSyncRequestLog = new ConcurrentHashMap<>();
 		this.lastPromptActionbarLog = new ConcurrentHashMap<>();
+		this.announcedPromptMode = new ConcurrentHashMap<>();
 		this.lastLockEffectRefreshLog = new ConcurrentHashMap<>();
 		this.modeSelectorEligible = new ConcurrentHashMap<>();
 		this.modePreferencePresent = new ConcurrentHashMap<>();
@@ -167,6 +169,7 @@ public final class AuthRestrictionController {
 		lastChatRestrictionLog.clear();
 		lastSyncRequestLog.clear();
 		lastPromptActionbarLog.clear();
+		announcedPromptMode.clear();
 		lastLockEffectRefreshLog.clear();
 		modeSelectorEligible.clear();
 		modePreferencePresent.clear();
@@ -246,13 +249,10 @@ public final class AuthRestrictionController {
 
 		requestStateSync(player);
 
-		// the pending prompt says "hold on, we are asking the proxy"; sending it as
-		// a chat line on join would be noise, so paper skips it and so does this
-		PromptSet prompt = promptFor(playerId);
-
-		if (prompt != pendingPrompt) {
-			player.sendSystemMessage(prompt.chat());
-		}
+		// the pending prompt says "hold on, we are asking the proxy", which is not
+		// worth a chat line; the real one is sent by announcePrompt once the proxy
+		// has answered, which on a fresh join is always after this point
+		announcePrompt(player);
 
 		syncAuthLockState(player);
 		showModeSelectorIfDue(player, System.currentTimeMillis(), true);
@@ -279,6 +279,7 @@ public final class AuthRestrictionController {
 		lastChatRestrictionLog.remove(playerId);
 		lastSyncRequestLog.remove(playerId);
 		lastPromptActionbarLog.remove(playerId);
+		announcedPromptMode.remove(playerId);
 		lastLockEffectRefreshLog.remove(playerId);
 		flow("Quit clear state player=" + player.getName().getString() + " uuid=" + playerId);
 	}
@@ -555,12 +556,14 @@ public final class AuthRestrictionController {
 			stateRegistry.markAuthenticated(playerUuid);
 			releaseAuthLockIfNeeded(source);
 			hidePrompt(source);
+			announcedPromptMode.remove(playerUuid);
 			flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 			return;
 		}
 
 		stateRegistry.markUnauthenticated(playerUuid, needsRegister);
 		syncAuthLockState(source);
+		announcePrompt(source);
 		flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=AUTH_STATE");
 	}
 
@@ -593,6 +596,7 @@ public final class AuthRestrictionController {
 			stateRegistry.markAuthenticated(playerUuid);
 			releaseAuthLockIfNeeded(source);
 			hidePrompt(source);
+			announcedPromptMode.remove(playerUuid);
 			flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 
 			if (success) {
@@ -604,6 +608,10 @@ public final class AuthRestrictionController {
 
 		stateRegistry.markUnauthenticated(playerUuid, needsRegister);
 		syncAuthLockState(source);
+
+		// the command already answered them; this only speaks when the answer moved
+		// them to a different prompt, e.g. a wrong /login on an unregistered name
+		announcePrompt(source);
 		flow("StateTransition uuid=" + playerUuid + " from=" + previous + " to=" + stateRegistry.state(playerUuid) + " reason=COMMAND_RESPONSE");
 	}
 
@@ -627,6 +635,32 @@ public final class AuthRestrictionController {
 			case LOGIN -> loginPrompt;
 			case PENDING -> pendingPrompt;
 		};
+	}
+
+	/**
+	 * Say in chat what the player has to do, once per state.
+	 *
+	 * The bossbar and the actionbar are repainted on a loop, so they can afford to
+	 * wait for the proxy's answer. A chat line cannot: it is sent once, and on a
+	 * fresh join the state is still PENDING at that moment, so the only prompt the
+	 * player ever saw was the one above their hotbar. This runs again when the
+	 * answer lands, and the recorded mode is what keeps a repeated `auth_state`
+	 * from repeating the line.
+	 */
+	private void announcePrompt(ServerPlayer player) {
+		UUID playerId = player.getUUID();
+		BackendAuthStateRegistry.AuthState state = stateRegistry.state(playerId);
+
+		if (state.authenticated() || state.promptMode() == BackendAuthStateRegistry.PromptMode.PENDING) {
+			return;
+		}
+
+		if (announcedPromptMode.put(playerId, state.promptMode()) == state.promptMode()) {
+			return;
+		}
+
+		player.sendSystemMessage(promptFor(playerId).chat());
+		flow("AnnouncePrompt player=" + player.getName().getString() + " uuid=" + playerId + " mode=" + state.promptMode());
 	}
 
 	private void showPrompt(ServerPlayer player) {
@@ -873,7 +907,7 @@ public final class AuthRestrictionController {
 			menu.broadcastChanges();
 
 			return menu;
-		}, Component.literal(AuthMessages.MODE_SELECTOR_TITLE)));
+		}, mini(AuthMessages.modeSelectorTitle())));
 
 		flow("ShowModeSelector player=" + player.getName().getString() + " uuid=" + playerId);
 	}
@@ -963,12 +997,9 @@ public final class AuthRestrictionController {
 
 	private ItemStack rememberToggleItem(boolean remember) {
 		return itemStack(
-			remember ? "lime_dye" : "gray_dye",
-			remember ? "<gold><b>🔔 Ghi Nhớ: BẬT</b></gold>" : "<gray><b>🔔 Ghi Nhớ: TẮT</b></gray>",
-			List.of(
-				remember ? "<gray>Lựa chọn sẽ được giữ vĩnh viễn.</gray>" : "<gray>Lựa chọn chỉ có hiệu lực 24 giờ.</gray>",
-				"<yellow>▶ Ấn để chuyển trạng thái.</yellow>"
-			)
+			remember ? AuthMessages.ITEM_REMEMBER_ON : AuthMessages.ITEM_REMEMBER_OFF,
+			AuthMessages.rememberItem(remember),
+			AuthMessages.rememberItemLore(remember)
 		);
 	}
 

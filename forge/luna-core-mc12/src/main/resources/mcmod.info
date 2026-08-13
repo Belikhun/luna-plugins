@@ -1,0 +1,17 @@
+[
+	{
+		"modid": "lunacore",
+		"name": "LunaCore",
+		"description": "Luna cluster core for Minecraft 1.12.2 Forge backends.",
+		"version": "${version}",
+		"mcversion": "1.12.2",
+		"authorList": ["Belikhun"],
+		"credits": "",
+		"logoFile": "",
+		"url": "",
+		"updateUrl": "",
+		"parent": "",
+		"screenshots": [],
+		"dependencies": []
+	}
+]

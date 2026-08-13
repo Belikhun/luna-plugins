@@ -1,0 +1,31 @@
+# LunaCore - Minecraft 1.12.2 Forge backend
+#
+# The resource path is scoped by mod id on purpose. Every mod loader shares one class
+# loader, so a bundled default at a bare "config.yml" resolves to whichever luna jar
+# happens to come first - which is exactly how four mods on one server once ended up
+# reading LunaCore's defaults into their own directories.
+
+logging:
+  # ANSI colour in log lines. Forge 1.12.2 writes latest.log through log4j with no
+  # escape filtering, so leaving this on puts control characters in the archived file
+  # that luna later reads back.
+  ansi: false
+  level: INFO
+  pluginMessaging:
+    enabled: false
+  heartbeatTransport:
+    enabled: false
+
+heartbeat:
+  enabled: true
+  # The proxy's LunaCore HTTP API. The backend derives every sibling endpoint it
+  # needs (the registry stream, the selector layout, the messaging config) from this
+  # one address, so there is nothing else to configure.
+  endpoint: "http://127.0.0.1:32452/api/heartbeat"
+  # Blank means the proxy names this server; it answers with the row it holds. Set it
+  # only when this backend must announce a name the proxy does not already know.
+  serverName: ""
+  intervalSeconds: 5
+  connectTimeoutMillis: 3000
+  readTimeoutMillis: 3000
+  streamEnabled: true

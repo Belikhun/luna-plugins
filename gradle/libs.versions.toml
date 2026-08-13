@@ -16,6 +16,19 @@ neoforge = "21.1.172"
 # drives neoforge, reobfuscating mojmap sources to SRG on the way into the jar.
 forge201 = "1.20.1-47.4.0"
 forge192 = "1.19.2-43.5.0"
+# The 1.12.2 line, which moddevgradle cannot drive: that era is legacy FML on
+# LaunchWrapper with MCP names, not ModLauncher with mojmap. RetroFuturaGradle
+# builds it instead, against MCP `stable` 39 - the last mapping published for
+# 1.12.2, and the one every mod of that era is compiled against.
+#
+# There is deliberately no forge version here. RFG derives it from mcVersion and
+# exposes it as a read-only Provider, so it compiles against 14.23.5.2847 and that
+# is not ours to choose. It does not need to be: Forge froze its 1.12.2 API years
+# before the last build, so a mod compiled against 2847 loads on the 2859 the
+# installer actually lays down.
+retrofuturagradle = "2.0.3"
+mcp112channel = "stable"
+mcp112version = "39"
 # newest loom that still targets this repo's gradle (1.16+ requires gradle 9.4+)
 fabricloom = "1.15.5"
 # Compile target for the fabric module. One jar serves 1.20 upward, so this is
@@ -41,7 +54,11 @@ skinsrestorer = "15.11.0"
 interactivechat = "4.3.5.1"
 huskhomes = "4.10"
 spark = "0.1-SNAPSHOT"
+asm = "9.8"
 rabbitmq = "5.24.0"
+# only the 1.12.2 messaging mod needs this: amqp-client logs through slf4j and that
+# platform, unlike every modern one, ships no slf4j of its own
+slf4j = "2.0.16"
 tab = "5.5.0"
 forgeplaceholderapi = "2.1.0"
 voicechatapi = "2.6.13"
@@ -68,6 +85,7 @@ skinsrestorer-api = { module = "net.skinsrestorer:skinsrestorer-api", version.re
 interactivechat-api = { module = "com.loohp:InteractiveChat", version.ref = "interactivechat" }
 huskhomes-bukkit = { module = "net.william278.huskhomes:huskhomes-bukkit", version.ref = "huskhomes" }
 spark-api = { module = "me.lucko:spark-api", version.ref = "spark" }
+asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }
 rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq" }
 tab-api = { module = "com.github.NEZNAMY:TAB-API", version.ref = "tab" }
 forgeplaceholderapi-neoforge = { module = "com.envyful.papi:neo21", version.ref = "forgeplaceholderapi" }
@@ -77,4 +95,5 @@ sponge-mixin = { module = "net.fabricmc:sponge-mixin", version.ref = "spongemixi
 [plugins]
 moddevgradle = { id = "net.neoforged.moddev", version.ref = "moddevgradle" }
 moddevgradle-legacy = { id = "net.neoforged.moddev.legacyforge", version.ref = "moddevgradle" }
+retrofuturagradle = { id = "com.gtnewhorizons.retrofuturagradle", version.ref = "retrofuturagradle" }
 fabricloom = { id = "fabric-loom", version.ref = "fabricloom" }

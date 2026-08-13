@@ -20,40 +20,11 @@ public final class LunaUi {
 	}
 
 	public static Component guiTitle(String text) {
-		return mini("<color:" + LunaPalette.GUI_TITLE_PRIMARY + ">" + text + "</color>");
+		return mini(LunaGuiTitle.plain(text));
 	}
 
 	public static Component guiTitleBreadcrumb(String... segments) {
-		if (segments == null || segments.length == 0) {
-			return guiTitle("");
-		}
-
-		String separator = "<color:" + LunaPalette.GUI_TITLE_TERTIARY + "> » </color>";
-		StringBuilder builder = new StringBuilder();
-		for (int i = 0; i < segments.length; i++) {
-			String segment = segments[i] == null ? "" : segments[i].trim();
-			if (segment.isBlank()) {
-				continue;
-			}
-
-			if (!builder.isEmpty()) {
-				builder.append(separator);
-			}
-
-			String color = switch (i) {
-				case 0 -> LunaPalette.GUI_TITLE_PRIMARY;
-				case 1 -> LunaPalette.GUI_TITLE_SECONDARY;
-				default -> LunaPalette.GUI_TITLE_TERTIARY;
-			};
-
-			builder.append("<color:").append(color).append(">" + segment + "</color>");
-		}
-
-		if (builder.isEmpty()) {
-			return guiTitle("");
-		}
-
-		return mini(builder.toString());
+		return mini(LunaGuiTitle.breadcrumb(segments));
 	}
 
 	public static String muted(String text) {

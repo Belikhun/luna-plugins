@@ -5,6 +5,7 @@ import dev.belikhun.luna.auth.backend.service.BackendAuthSpawnService;
 import dev.belikhun.luna.core.api.auth.AuthMessages;
 import dev.belikhun.luna.core.api.auth.BackendAuthStateRegistry;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.ui.LunaUi;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -69,7 +70,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private static final float DEFAULT_FLY_SPEED = 0.1F;
 	private static final int BLINDNESS_DURATION_TICKS = 600;
 	private static final int LOCK_EFFECT_DURATION_TICKS = 220;
-	private static final Component MODE_SELECTOR_TITLE = Component.text(AuthMessages.MODE_SELECTOR_TITLE);
+	private static final Component MODE_SELECTOR_TITLE = LunaUi.mini(AuthMessages.modeSelectorTitle());
 	private static final int SLOT_PREMIUM = AuthMessages.MODE_SELECTOR_SLOT_PREMIUM;
 	private static final int SLOT_OFFLINE = AuthMessages.MODE_SELECTOR_SLOT_OFFLINE;
 	private static final int SLOT_REMEMBER = AuthMessages.MODE_SELECTOR_SLOT_REMEMBER;
@@ -102,6 +103,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	private final ConcurrentMap<UUID, Long> lastSpawnEnforceLog;
 	private final ConcurrentMap<UUID, Long> lastLockEffectRefreshLog;
 	private final ConcurrentMap<UUID, Long> lastPromptActionbarLog;
+	private final ConcurrentMap<UUID, BackendAuthStateRegistry.PromptMode> announcedPromptMode;
 	private final ConcurrentMap<UUID, MovementProfile> movementProfiles;
 	private final Set<UUID> authLockedPlayers;
 	private final Set<UUID> lobbyItemsAppliedPlayers;
@@ -151,6 +153,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		this.lastSpawnEnforceLog = new ConcurrentHashMap<>();
 		this.lastLockEffectRefreshLog = new ConcurrentHashMap<>();
 		this.lastPromptActionbarLog = new ConcurrentHashMap<>();
+		this.announcedPromptMode = new ConcurrentHashMap<>();
 		this.movementProfiles = new ConcurrentHashMap<>();
 		this.authLockedPlayers = ConcurrentHashMap.newKeySet();
 		this.lobbyItemsAppliedPlayers = ConcurrentHashMap.newKeySet();
@@ -189,6 +192,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		}
 
 		runOnMainThread(() -> {
+			announcedPromptMode.remove(player.getUniqueId());
 			BossBar bar = activeBossbars.remove(player.getUniqueId());
 			if (bar != null) {
 				player.hideBossBar(bar);
@@ -207,6 +211,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 				return;
 			}
 			syncAuthLockState(player);
+			announcePrompt(player);
 		});
 	}
 
@@ -220,11 +225,11 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 			flow("Join player=" + event.getPlayer().getName() + " uuid=" + playerUuid + " statePreserved=" + stateRegistry.state(playerUuid));
 		}
 
-		PromptSet prompt = promptFor(playerUuid);
 		requestStateSyncIfDue(event.getPlayer(), "JOIN");
-		if (prompt != pendingPrompt) {
-			event.getPlayer().sendMessage(prompt.chat());
-		}
+
+		// the pending prompt is not worth a chat line; the real one is sent by
+		// announcePrompt once the proxy answers, which on a fresh join is later
+		announcePrompt(event.getPlayer());
 		if (spawnService.hasSpawn()) {
 			Bukkit.getScheduler().runTask(plugin, () -> spawnService.teleportToSpawn(event.getPlayer()));
 		}
@@ -244,6 +249,7 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		lastSpawnEnforceLog.remove(event.getPlayer().getUniqueId());
 		lastLockEffectRefreshLog.remove(event.getPlayer().getUniqueId());
 		lastPromptActionbarLog.remove(event.getPlayer().getUniqueId());
+		announcedPromptMode.remove(event.getPlayer().getUniqueId());
 		shownModeSelectorPlayers.remove(event.getPlayer().getUniqueId());
 		modeSelectedPlayers.remove(event.getPlayer().getUniqueId());
 		modeSelectorEligible.remove(event.getPlayer().getUniqueId());
@@ -767,6 +773,32 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 		return false;
 	}
 
+	/**
+	 * Say in chat what the player has to do, once per state.
+	 *
+	 * The bossbar and the actionbar are repainted on a loop, so they can afford to
+	 * wait for the proxy's answer. A chat line cannot: it is sent once, and on a
+	 * fresh join the state is still PENDING at that moment, so the only prompt the
+	 * player ever saw was the one above their hotbar. This runs again when the
+	 * answer lands, and the recorded mode is what keeps a repeated auth_state from
+	 * repeating the line.
+	 */
+	private void announcePrompt(Player player) {
+		UUID playerUuid = player.getUniqueId();
+		BackendAuthStateRegistry.AuthState state = stateRegistry.state(playerUuid);
+
+		if (state.authenticated() || state.promptMode() == BackendAuthStateRegistry.PromptMode.PENDING) {
+			return;
+		}
+
+		if (announcedPromptMode.put(playerUuid, state.promptMode()) == state.promptMode()) {
+			return;
+		}
+
+		player.sendMessage(promptFor(playerUuid).chat());
+		flow("AnnouncePrompt player=" + player.getName() + " uuid=" + playerUuid + " mode=" + state.promptMode());
+	}
+
 	private PromptSet promptFor(UUID playerUuid) {
 		BackendAuthStateRegistry.AuthState state = stateRegistry.state(playerUuid);
 		if (state.authenticated()) {
@@ -966,16 +998,13 @@ public final class AuthRestrictionListener implements Listener, AuthLobbyItemReg
 	 */
 	private ItemStack selectorItem(String materialName, String name, List<String> loreLines) {
 		Material material = Material.matchMaterial(materialName);
-		ItemStack stack = new ItemStack(material == null ? Material.BARRIER : material);
-		ItemMeta meta = stack.getItemMeta();
-		meta.displayName(miniMessage.deserialize("<!i>" + name));
 		List<Component> lore = new java.util.ArrayList<>();
+
 		for (String line : loreLines) {
-			lore.add(miniMessage.deserialize("<!i>" + line));
+			lore.add(LunaUi.mini(line));
 		}
-		meta.lore(lore);
-		stack.setItemMeta(meta);
-		return stack;
+
+		return LunaUi.item(material == null ? Material.BARRIER : material, name, lore);
 	}
 
 	private static final class ModeSelectorHolder implements InventoryHolder {

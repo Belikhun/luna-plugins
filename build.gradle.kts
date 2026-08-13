@@ -115,6 +115,15 @@ subprojects {
     // classic forge, as opposed to neoforge; the two are separate loaders with
     // separate metadata, and `-neoforge` is matched first so it never lands here
     val isForgeModule = !project.name.endsWith("-neoforge") && project.name.endsWith("-forge")
+    // The 1.12.2 build of a forge module. Still a forge module for every purpose the
+    // artifact has - it pools and deploys as one - but it compiles against a different
+    // era entirely: MCP names, legacy FML, and Java 8 bytecode. Only the toolchain
+    // branches below care about the difference.
+    val isLegacyForgeModule = project.name.endsWith("-mc12-forge")
+    // The Java 8 half of the api surface, compiled for that same line.
+    val isLegacyApiModule = project.name == "luna-legacy-api"
+    // Anything that has to load on a 1.12.2 server, whose JVM is 8.
+    val isLegacyModule = isLegacyForgeModule || isLegacyApiModule
     // the second build of a fabric module, for the game line that ships unobfuscated
     val isMc26FabricModule = project.name.endsWith("-mc26-fabric")
     val isVelocityModule = project.name.endsWith("-velocity") || project.name == "luna-pack" || project.name == "luna-auth" || project.name == "luna-vault" || project.name == "luna-glyph"
@@ -160,7 +169,13 @@ subprojects {
 
     extensions.configure<org.gradle.api.plugins.JavaPluginExtension> {
         toolchain {
-            languageVersion = JavaLanguageVersion.of(21)
+            languageVersion = JavaLanguageVersion.of(if (isLegacyModule) 8 else 21)
+
+            if (isLegacyModule) {
+                // Azul is the vendor with the widest platform coverage still shipping
+                // a Java 8 toolchain, and it is what the host already runs for 21/25
+                vendor = JvmVendorSpec.AZUL
+            }
         }
     }
 
@@ -170,10 +185,25 @@ subprojects {
         // fleet sets their floor: a Forge 1.19.2/1.20.1 server runs Java 17 and
         // cannot load class-file 65. 17-bytecode loads fine everywhere newer, and
         // the forge modules themselves run on that same JVM.
-        options.release = if (isApiModule || isForgeModule) 17 else 21
+        //
+        // The 1.12.2 line sits below all of it: a stock server of that era runs Java
+        // 8, so its modules emit class-file 52. That floor is also why they cannot
+        // consume luna-core-api and have luna-legacy-api instead.
+        //
+        // They get there by toolchain rather than by flag. `--release` arrived in
+        // Java 9, so setting it at all - even to 8 - makes a Java 8 javac fail with
+        // `invalid flag: --release`, and that includes the compile tasks RFG adds to
+        // the project. A Java 8 compiler emits class-file 52 with nothing asked of
+        // it, which is the whole point of pinning the toolchain instead.
+        if (!isLegacyModule) {
+            options.release = if (isApiModule || isForgeModule) 17 else 21
+        }
     }
 
-    if (isApiModule) {
+    // The 21 attribute exists to let paper-api resolve while emitting 17. The legacy
+    // api has no paper on its classpath and emits 8, so asking for 21 there would
+    // only make gradle reject Java 8 artifacts it is entitled to use.
+    if (isApiModule && !isLegacyApiModule) {
         // Emitting 17 makes gradle look for dependencies a 17 runtime could use, and
         // paper-api publishes itself as 21-only, so resolution fails before javac is
         // even reached. javac has no such problem: `--release` governs which *JDK*
@@ -210,6 +240,10 @@ subprojects {
         }
         // classic forge reads the same descriptor under its pre-fork name
         filesMatching("META-INF/mods.toml") {
+            expand("version" to pluginVersion)
+        }
+        // and 1.12.2, before mods.toml existed at all, reads a json array at the root
+        filesMatching("mcmod.info") {
             expand("version" to pluginVersion)
         }
         filesMatching("velocity-plugin.json") {
