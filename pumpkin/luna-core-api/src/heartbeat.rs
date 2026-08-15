@@ -26,13 +26,36 @@ pub struct HeartbeatStats {
 	pub ram_used_bytes: i64,
 	pub ram_free_bytes: i64,
 	pub ram_max_bytes: i64,
+	/// One row per world, in whatever order the server lists them.
+	pub worlds: Vec<WorldStats>,
 }
+
+/// What one world is holding.
+///
+/// The JVM platforms split entities by whether the chunk they stand in is being
+/// ticked. Pumpkin has no unsimulated-but-loaded state to describe yet, so
+/// everything it counts goes in `ticking_entities`, which is true here for the
+/// same reason it is true on 1.12.
+///
+/// `-1` means the sandbox could not measure that counter, which is a different
+/// statement from zero: the plugin API lists a world's entities but has no way
+/// to ask how many chunks are loaded, so that one is always unmeasured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldStats {
+	pub name: String,
+	pub loaded_chunks: i32,
+	pub ticking_entities: i32,
+	pub non_ticking_entities: i32,
+}
+
+/// A counter this platform could not measure.
+pub const UNKNOWN_COUNT: i32 = -1;
 
 impl HeartbeatStats {
 	/// The field set the proxy expects, in the order the JVM codec writes it.
 	#[must_use]
 	pub fn to_fields(&self) -> Vec<(String, String)> {
-		vec![
+		let mut fields: Vec<(String, String)> = vec![
 			("software".into(), self.software.clone()),
 			("version".into(), self.version.clone()),
 			("serverPort".into(), self.server_port.to_string()),
@@ -63,7 +86,35 @@ impl HeartbeatStats {
 			("ramFreeBytes".into(), self.ram_free_bytes.to_string()),
 			("ramMaxBytes".into(), self.ram_max_bytes.to_string()),
 			("heartbeatLatencyMillis".into(), "0".into()),
-		]
+		];
+
+		// indexed keys inside the row, the same shape the JVM codec writes; the
+		// count goes on afterwards so it can never name more worlds than were
+		// actually encoded. No tick fields at all: this sandbox is given no tick
+		// event to time, and the proxy reads their absence as "not measured".
+		let mut encoded = 0;
+
+		for world in &self.worlds {
+			if world.name.trim().is_empty() {
+				continue;
+			}
+
+			let prefix = format!("world.{encoded}.");
+			fields.push((format!("{prefix}name"), world.name.clone()));
+			fields.push((format!("{prefix}chunks"), world.loaded_chunks.to_string()));
+			fields.push((format!("{prefix}ticking"), world.ticking_entities.to_string()));
+			fields.push((
+				format!("{prefix}nonTicking"),
+				world.non_ticking_entities.to_string(),
+			));
+			encoded += 1;
+		}
+
+		if encoded > 0 {
+			fields.push(("worldCount".into(), encoded.to_string()));
+		}
+
+		fields
 	}
 }
 

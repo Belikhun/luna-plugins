@@ -339,27 +339,7 @@ public final class VelocityHeartbeatHttpEndpoints {
 	}
 
 	private BackendHeartbeatStats withLatency(BackendHeartbeatStats stats, long latencyMs) {
-		if (stats == null) {
-			return emptyStats();
-		}
-
-		return new BackendHeartbeatStats(
-			stats.software(),
-			stats.version(),
-			stats.serverPort(),
-			stats.uptimeMillis(),
-			stats.tps(),
-			stats.onlinePlayers(),
-			stats.maxPlayers(),
-			stats.motd(),
-			stats.whitelistEnabled(),
-			stats.systemCpuUsagePercent(),
-			stats.processCpuUsagePercent(),
-			stats.ramUsedBytes(),
-			stats.ramFreeBytes(),
-			stats.ramMaxBytes(),
-			Math.max(0L, latencyMs)
-		);
+		return stats == null ? emptyStats() : stats.withLatency(latencyMs);
 	}
 
 	private long parseLong(String value, long fallback) {

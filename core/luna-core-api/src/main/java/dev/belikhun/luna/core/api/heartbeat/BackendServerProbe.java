@@ -45,4 +45,15 @@ public interface BackendServerProbe {
 	 * prefers it; this is the fallback.
 	 */
 	double tps();
+
+	/**
+	 * Per-world chunk and entity counts.
+	 *
+	 * Defaulted to nothing rather than to zeroes: a platform that has not been
+	 * taught to walk its worlds has not measured them, and an empty list says
+	 * that, where a zero would claim an empty server.
+	 */
+	default java.util.List<ServerWorldStats> worlds() {
+		return java.util.List.of();
+	}
 }

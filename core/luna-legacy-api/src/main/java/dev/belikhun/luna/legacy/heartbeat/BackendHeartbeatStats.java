@@ -1,6 +1,8 @@
 package dev.belikhun.luna.legacy.heartbeat;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * What a backend reports about itself each heartbeat.
@@ -26,6 +28,8 @@ public final class BackendHeartbeatStats {
 	private final long ramFreeBytes;
 	private final long ramMaxBytes;
 	private final long heartbeatLatencyMillis;
+	private final List<ServerWorldStats> worlds;
+	private final ServerTickStats ticks;
 
 	public BackendHeartbeatStats(
 		String software,
@@ -44,6 +48,46 @@ public final class BackendHeartbeatStats {
 		long ramMaxBytes,
 		long heartbeatLatencyMillis
 	) {
+		this(
+			software,
+			version,
+			serverPort,
+			uptimeMillis,
+			tps,
+			onlinePlayers,
+			maxPlayers,
+			motd,
+			whitelistEnabled,
+			systemCpuUsagePercent,
+			processCpuUsagePercent,
+			ramUsedBytes,
+			ramFreeBytes,
+			ramMaxBytes,
+			heartbeatLatencyMillis,
+			Collections.<ServerWorldStats>emptyList(),
+			ServerTickStats.UNKNOWN
+		);
+	}
+
+	public BackendHeartbeatStats(
+		String software,
+		String version,
+		int serverPort,
+		long uptimeMillis,
+		double tps,
+		int onlinePlayers,
+		int maxPlayers,
+		String motd,
+		boolean whitelistEnabled,
+		double systemCpuUsagePercent,
+		double processCpuUsagePercent,
+		long ramUsedBytes,
+		long ramFreeBytes,
+		long ramMaxBytes,
+		long heartbeatLatencyMillis,
+		List<ServerWorldStats> worlds,
+		ServerTickStats ticks
+	) {
 		this.software = software;
 		this.version = version;
 		this.serverPort = serverPort;
@@ -59,6 +103,10 @@ public final class BackendHeartbeatStats {
 		this.ramFreeBytes = ramFreeBytes;
 		this.ramMaxBytes = ramMaxBytes;
 		this.heartbeatLatencyMillis = heartbeatLatencyMillis;
+		this.worlds = worlds == null
+			? Collections.<ServerWorldStats>emptyList()
+			: Collections.unmodifiableList(new java.util.ArrayList<ServerWorldStats>(worlds));
+		this.ticks = ticks == null ? ServerTickStats.UNKNOWN : ticks;
 	}
 
 	public String software() {
@@ -121,6 +169,14 @@ public final class BackendHeartbeatStats {
 		return heartbeatLatencyMillis;
 	}
 
+	public List<ServerWorldStats> worlds() {
+		return worlds;
+	}
+
+	public ServerTickStats ticks() {
+		return ticks;
+	}
+
 	private Object[] components() {
 		return new Object[] {
 			software,
@@ -137,7 +193,9 @@ public final class BackendHeartbeatStats {
 			ramUsedBytes,
 			ramFreeBytes,
 			ramMaxBytes,
-			heartbeatLatencyMillis
+			heartbeatLatencyMillis,
+			worlds,
+			ticks
 		};
 	}
 

@@ -84,7 +84,22 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 	public void onInitializeServer() {
 		ServerLifecycleEvents.SERVER_STARTED.register(this::onServerStarted);
 		ServerLifecycleEvents.SERVER_STOPPING.register(this::onServerStopping);
+		// paired, so the heartbeat reports what a tick cost rather than how far
+		// apart two of them were; a healthy server sleeps most of the gap
+		ServerTickEvents.START_SERVER_TICK.register(server -> {
+			BackendHeartbeatPublisher publisher = heartbeatPublisher;
+
+			if (publisher != null) {
+				publisher.tickStarted();
+			}
+		});
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
+			BackendHeartbeatPublisher publisher = heartbeatPublisher;
+
+			if (publisher != null) {
+				publisher.tickEnded();
+			}
+
 			tickRate.onTick();
 			refreshPlaceholders();
 		});

@@ -30,6 +30,16 @@ public final class BackendHeartbeatPublisher implements AutoCloseable {
 	private final ScheduledExecutorService executor;
 	private final long bootEpochMillis;
 
+	/**
+	 * Owned here rather than per loader: the loaders differ only in what their
+	 * tick event is called, and duplicating the window arithmetic four times is
+	 * how two of them end up computing a different Apdex.
+	 */
+	private final TickRecorder tickRecorder = new TickRecorder();
+
+	/** Set by {@link #tickStarted()}; 0 means no tick is open. */
+	private long tickStartNanos;
+
 	private volatile ScheduledFuture<?> task;
 	private volatile int readTimeoutMillis;
 
@@ -53,6 +63,41 @@ public final class BackendHeartbeatPublisher implements AutoCloseable {
 		this.bootEpochMillis = System.currentTimeMillis();
 		this.task = null;
 		this.readTimeoutMillis = this.config.readTimeoutMillis();
+	}
+
+	/**
+	 * Fold one tick into the index the next heartbeat reports.
+	 *
+	 * Called from each loader's own tick hook, on the server thread. A platform
+	 * with no such hook simply never calls it, and the heartbeat then reports the
+	 * tick indices as absent rather than as perfect.
+	 */
+	public void recordTick(double millis) {
+		tickRecorder.record(millis, probe.onlinePlayers());
+	}
+
+	/**
+	 * Open a tick, to be closed by {@link #tickEnded()}.
+	 *
+	 * The pair exists because the loaders' tick events give no duration, only a
+	 * before and an after; the gap between two afters is the tick *period*, which
+	 * on a healthy server is a flat 50 ms of mostly sleeping and would score every
+	 * server as exactly satisfied. Timing between the two is the tick's real cost.
+	 */
+	public void tickStarted() {
+		tickStartNanos = System.nanoTime();
+	}
+
+	/** Close the tick opened by {@link #tickStarted()} and record what it cost. */
+	public void tickEnded() {
+		long started = tickStartNanos;
+
+		if (started == 0L) {
+			return;
+		}
+
+		tickStartNanos = 0L;
+		recordTick((System.nanoTime() - started) / 1_000_000D);
 	}
 
 	public BackendRegistryClient registryClient() {
@@ -251,7 +296,9 @@ public final class BackendHeartbeatPublisher implements AutoCloseable {
 			ramUsedBytes,
 			ramFreeBytes,
 			ramMaxBytes,
-			0L
+			0L,
+			probe.worlds(),
+			tickRecorder.snapshot()
 		);
 	}
 

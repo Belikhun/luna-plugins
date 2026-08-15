@@ -27,6 +27,7 @@ public final class PaperHeartbeatPublisher {
 	private final ConfigStore configStore;
 	private final LunaLogger logger;
 	private final BackendRegistryClient registryClient;
+	private final PaperServerSampler sampler;
 	private final long bootEpochMillis;
 	private int taskId;
 	private volatile int lastReportedPlayerCount;
@@ -37,6 +38,7 @@ public final class PaperHeartbeatPublisher {
 		this.configStore = configStore;
 		this.logger = logger.scope("Heartbeat");
 		this.registryClient = new BackendRegistryClient(logger, statusStore);
+		this.sampler = new PaperServerSampler(plugin);
 		this.bootEpochMillis = System.currentTimeMillis();
 		this.taskId = -1;
 		this.lastReportedPlayerCount = -1;
@@ -100,6 +102,9 @@ public final class PaperHeartbeatPublisher {
 			registryClient.syncSelectorConfigNow();
 			registryClient.syncMessagingConfigNow();
 		});
+		// started last: it walks the world, and there is no point paying for that
+		// before the heartbeat that reads it exists
+		sampler.start();
 		taskId = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, this::publishTick, 20L, intervalTicks).getTaskId();
 		logger.success("Đã bật heartbeat backend tới Velocity endpoint=" + uri);
 	}
@@ -145,6 +150,8 @@ public final class PaperHeartbeatPublisher {
 	}
 
 	private void stopInternal(boolean sendOfflineMarker) {
+		sampler.stop();
+
 		if (taskId != -1) {
 			plugin.getServer().getScheduler().cancelTask(taskId);
 			taskId = -1;
@@ -197,7 +204,12 @@ public final class PaperHeartbeatPublisher {
 			ramUsedBytes,
 			ramFreeBytes,
 			ramMaxBytes,
-			0L
+			0L,
+			// off the sampler rather than read here: this method runs on the
+			// heartbeat's own thread, and every world API it would need is
+			// main-thread-only
+			sampler.worlds(),
+			sampler.ticks()
 		);
 	}
 

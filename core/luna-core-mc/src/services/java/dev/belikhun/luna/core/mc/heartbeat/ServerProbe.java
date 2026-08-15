@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.mc.heartbeat;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendServerProbe;
+import dev.belikhun.luna.core.api.heartbeat.ServerWorldStats;
 import dev.belikhun.luna.core.api.util.Reflect;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.MinecraftServer;
@@ -109,6 +110,11 @@ public final class ServerProbe implements BackendServerProbe {
 		}
 
 		return 20D;
+	}
+
+	@Override
+	public java.util.List<ServerWorldStats> worlds() {
+		return LevelStats.scan(server);
 	}
 
 	private double clampTps(double tps) {

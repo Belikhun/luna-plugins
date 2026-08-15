@@ -32,6 +32,15 @@ import java.util.function.Supplier;
  */
 public final class BackendHeartbeatPublisher implements AutoCloseable {
 	private final BackendServerProbe probe;
+
+	/**
+	 * Owned here rather than in the mod: the window arithmetic is the same on
+	 * every platform, and the modern api keeps its copy in the same place.
+	 */
+	private final TickRecorder tickRecorder = new TickRecorder();
+
+	/** Set by {@link #tickStarted()}; 0 means no tick is open. */
+	private long tickStartNanos;
 	private final LunaLogger logger;
 	private final BackendCoreRuntimeConfig.HeartbeatConfig config;
 	private final BackendStatusStore statusStore;
@@ -67,6 +76,30 @@ public final class BackendHeartbeatPublisher implements AutoCloseable {
 		this.bootEpochMillis = System.currentTimeMillis();
 		this.task = null;
 		this.readTimeoutMillis = this.config.readTimeoutMillis();
+	}
+
+	/**
+	 * Open a tick, to be closed by {@link #tickEnded()}.
+	 *
+	 * The pair exists because Forge's tick event gives no duration, only a before
+	 * and an after; the gap between two afters is the tick *period*, which on a
+	 * healthy server is a flat 50 ms of mostly sleeping and would score every
+	 * server as exactly satisfied.
+	 */
+	public void tickStarted() {
+		tickStartNanos = System.nanoTime();
+	}
+
+	/** Close the tick opened by {@link #tickStarted()} and record what it cost. */
+	public void tickEnded() {
+		long started = tickStartNanos;
+
+		if (started == 0L) {
+			return;
+		}
+
+		tickStartNanos = 0L;
+		tickRecorder.record((System.nanoTime() - started) / 1_000_000D, probe.onlinePlayers());
 	}
 
 	public BackendRegistryClient registryClient() {
@@ -310,7 +343,9 @@ public final class BackendHeartbeatPublisher implements AutoCloseable {
 			ramUsedBytes,
 			ramFreeBytes,
 			ramMaxBytes,
-			0L
+			0L,
+			probe.worlds(),
+			tickRecorder.snapshot()
 		);
 	}
 

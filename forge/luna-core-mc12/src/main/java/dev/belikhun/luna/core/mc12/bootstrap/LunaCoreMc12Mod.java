@@ -5,6 +5,7 @@ import dev.belikhun.luna.core.mc12.LunaCore;
 import dev.belikhun.luna.core.mc12.forwarding.ForwardingInjector;
 import dev.belikhun.luna.core.mc12.logging.LegacyLunaLogger;
 import dev.belikhun.luna.core.mc12.permission.PermissionMirrorListener;
+import dev.belikhun.luna.core.mc12.runtime.LegacyTickListener;
 import dev.belikhun.luna.core.mc12.runtime.LegacyPlayerBridge;
 import dev.belikhun.luna.core.mc12.ui.LegacyChatPrompts;
 import dev.belikhun.luna.core.mc12.serverselector.ServerSelectorController;
@@ -208,6 +209,7 @@ public final class LunaCoreMc12Mod {
 		LunaCore.set(registry);
 
 		MinecraftForge.EVENT_BUS.register(chatPrompts);
+		MinecraftForge.EVENT_BUS.register(new LegacyTickListener(heartbeatPublisher));
 		MinecraftForge.EVENT_BUS.register(new PlaceholderRefreshListener(placeholders));
 		MinecraftForge.EVENT_BUS.register(new PermissionMirrorListener(permissions));
 		event.registerServerCommand(new LunaCommand(permissions, heartbeatPublisher, statusStore));

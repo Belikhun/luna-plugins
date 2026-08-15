@@ -1,6 +1,8 @@
 package dev.belikhun.luna.core.fabric.heartbeat;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendServerProbe;
+import dev.belikhun.luna.core.api.heartbeat.ServerWorldStats;
+import dev.belikhun.luna.core.mc.heartbeat.LevelStats;
 import dev.belikhun.luna.core.fabric.compat.GameVersion;
 import dev.belikhun.luna.core.fabric.compat.Guarded;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
@@ -82,5 +84,10 @@ public final class FabricServerProbe implements BackendServerProbe {
 	@Override
 	public double tps() {
 		return tickRate.tps();
+	}
+
+	@Override
+	public java.util.List<ServerWorldStats> worlds() {
+		return LevelStats.scan(server);
 	}
 }

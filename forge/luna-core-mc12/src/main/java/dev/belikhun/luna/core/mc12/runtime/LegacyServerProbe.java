@@ -1,8 +1,10 @@
 package dev.belikhun.luna.core.mc12.runtime;
 
 import dev.belikhun.luna.legacy.heartbeat.BackendServerProbe;
+import dev.belikhun.luna.legacy.heartbeat.ServerWorldStats;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.management.PlayerList;
+import net.minecraft.world.WorldServer;
 
 import java.nio.file.Path;
 
@@ -122,5 +124,43 @@ public final class LegacyServerProbe implements BackendServerProbe {
 		double meanMillis = (total / (double) counted) / 1_000_000D;
 
 		return Math.min(MAX_TPS, 1000D / Math.max(MILLIS_PER_TICK, meanMillis));
+	}
+
+	/**
+	 * One row per loaded world.
+	 *
+	 * Everything counted here ticks: 1.12 has no unsimulated-but-loaded state for
+	 * the newer lines' split to describe, so a chunk in {@code loadedChunkCount}
+	 * is a chunk the server is simulating, and every entity in
+	 * {@code loadedEntityList} is one it is moving.
+	 */
+	@Override
+	public java.util.List<ServerWorldStats> worlds() {
+		java.util.List<ServerWorldStats> worlds = new java.util.ArrayList<ServerWorldStats>();
+
+		WorldServer[] levels = server.worlds;
+
+		if (levels == null) {
+			return worlds;
+		}
+
+		for (WorldServer level : levels) {
+			if (level == null) {
+				continue;
+			}
+
+			try {
+				worlds.add(new ServerWorldStats(
+					level.provider.getDimensionType().getName(),
+					level.getChunkProvider().getLoadedChunkCount(),
+					level.loadedEntityList.size(),
+					0
+				));
+			} catch (Throwable ignored) {
+				// one world that will not answer must not cost the others their row
+			}
+		}
+
+		return worlds;
 	}
 }

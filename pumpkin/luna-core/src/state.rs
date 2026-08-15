@@ -10,7 +10,8 @@ use std::sync::Arc;
 use crate::config::CoreConfig;
 use crate::http;
 use luna_core_api::heartbeat::{
-	HeartbeatStats, decode_form, effective_tps, encode_form, selector_config_url,
+	HeartbeatStats, UNKNOWN_COUNT, WorldStats, decode_form, effective_tps, encode_form,
+	selector_config_url,
 };
 
 use luna_core_api::host_metrics::{HostMetrics, decode_host_metrics};
@@ -335,7 +336,29 @@ impl CoreState {
 			ram_used_bytes: metrics.map_or(0, |m| m.ram_used_bytes as i64),
 			ram_free_bytes: metrics.map_or(0, |m| m.ram_free_bytes() as i64),
 			ram_max_bytes: metrics.map_or(0, |m| m.ram_max_bytes as i64),
+			worlds: Self::collect_worlds(server),
 		}
+	}
+
+	/// One row per world, with what this sandbox can actually count.
+	///
+	/// Entity counts come out of the plugin API directly. Loaded chunks do not:
+	/// a world can hand back one chunk by coordinate and nothing else, so there
+	/// is no way to ask how many are resident, and that counter goes over the
+	/// wire as unmeasured rather than as zero. Everything counted is reported as
+	/// ticking because Pumpkin simulates every loaded chunk; when that stops
+	/// being true, this is the line that has to change with it.
+	fn collect_worlds(server: &Server) -> Vec<WorldStats> {
+		server
+			.get_all_worlds()
+			.iter()
+			.map(|world| WorldStats {
+				name: world.get_dimension(),
+				loaded_chunks: UNKNOWN_COUNT,
+				ticking_entities: i32::try_from(world.get_entities().len()).unwrap_or(UNKNOWN_COUNT),
+				non_ticking_entities: 0,
+			})
+			.collect()
 	}
 
 	fn note_success(&self) {

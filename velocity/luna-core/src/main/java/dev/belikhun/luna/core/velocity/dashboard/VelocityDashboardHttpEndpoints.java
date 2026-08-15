@@ -2,6 +2,8 @@ package dev.belikhun.luna.core.velocity.dashboard;
 
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEvent;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatStats;
+import dev.belikhun.luna.core.api.heartbeat.ServerWorldStats;
+import dev.belikhun.luna.core.api.heartbeat.ServerTickStats;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
 import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.http.HttpResponse;
@@ -280,7 +282,47 @@ public final class VelocityDashboardHttpEndpoints {
 		metrics.put("ramUsagePercent", stats == null ? 0D : LunaJson.round(percent(stats.ramUsedBytes(), stats.ramMaxBytes())));
 		metrics.put("uptimeMillis", stats == null ? 0L : Math.max(0L, stats.uptimeMillis()));
 		metrics.put("whitelistEnabled", stats != null && stats.whitelistEnabled());
+
+		// null rather than 0 throughout: a backend on a platform that cannot count
+		// its chunks, or one whose plugin predates these fields, has not measured
+		// them, and a zero here would draw an empty world in the console
+		metrics.put("loadedChunks", count(stats == null ? null : stats.loadedChunks()));
+		metrics.put("tickingEntities", count(stats == null ? null : stats.tickingEntities()));
+		metrics.put("nonTickingEntities", count(stats == null ? null : stats.nonTickingEntities()));
+
+		ServerTickStats ticks = stats == null ? ServerTickStats.UNKNOWN : stats.ticks();
+		boolean measured = ticks.known();
+		metrics.put("tickMeanMillis", measured ? LunaJson.round(ticks.meanMillis()) : null);
+		metrics.put("tickMaxMillis", measured ? LunaJson.round(ticks.maxMillis()) : null);
+		metrics.put("apdex", measured ? LunaJson.round(ticks.apdex()) : null);
+		metrics.put("misery", ticks.miseryKnown() ? LunaJson.round(ticks.misery()) : null);
+
+		metrics.put("worlds", buildWorlds(stats));
 		return metrics;
+	}
+
+	/** A counter the backend could not measure comes back as JSON null. */
+	private Object count(Integer value) {
+		return value == null || value < 0 ? null : value;
+	}
+
+	private List<Map<String, Object>> buildWorlds(BackendHeartbeatStats stats) {
+		List<Map<String, Object>> worlds = new ArrayList<>();
+
+		if (stats == null) {
+			return worlds;
+		}
+
+		for (ServerWorldStats world : stats.worlds()) {
+			Map<String, Object> row = new LinkedHashMap<>();
+			row.put("name", safe(world.name()));
+			row.put("loadedChunks", count(world.loadedChunks()));
+			row.put("tickingEntities", count(world.tickingEntities()));
+			row.put("nonTickingEntities", count(world.nonTickingEntities()));
+			worlds.add(row);
+		}
+
+		return worlds;
 	}
 
 	private Map<String, Object> buildStats(BackendHeartbeatStats stats) {

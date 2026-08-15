@@ -121,8 +121,92 @@ public final class HeartbeatFormCodec {
 			longValue(fields, "ramUsedBytes", 0L),
 			longValue(fields, "ramFreeBytes", 0L),
 			longValue(fields, "ramMaxBytes", 0L),
-			longValue(fields, "heartbeatLatencyMillis", 0L)
+			longValue(fields, "heartbeatLatencyMillis", 0L),
+			decodeWorlds(fields),
+			decodeTicks(fields)
 		);
+	}
+
+	private static List<ServerWorldStats> decodeWorlds(Map<String, String> fields) {
+		int count = intValue(fields, "worldCount", 0);
+		if (count <= 0) {
+			return java.util.Collections.<ServerWorldStats>emptyList();
+		}
+
+		List<ServerWorldStats> worlds = new ArrayList<ServerWorldStats>(count);
+		for (int index = 0; index < count; index++) {
+			String prefix = "world." + index + ".";
+			String name = string(fields, prefix + "name", "").trim();
+			if (name.isEmpty()) {
+				continue;
+			}
+
+			worlds.add(new ServerWorldStats(
+				name,
+				intValue(fields, prefix + "chunks", 0),
+				intValue(fields, prefix + "ticking", 0),
+				intValue(fields, prefix + "nonTicking", 0)
+			));
+		}
+
+		return java.util.Collections.unmodifiableList(worlds);
+	}
+
+	private static ServerTickStats decodeTicks(Map<String, String> fields) {
+		long samples = longValue(fields, "tickSamples", 0L);
+		if (samples <= 0L) {
+			return ServerTickStats.UNKNOWN;
+		}
+
+		return new ServerTickStats(
+			samples,
+			doubleValue(fields, "tickMeanMillis", -1D),
+			doubleValue(fields, "tickMaxMillis", -1D),
+			doubleValue(fields, "tickApdex", -1D),
+			doubleValue(fields, "tickMisery", -1D)
+		);
+	}
+
+	/**
+	 * Per-world counters, as indexed keys inside the row.
+	 *
+	 * The count is written after the loop rather than before it, for the same
+	 * reason the row loop does it: a world dropped for having no name would leave
+	 * the receiver reading past the end of what was actually encoded.
+	 */
+	private static void encodeWorlds(Map<String, String> out, List<ServerWorldStats> worlds) {
+		if (worlds == null || worlds.isEmpty()) {
+			return;
+		}
+
+		int index = 0;
+		for (ServerWorldStats world : worlds) {
+			if (world == null || world.name().trim().isEmpty()) {
+				continue;
+			}
+
+			String prefix = "world." + index + ".";
+			out.put(prefix + "name", world.name());
+			out.put(prefix + "chunks", String.valueOf(world.loadedChunks()));
+			out.put(prefix + "ticking", String.valueOf(world.tickingEntities()));
+			out.put(prefix + "nonTicking", String.valueOf(world.nonTickingEntities()));
+			index++;
+		}
+
+		out.put("worldCount", String.valueOf(index));
+	}
+
+	/** Tick indices, written only when something was actually measured. */
+	private static void encodeTicks(Map<String, String> out, ServerTickStats ticks) {
+		if (ticks == null || !ticks.known()) {
+			return;
+		}
+
+		out.put("tickSamples", String.valueOf(ticks.samples()));
+		out.put("tickMeanMillis", String.valueOf(ticks.meanMillis()));
+		out.put("tickMaxMillis", String.valueOf(ticks.maxMillis()));
+		out.put("tickApdex", String.valueOf(ticks.apdex()));
+		out.put("tickMisery", String.valueOf(ticks.misery()));
 	}
 
 	public static Map<String, String> encodeStats(BackendHeartbeatStats stats) {
@@ -148,6 +232,8 @@ public final class HeartbeatFormCodec {
 		out.put("ramFreeBytes", String.valueOf(stats.ramFreeBytes()));
 		out.put("ramMaxBytes", String.valueOf(stats.ramMaxBytes()));
 		out.put("heartbeatLatencyMillis", String.valueOf(stats.heartbeatLatencyMillis()));
+		encodeWorlds(out, stats.worlds());
+		encodeTicks(out, stats.ticks());
 
 		return out;
 	}

@@ -23,6 +23,7 @@ import dev.belikhun.luna.core.mc.placeholder.PlaceholderProviderFactory;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.core.mc.serverselector.ServerSelectorController;
 import dev.belikhun.luna.core.mc.ui.ChatPrompts;
+import net.minecraftforge.event.TickEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.common.MinecraftForge;
@@ -147,6 +148,21 @@ public final class LunaCoreForgeMod {
 		heartbeatPublisher.start();
 		serverSelectorController.start(heartbeatPublisher);
 		logger.success("LunaCore Forge đã khởi động bootstrap với LuckPerms permission service và heartbeat publisher.");
+	}
+
+	// paired, so the heartbeat reports what a tick cost rather than how far apart
+	// two of them were; a healthy server sleeps most of the gap
+	@SubscribeEvent
+	public void onServerTick(TickEvent.ServerTickEvent event) {
+		if (heartbeatPublisher == null) {
+			return;
+		}
+
+		if (event.phase == TickEvent.Phase.START) {
+			heartbeatPublisher.tickStarted();
+		} else {
+			heartbeatPublisher.tickEnded();
+		}
 	}
 
 	@SubscribeEvent
