@@ -72,7 +72,7 @@ public final class LunaShopPlugin extends JavaPlugin {
 
 	private ShopEconomyService resolveEconomyService() {
 		try {
-			ShopEconomyService directVault = LunaVaultEconomyService.create(this).orElse(null);
+			ShopEconomyService directVault = LunaVaultEconomyService.create(this, logger).orElse(null);
 			if (directVault != null) {
 				logger.audit("LunaShop đang dùng LunaVault API làm economy chính.");
 				return directVault;

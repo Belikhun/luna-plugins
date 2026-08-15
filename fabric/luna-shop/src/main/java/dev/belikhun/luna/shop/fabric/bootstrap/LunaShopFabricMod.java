@@ -142,7 +142,8 @@ public final class LunaShopFabricMod implements DedicatedServerModInitializer {
 			server,
 			vaultApi,
 			config.getLong("economy.timeout-millis", 3000L),
-			coreConfig
+			coreConfig,
+			logger
 		);
 
 		ShopService service = new ShopService(

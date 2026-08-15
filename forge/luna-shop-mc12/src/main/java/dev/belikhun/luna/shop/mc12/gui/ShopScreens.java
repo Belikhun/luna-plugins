@@ -27,6 +27,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The shop a player sees on 1.12.2: categories, items, and the trade screen.
@@ -43,10 +46,6 @@ import java.util.UUID;
  * instead, and the quick amounts plus the adjust row cover the rest. They are not
  * drawn as dead buttons, because a button that does nothing is worse than no
  * button.
- *
- * The admin screens - category management, the item editor, the create-item flow -
- * are not here either. They are a separate half, and a shop nobody can buy from is
- * the more urgent gap.
  */
 public final class ShopScreens {
 	private static final int PAGE_SIZE = 45;
@@ -71,6 +70,15 @@ public final class ShopScreens {
 	private final LunaMenuHost mainHost;
 	private final LunaMenuHost confirmHost;
 
+	/** Last balance the wallet reported, per player; see knownBalanceText. */
+	private final Map<UUID, Double> knownBalance = new ConcurrentHashMap<UUID, Double>();
+
+	/**
+	 * Set after construction, because the history screen's back button opens this
+	 * one: the two refer to each other and something has to be built first.
+	 */
+	private ShopHistoryScreen history;
+
 	public ShopScreens(
 		ShopService<EntityPlayerMP, ItemStack> service,
 		ShopItemStore<ItemStack> store,
@@ -85,9 +93,57 @@ public final class ShopScreens {
 		this.confirmHost = new LunaMenuHost(CONFIRM_ROWS);
 	}
 
+	/** Give the main menu its history button. Null leaves the slot empty. */
+	public void useHistory(ShopHistoryScreen history) {
+		this.history = history;
+	}
+
 	public void forget(UUID playerId) {
 		mainHost.forget(playerId);
 		confirmHost.forget(playerId);
+		knownBalance.remove(playerId);
+	}
+
+	/**
+	 * The balance as last reported, without asking the wallet.
+	 *
+	 * A trade menu is redrawn on every amount click and the wallet lives on the
+	 * proxy, so asking during a draw puts a network round trip inside a click
+	 * handler. The number is decoration; a slightly stale one costs nothing and a
+	 * stalled tick costs everyone.
+	 */
+	private String knownBalanceText(EntityPlayerMP player) {
+		Double balance = knownBalance.get(players.idOf(player));
+
+		return balance == null ? "—" : service.formatMoney(balance.doubleValue());
+	}
+
+	/**
+	 * Ask the wallet, and redraw only if the answer is new.
+	 *
+	 * The "only if new" is what stops this looping: the redraw asks again, gets the
+	 * same value, and settles.
+	 */
+	private void refreshKnownBalance(EntityPlayerMP player, final TradeSession session) {
+		final UUID playerId = players.idOf(player);
+
+		service.economy().balanceAsync(player).whenComplete((balance, failure) -> players.onServerThread(() -> {
+			if (failure != null || balance == null) {
+				return;
+			}
+
+			Double previous = knownBalance.put(playerId, balance);
+
+			if (previous != null && previous.doubleValue() == balance.doubleValue()) {
+				return;
+			}
+
+			EntityPlayerMP current = players.byId(playerId);
+
+			if (current != null) {
+				openTradeMenu(current, session);
+			}
+		}));
 	}
 
 	public void close() {
@@ -132,7 +188,15 @@ public final class ShopScreens {
 				menu.setTopSlot(53, nav("arrow", "<yellow>Trang sau →"), () -> openMainMenu(player, currentPage + 1));
 			}
 
-			menu.setTopSlot(52, nav("oak_door", "<red>Đóng"), () -> player.closeScreen());
+			if (history != null) {
+				menu.setTopSlot(
+					50,
+					nav("book", "<yellow>⌚ Lịch sử giao dịch"),
+					() -> history.open(player, 0)
+				);
+			}
+
+			menu.setTopSlot(52, nav("oak_door", "<red>Đóng"), () -> mainHost.close(player));
 		});
 	}
 
@@ -204,7 +268,7 @@ public final class ShopScreens {
 			)), () -> openItemList(player, pageContext.toggleSortDirection()));
 
 			menu.setTopSlot(50, nav("chest", "<yellow>Danh mục chính"), () -> openMainMenu(player, 0));
-			menu.setTopSlot(52, nav("oak_door", "<red>Đóng"), () -> player.closeScreen());
+			menu.setTopSlot(52, nav("oak_door", "<red>Đóng"), () -> mainHost.close(player));
 		});
 	}
 
@@ -287,8 +351,12 @@ public final class ShopScreens {
 
 			menu.setTopSlot(52, LunaItems.of("oak_door", "<red>Đóng", Collections.singletonList(
 				"<red>Thoát giao diện giao dịch"
-			)), () -> player.closeScreen());
+			)), () -> mainHost.close(player));
 		});
+
+		// after the menu is on screen, never before: the point is that the draw does
+		// not wait for the wallet
+		refreshKnownBalance(player, normalized);
 	}
 
 	private void drawTradePreview(EntityPlayerMP player, LunaChestMenu menu, ShopItem shopItem, int amount) {
@@ -303,7 +371,7 @@ public final class ShopScreens {
 		lore.add("<green>Tổng mua (áp dụng): <gold>" + service.formatMoney(shopItem.buyPrice() * cappedBuy));
 		lore.add("<yellow>Tổng bán (áp dụng): <gold>" + service.formatMoney(shopItem.sellPrice() * cappedSell));
 		lore.add("");
-		lore.add("<white>Số dư hiện tại: <yellow>" + service.formatMoney(service.economy().balance(player)));
+		lore.add("<white>Số dư hiện tại: <yellow>" + knownBalanceText(player));
 		lore.add("");
 		lore.addAll(tradeLimitLore(player, shopItem));
 
@@ -348,12 +416,7 @@ public final class ShopScreens {
 					"<gray>Số lượng sẽ bán: <white>" + effective,
 					"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(shopItem.sellPrice() * effective)
 				),
-				() -> {
-					ShopResult result = service.sellAllSimilar(player, shopItem);
-
-					tell(player, result.message());
-					openTradeMenu(player, session);
-				},
+				() -> settle(player, session, service.sellAllSimilarAsync(player, shopItem)),
 				() -> openTradeMenu(player, session)
 			);
 		});
@@ -379,30 +442,22 @@ public final class ShopScreens {
 		}
 
 		if (session.mode() == TradeMode.BUY) {
-			double total = shopItem.buyPrice() * effective;
-			double balance = service.economy().balance(player);
+			// the balance is a proxy round trip on a cold cache, so the rest of the
+			// buy path waits for it off the tick rather than in the click handler
+			final double total = shopItem.buyPrice() * effective;
+			final UUID playerId = players.idOf(player);
 
-			if (balance < total) {
-				tell(player, "<yellow>⚠ Bạn không đủ tiền để thực hiện giao dịch này.</yellow>");
+			service.economy().balanceAsync(player).whenComplete((balance, failure) -> players.onServerThread(() -> {
+				EntityPlayerMP current = players.byId(playerId);
 
-				return;
-			}
+				if (current == null) {
+					return;
+				}
 
-			if (balance > 0D && total > balance * 0.5D) {
-				openConfirmationDialog(
-					player,
-					"<yellow>⚠ Xác nhận mua đơn lớn",
-					Arrays.asList(
-						"<gray>Tổng tiền: <gold>" + service.formatMoney(total),
-						"<gray>Số dư hiện tại: <white>" + service.formatMoney(balance),
-						"<gray>Lệnh mua này vượt <white>50%</white> số dư của bạn."
-					),
-					() -> completeTrade(player, shopItem, session),
-					() -> openTradeMenu(player, session)
-				);
+				confirmLargeBuy(current, shopItem, session, total, balance == null ? 0D : balance.doubleValue());
+			}));
 
-				return;
-			}
+			return;
 		}
 
 		if (session.mode() == TradeMode.SELL && service.countSimilar(player, shopItem.itemStack(items)) < effective) {
@@ -414,13 +469,78 @@ public final class ShopScreens {
 		completeTrade(player, shopItem, session);
 	}
 
-	private void completeTrade(EntityPlayerMP player, ShopItem shopItem, TradeSession session) {
-		ShopResult result = session.mode() == TradeMode.BUY
-			? service.buy(player, shopItem, session.amount())
-			: service.sell(player, shopItem, session.amount());
+	/**
+	 * Ask before a buy that would spend more than half of what the player has.
+	 *
+	 * That threshold is the one guard against a mis-click on a quick-amount button
+	 * emptying an account, and it is deliberately about the share of the balance
+	 * rather than an absolute price.
+	 */
+	private void confirmLargeBuy(
+		EntityPlayerMP player,
+		ShopItem shopItem,
+		TradeSession session,
+		double total,
+		double balance
+	) {
+		if (balance < total) {
+			tell(player, "<yellow>⚠ Bạn không đủ tiền để thực hiện giao dịch này.</yellow>");
 
-		tell(player, result.message());
-		openTradeMenu(player, session);
+			return;
+		}
+
+		if (balance > 0D && total > balance * 0.5D) {
+			openConfirmationDialog(
+				player,
+				"<yellow>⚠ Xác nhận mua đơn lớn",
+				Arrays.asList(
+					"<gray>Tổng tiền: <gold>" + service.formatMoney(total),
+					"<gray>Số dư hiện tại: <white>" + service.formatMoney(balance),
+					"<gray>Lệnh mua này vượt <white>50%</white> số dư của bạn."
+				),
+				() -> completeTrade(player, shopItem, session),
+				() -> openTradeMenu(player, session)
+			);
+
+			return;
+		}
+
+		completeTrade(player, shopItem, session);
+	}
+
+	private void completeTrade(EntityPlayerMP player, ShopItem shopItem, TradeSession session) {
+		settle(player, session, session.mode() == TradeMode.BUY
+			? service.buyAsync(player, shopItem, session.amount())
+			: service.sellAsync(player, shopItem, session.amount()));
+	}
+
+	/**
+	 * Report a trade once the wallet has answered, back on the server thread.
+	 *
+	 * The player is looked up again rather than captured, because the round trip
+	 * outlives a disconnect and reopening a menu for someone who has left would put
+	 * a container on a player object the server has already forgotten.
+	 */
+	private void settle(EntityPlayerMP player, final TradeSession session, CompletableFuture<ShopResult> pending) {
+		final UUID playerId = players.idOf(player);
+
+		pending.whenComplete((result, failure) -> players.onServerThread(() -> {
+			EntityPlayerMP current = players.byId(playerId);
+
+			if (current == null) {
+				return;
+			}
+
+			if (failure != null || result == null) {
+				tell(current, "<red>❌ Giao dịch không hoàn tất được. Vui lòng thử lại.</red>");
+				openTradeMenu(current, session);
+
+				return;
+			}
+
+			tell(current, result.message());
+			openTradeMenu(current, session);
+		}));
 	}
 
 	private void tellLimitReached(EntityPlayerMP player, TradeMode mode) {
@@ -451,14 +571,14 @@ public final class ShopScreens {
 			menu.setTopSlot(11, LunaItems.of("lime_dye", "<green>✔ Xác nhận", Collections.singletonList(
 				actionLine("Chuột trái", "thực hiện")
 			)), () -> {
-				player.closeScreen();
+				confirmHost.close(player);
 				onConfirm.run();
 			});
 
 			menu.setTopSlot(15, LunaItems.of("red_dye", "<red>❌ Huỷ", Collections.singletonList(
 				actionLine("Chuột trái", "quay lại")
 			)), () -> {
-				player.closeScreen();
+				confirmHost.close(player);
 				onCancel.run();
 			});
 		});

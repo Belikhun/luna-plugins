@@ -4,15 +4,22 @@ import dev.belikhun.luna.core.mc12.LunaCore;
 import dev.belikhun.luna.core.mc12.logging.LegacyLunaLogger;
 import dev.belikhun.luna.legacy.config.YamlConfigFile;
 import dev.belikhun.luna.legacy.database.Database;
+import dev.belikhun.luna.legacy.database.NoopDatabase;
+import dev.belikhun.luna.legacy.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.legacy.logging.LunaLogger;
 import dev.belikhun.luna.legacy.messaging.bus.PlayerBridge;
+import dev.belikhun.luna.legacy.permission.PermissionService;
 import dev.belikhun.luna.legacy.shop.LunaVaultEconomyService;
 import dev.belikhun.luna.legacy.shop.ShopItemStore;
 import dev.belikhun.luna.legacy.shop.ShopItems;
 import dev.belikhun.luna.legacy.shop.ShopService;
 import dev.belikhun.luna.legacy.shop.ShopTradeLimitService;
+import dev.belikhun.luna.legacy.shop.ShopTransactionHistoryMigration;
 import dev.belikhun.luna.legacy.shop.ShopTransactionStore;
 import dev.belikhun.luna.legacy.vault.LunaVaultApi;
+import dev.belikhun.luna.core.mc12.ui.LegacyChatPrompts;
+import dev.belikhun.luna.shop.mc12.gui.ShopAdminScreens;
+import dev.belikhun.luna.shop.mc12.gui.ShopHistoryScreen;
 import dev.belikhun.luna.shop.mc12.gui.ShopScreens;
 import dev.belikhun.luna.shop.mc12.runtime.LegacyShopGameClock;
 import dev.belikhun.luna.shop.mc12.runtime.LegacyShopInventory;
@@ -63,6 +70,8 @@ public final class LunaShopMc12Mod {
 	private LunaLogger logger;
 	private Path configDir;
 	private ShopScreens screens;
+	private ShopAdminScreens adminScreens;
+	private ShopHistoryScreen history;
 
 	@Mod.EventHandler
 	public void onPreInit(FMLPreInitializationEvent event) {
@@ -103,8 +112,18 @@ public final class LunaShopMc12Mod {
 		YamlConfigFile coreConfig = LunaCore.find(YamlConfigFile.class);
 
 		ShopItemStore<ItemStack> store = new ShopItemStore<ItemStack>(items, configDir, logger);
+
+		// the constructor only wires the file path; nothing is read until this, and
+		// without it the shop starts empty every boot and only fills on a reload
+		store.load();
 		ShopTradeLimitService tradeLimits = new ShopTradeLimitService(new LegacyShopGameClock(server));
-		ShopTransactionStore transactions = new ShopTransactionStore(LunaCore.find(Database.class), logger);
+		Database database = LunaCore.find(Database.class);
+
+		// the table has to exist before the first trade tries to write a row, and the
+		// store is what decides whether any of this runs at all
+		migrateHistorySchema(database);
+
+		ShopTransactionStore transactions = new ShopTransactionStore(database, logger);
 
 		LunaVaultEconomyService<EntityPlayerMP> economy = new LunaVaultEconomyService<EntityPlayerMP>(
 			// the balance read is on the server thread during a click, so it must
@@ -113,7 +132,8 @@ public final class LunaShopMc12Mod {
 			players,
 			vaultApi,
 			ECONOMY_TIMEOUT_MS,
-			coreConfig
+			coreConfig,
+			logger
 		);
 
 		ShopService<EntityPlayerMP, ItemStack> service = new ShopService<EntityPlayerMP, ItemStack>(
@@ -130,10 +150,63 @@ public final class LunaShopMc12Mod {
 
 		screens = new ShopScreens(service, store, items, players);
 
-		event.registerServerCommand(new ShopCommand(screens, store));
-		event.registerServerCommand(new ShopAdminCommand(store, items));
+		LegacyChatPrompts chatPrompts = LunaCore.find(LegacyChatPrompts.class);
+
+		// the management screens ask for ids and category names in chat, so without
+		// the prompt service they would open and then refuse every text field; the
+		// player-facing shop needs none of it and still starts
+		if (chatPrompts != null) {
+			adminScreens = new ShopAdminScreens(service, store, items, screens, chatPrompts);
+		} else {
+			logger.warn("Thiếu chat prompt service từ LunaCore. Giao diện quản lý sẽ không khả dụng.");
+		}
+
+		history = new ShopHistoryScreen(service, store, players, screens);
+
+		// the main menu draws a history button only once it has somewhere to send it
+		screens.useHistory(history);
+
+		event.registerServerCommand(new ShopCommand(screens, history, store));
+		event.registerServerCommand(new ShopAdminCommand(
+			store,
+			items,
+			LunaCore.find(PermissionService.class),
+			adminScreens,
+			service,
+			history
+		));
 
 		logger.success("LunaShop (Forge 1.12.2) đã sẵn sàng với " + store.all().size() + " mặt hàng.");
+	}
+
+	/**
+	 * Make sure the history table exists before anything tries to write a row.
+	 *
+	 * The migration is namespaced (`luna_shop`) rather than global, so every luna
+	 * module owns its own applied-migrations ledger and one module's schema change
+	 * cannot renumber another's. That matters here more than on Paper: the whole
+	 * fleet may point at one database, and this backend runs the same migration the
+	 * modern shops do - it is the same table.
+	 *
+	 * A failure is caught and reported rather than thrown. The shop trades fine
+	 * without history, and taking the server down over a logging table would be a
+	 * worse outcome than losing the log.
+	 */
+	private void migrateHistorySchema(Database database) {
+		if (database == null || database instanceof NoopDatabase) {
+			logger.warn("Database chưa bật. Lịch sử giao dịch của LunaShop sẽ không được ghi.");
+
+			return;
+		}
+
+		try {
+			DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("Migration"));
+
+			migrator.register(new ShopTransactionHistoryMigration());
+			migrator.migrateNamespace("luna_shop");
+		} catch (Exception exception) {
+			logger.error("Không thể chuẩn bị schema lịch sử giao dịch cho LunaShop.", exception);
+		}
 	}
 
 	@Mod.EventHandler
@@ -143,13 +216,35 @@ public final class LunaShopMc12Mod {
 			screens = null;
 		}
 
+		if (adminScreens != null) {
+			adminScreens.close();
+			adminScreens = null;
+		}
+
+		if (history != null) {
+			history.close();
+			history = null;
+		}
+
 		logger.audit("LunaShop (Forge 1.12.2) đã dừng.");
 	}
 
 	@SubscribeEvent
 	public void onPlayerLoggedOut(PlayerLoggedOutEvent event) {
-		if (screens != null && event.player != null) {
+		if (event.player == null) {
+			return;
+		}
+
+		if (screens != null) {
 			screens.forget(event.player.getUniqueID());
+		}
+
+		if (adminScreens != null) {
+			adminScreens.forget(event.player.getUniqueID());
+		}
+
+		if (history != null) {
+			history.forget(event.player.getUniqueID());
 		}
 	}
 

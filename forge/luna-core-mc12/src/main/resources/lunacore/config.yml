@@ -29,3 +29,22 @@ heartbeat:
   connectTimeoutMillis: 3000
   readTimeoutMillis: 3000
   streamEnabled: true
+
+# Shared with every other luna backend, key for key, so a Paper plugin and this mod
+# pointed at the same database connect the same way. Off by default: a backend that
+# needs it says so, and one that does not should never open a socket for it.
+#
+# The MariaDB driver ships inside this jar - no mod loader fetches one at boot - so
+# `type: mariadb` needs nothing installed. The features that use it degrade rather
+# than fail when this is off: LunaShop keeps trading and simply records no history.
+database:
+  enabled: false
+  type: "mariadb"
+  host: "127.0.0.1"
+  port: 3306
+  name: "luna"
+  username: "root"
+  password: ""
+  options:
+    useSSL: false
+    serverTimezone: "UTC"

@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.mc12.text.LunaTextComponents;
 import dev.belikhun.luna.legacy.auth.AuthMessages;
 import dev.belikhun.luna.legacy.shop.ShopItemStore;
 import dev.belikhun.luna.legacy.string.Strings;
+import dev.belikhun.luna.shop.mc12.gui.ShopHistoryScreen;
 import dev.belikhun.luna.shop.mc12.gui.ShopScreens;
 
 import net.minecraft.command.CommandBase;
@@ -17,22 +18,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * `/shop` on 1.12.2: open the shop, or search it.
+ * `/shop` on 1.12.2: open the shop, search it, or read your own history.
  *
  * Search is a subcommand here rather than the button the modern builds draw,
- * because that button opens a chat prompt and the core has no prompt service on
- * this line. Typing the query is the same query either way.
- *
- * The admin verbs (`/shopadmin`) are not registered yet - the screens they open
- * are the half of the GUI still to be ported, and a command that opens nothing
- * would be worse than its absence.
+ * because that button opens a chat prompt and the core had no prompt service on
+ * this line when it was written. Typing the query is the same query either way.
  */
 public final class ShopCommand extends CommandBase {
 	private final ShopScreens screens;
+	private final ShopHistoryScreen history;
 	private final ShopItemStore<ItemStack> store;
 
-	public ShopCommand(ShopScreens screens, ShopItemStore<ItemStack> store) {
+	public ShopCommand(ShopScreens screens, ShopHistoryScreen history, ShopItemStore<ItemStack> store) {
 		this.screens = screens;
+		this.history = history;
 		this.store = store;
 	}
 
@@ -52,7 +51,7 @@ public final class ShopCommand extends CommandBase {
 
 	@Override
 	public String getUsage(ICommandSender sender) {
-		return "/shop [search <từ khoá>]";
+		return "/shop [search <từ khoá> | history]";
 	}
 
 	@Override
@@ -68,7 +67,7 @@ public final class ShopCommand extends CommandBase {
 	@Override
 	public List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, BlockPos pos) {
 		if (args.length == 1) {
-			return getListOfStringsMatchingLastWord(args, "search");
+			return getListOfStringsMatchingLastWord(args, "search", "history");
 		}
 
 		return new ArrayList<String>();
@@ -86,6 +85,12 @@ public final class ShopCommand extends CommandBase {
 
 		if (args.length == 0) {
 			screens.openMainMenu(player, 0);
+
+			return;
+		}
+
+		if ("history".equalsIgnoreCase(args[0])) {
+			history.open(player, 0);
 
 			return;
 		}

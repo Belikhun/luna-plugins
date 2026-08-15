@@ -33,7 +33,7 @@ public interface PlaceholderService<P> {
 	 * over an identifier the core would otherwise answer. Registering the same
 	 * namespace twice is last-one-wins; there is one owner per namespace.
 	 */
-	void registerExtension(LunaPlaceholderExtension extension);
+	void registerExtension(LunaPlaceholderExtension<P> extension);
 
 	/**
 	 * One identifier, with or without its surrounding percent signs.

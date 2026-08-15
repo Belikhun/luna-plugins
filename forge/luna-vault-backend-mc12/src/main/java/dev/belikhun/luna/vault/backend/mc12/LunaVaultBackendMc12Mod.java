@@ -167,7 +167,7 @@ public final class LunaVaultBackendMc12Mod {
 			(PlaceholderService<EntityPlayerMP>) LunaCore.find(PlaceholderService.class);
 
 		if (placeholderService == null) {
-			// expected on this line for now: nothing publishes one yet
+			// the core publishes one, so this now means the core failed to start
 			logger.warn("Không tìm thấy placeholder service. Bỏ qua namespace lunavault.");
 			return;
 		}

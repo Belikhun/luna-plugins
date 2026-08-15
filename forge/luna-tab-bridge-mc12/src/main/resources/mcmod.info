@@ -1,0 +1,17 @@
+[
+	{
+		"modid": "lunatabbridge",
+		"name": "LunaTabBridge",
+		"description": "Cung cấp cho proxy trạng thái từng người chơi để dựng tab list và placeholder, cho backend Minecraft 1.12.2 Forge.",
+		"version": "${version}",
+		"mcversion": "1.12.2",
+		"authorList": ["Belikhun"],
+		"credits": "",
+		"logoFile": "",
+		"url": "",
+		"updateUrl": "",
+		"parent": "",
+		"screenshots": [],
+		"dependencies": ["lunacore", "lunacoremessaging"]
+	}
+]

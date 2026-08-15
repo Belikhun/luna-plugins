@@ -3,6 +3,7 @@ package dev.belikhun.luna.core.mc12.ui;
 import dev.belikhun.luna.legacy.ui.LunaClick;
 
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.inventory.ClickType;
 import net.minecraft.inventory.Container;
@@ -10,6 +11,7 @@ import net.minecraft.inventory.IInventory;
 import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.network.play.server.SPacketSetSlot;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,6 +39,16 @@ public class LunaChestMenu extends Container {
 	private final Map<Integer, Consumer<LunaClick>> actions;
 	private final Runnable closeListener;
 	private final int containerSize;
+
+	/**
+	 * Whether a click handler is on the stack, for anything that must wait for it.
+	 *
+	 * Static because it is a property of the server thread, not of one menu: a
+	 * handler on one screen routinely opens another, and the screen being opened is
+	 * the one that needs to know. Clicks are handled on the server thread only, so
+	 * nothing else can observe it mid-flight.
+	 */
+	private static boolean dispatchingClick;
 
 	private boolean suppressCloseCallback;
 
@@ -128,26 +140,76 @@ public class LunaChestMenu extends Container {
 		suppressCloseCallback = true;
 	}
 
+	/** Whether a click on one of these menus is being handled right now. */
+	static boolean isDispatchingClick() {
+		return dispatchingClick;
+	}
+
 	/**
 	 * Every click in the window, before vanilla moves anything.
 	 *
-	 * Returning `ItemStack.EMPTY` for a top-half slot is what makes the button a
-	 * button: vanilla's own handling would otherwise pick the item up, and a locked
-	 * slot only stops the *transfer*, not the cursor stack it hands back.
+	 * Nothing is moved: a top-half slot is a button, and the locked slot only stops
+	 * the *transfer*, not the cursor stack vanilla's own handling would hand back.
+	 *
+	 * **What is returned decides which branch of `processClickWindow` runs**, and the
+	 * two branches are not equally cheap. The client has already run vanilla's click
+	 * on its own copy of the window, so it believes it just picked the button up;
+	 * returning what it computed puts the server on the agreeing branch, which costs
+	 * two small packets. Disagreeing costs a resend of all ninety slots *and* locks
+	 * the container until the client's confirm-transaction arrives, so a second click
+	 * inside one round trip is dropped. For an ordinary left or right click the client
+	 * returns a copy of what the slot held, which is what is captured below; the other
+	 * click types compute something we would have to guess at, so they take the
+	 * disagreeing branch deliberately - it is slower, not wrong, and it self-heals.
+	 *
+	 * The agreeing branch sends nothing back, though: it runs under
+	 * `isChangingQuantityOnly`, which gags both `sendSlotContents` and
+	 * `updateHeldItem`. So the client's whole idea of the click - the slot it emptied
+	 * and the stack it put on the cursor - is corrected here by hand, after the action
+	 * has had its chance to redraw the slot.
 	 */
 	@Override
 	public ItemStack slotClick(int slotId, int dragType, ClickType clickType, EntityPlayer player) {
-		if (slotId >= 0 && slotId < containerSize) {
-			Consumer<LunaClick> action = actions.get(Integer.valueOf(slotId));
-
-			if (action != null) {
-				action.accept(LunaClick.of(slotId, dragType, clickType.name()));
-			}
-
-			return ItemStack.EMPTY;
+		if (slotId < 0 || slotId >= containerSize) {
+			return super.slotClick(slotId, dragType, clickType, player);
 		}
 
-		return super.slotClick(slotId, dragType, clickType, player);
+		ItemStack shown = container.getStackInSlot(slotId).copy();
+		Consumer<LunaClick> action = actions.get(Integer.valueOf(slotId));
+
+		if (action != null) {
+			boolean nested = dispatchingClick;
+
+			dispatchingClick = true;
+
+			try {
+				action.accept(LunaClick.of(slotId, dragType, clickType.name()));
+			} finally {
+				dispatchingClick = nested;
+			}
+		}
+
+		resyncClick(player, slotId);
+
+		return clickType == ClickType.PICKUP ? shown : ItemStack.EMPTY;
+	}
+
+	/**
+	 * Undo the click the client performed on its own copy of the window.
+	 *
+	 * Two packets: what the slot really holds, and what the cursor really holds.
+	 * Without the second one the button the client believes it picked up stays stuck
+	 * to the mouse, since the branch that would have cleared it is gagged.
+	 */
+	private void resyncClick(EntityPlayer player, int slotId) {
+		if (!(player instanceof EntityPlayerMP)) {
+			return;
+		}
+
+		EntityPlayerMP serverPlayer = (EntityPlayerMP) player;
+
+		serverPlayer.connection.sendPacket(new SPacketSetSlot(windowId, slotId, container.getStackInSlot(slotId)));
+		serverPlayer.connection.sendPacket(new SPacketSetSlot(-1, -1, serverPlayer.inventory.getItemStack()));
 	}
 
 	@Override

@@ -77,6 +77,13 @@ tasks.named<ShadowJar>("shadowJar") {
 	exclude("com/google/gson/**")
 	exclude("META-INF/maven/com.google.code.gson/**")
 
+	// Multi-release class files, which this line can never reach: 1.12.2 runs on
+	// Java 8 and always loads the base version. Leaving them in is not harmless -
+	// FML's class scanner reads every entry and cannot parse Java 9 bytecode, so
+	// each one becomes "probably a corrupt zip" in the log at every boot, which is
+	// exactly the line an operator should be able to trust.
+	exclude("META-INF/versions/**")
+
 	destinationDirectory.set(layout.buildDirectory.dir("libs"))
 	archiveBaseName.set("luna-core-mc12-forge")
 	archiveClassifier.set("shaded")

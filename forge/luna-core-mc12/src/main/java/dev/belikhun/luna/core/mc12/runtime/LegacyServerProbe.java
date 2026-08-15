@@ -35,7 +35,7 @@ public final class LegacyServerProbe implements BackendServerProbe {
 
 	@Override
 	public void execute(Runnable task) {
-		server.addScheduledTask(task);
+		ServerThreadTasks.run(server, task);
 	}
 
 	@Override

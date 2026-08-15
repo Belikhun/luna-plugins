@@ -1,5 +1,7 @@
 package dev.belikhun.luna.core.mc12.command;
 
+import dev.belikhun.luna.core.mc12.LunaCore;
+import dev.belikhun.luna.core.mc12.placeholder.LegacyPlaceholderService;
 import dev.belikhun.luna.core.mc12.text.LunaTextComponents;
 import dev.belikhun.luna.legacy.heartbeat.BackendHeartbeatPublisher;
 import dev.belikhun.luna.legacy.heartbeat.BackendServerStatus;
@@ -27,7 +29,8 @@ import java.util.Map;
  */
 public final class LunaCommand extends CommandBase {
 	/** The node `/luna perms <other>` needs. Nobody has it until it is granted. */
-	private static final String PERMS_NODE = "luna.admin.permissions";
+	/** The fleet's core-admin node: paper's plugin.yml and velocity both gate on it. */
+	private static final String ADMIN_NODE = "lunacore.admin";
 
 	private final MirroredPermissionService permissions;
 	private final BackendHeartbeatPublisher heartbeat;
@@ -39,14 +42,32 @@ public final class LunaCommand extends CommandBase {
 		this.network = network;
 	}
 
+	/**
+	 * `lunacoreforge`, following the family: one core command per platform.
+	 *
+	 * Paper registers `lunacorepaper` (alias `lcp`) and velocity `lunacoreproxy`
+	 * (aliases `lcv`, `luna`). Naming it `luna` here looked shorter and was
+	 * unreachable: velocity owns that alias and answers it without forwarding, so
+	 * the command worked from the server console and printed the proxy's help to
+	 * every player who tried it.
+	 */
 	@Override
 	public String getName() {
-		return "luna";
+		return "lunacoreforge";
+	}
+
+	@Override
+	public List<String> getAliases() {
+		List<String> aliases = new ArrayList<String>();
+
+		aliases.add("lcf");
+
+		return aliases;
 	}
 
 	@Override
 	public String getUsage(ICommandSender sender) {
-		return "/luna [status|perms [player]]";
+		return "/lunacoreforge [status|perms [player]|papi <placeholder>]";
 	}
 
 	/**
@@ -70,7 +91,7 @@ public final class LunaCommand extends CommandBase {
 	@Override
 	public List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, net.minecraft.util.math.BlockPos pos) {
 		if (args.length == 1) {
-			return getListOfStringsMatchingLastWord(args, "status", "perms");
+			return getListOfStringsMatchingLastWord(args, "status", "perms", "papi");
 		}
 
 		if (args.length == 2 && "perms".equalsIgnoreCase(args[0])) {
@@ -94,7 +115,62 @@ public final class LunaCommand extends CommandBase {
 			return;
 		}
 
+		if ("papi".equals(subcommand)) {
+			papi(sender, Arrays.copyOfRange(args, 1, args.length));
+			return;
+		}
+
 		reply(sender, "<red>Không rõ lệnh con: <white>" + subcommand + "<red>. " + getUsage(sender));
+	}
+
+	/**
+	 * Resolve a placeholder for the caller and show what came back.
+	 *
+	 * Nothing else on this line makes a placeholder visible: they are answered for
+	 * the proxy, not for chat, so a value that resolves wrongly is invisible until
+	 * it reaches a tab list somewhere else. Typing the identifier here asks the same
+	 * service, for the same player, and prints the raw result.
+	 *
+	 * A miss is shown as such rather than as an empty line: an identifier nothing
+	 * claims and an identifier that resolves to "" are different faults, and telling
+	 * them apart is the whole point of asking.
+	 */
+	private void papi(ICommandSender sender, String[] args) {
+		if (!(sender instanceof EntityPlayerMP)) {
+			reply(sender, "<red>Lệnh này cần chạy từ trong game.");
+			return;
+		}
+
+		if (args.length == 0) {
+			reply(sender, "<yellow>Cú pháp: <white>/lunacoreforge papi %luna_tps%");
+			return;
+		}
+
+		EntityPlayerMP caller = (EntityPlayerMP) sender;
+
+		if (!permissions.hasPermission(caller.getUniqueID(), ADMIN_NODE)) {
+			reply(sender, "<red>Bạn không có quyền <white>" + ADMIN_NODE + "<red>.");
+			return;
+		}
+
+		LegacyPlaceholderService placeholders = LunaCore.find(LegacyPlaceholderService.class);
+
+		if (placeholders == null) {
+			reply(sender, "<red>Placeholder service chưa sẵn sàng.");
+			return;
+		}
+
+		String identifier = String.join(" ", args).trim();
+		String value = placeholders.resolvePlaceholder(caller, identifier);
+
+		reply(sender, "<gray>Placeholder: <white>" + identifier);
+
+		if (value == null) {
+			reply(sender, "<red>→ không có provider nào nhận identifier này.");
+			return;
+		}
+
+		reply(sender, "<green>→ <white>" + value + "<gray> (" + value.length() + " ký tự)");
 	}
 
 	private void status(ICommandSender sender) {
@@ -151,8 +227,8 @@ public final class LunaCommand extends CommandBase {
 		}
 
 		// reading someone else's permissions is an admin verb; reading your own is not
-		if (self != null && !permissions.hasPermission(self.getUniqueID(), PERMS_NODE)) {
-			reply(sender, "<red>Bạn không có quyền <white>" + PERMS_NODE + "<red>.");
+		if (self != null && !permissions.hasPermission(self.getUniqueID(), ADMIN_NODE)) {
+			reply(sender, "<red>Bạn không có quyền <white>" + ADMIN_NODE + "<red>.");
 			return;
 		}
 
@@ -189,8 +265,8 @@ public final class LunaCommand extends CommandBase {
 		reply(sender, "<gray>Số node đã giải: <white>" + snapshot.permissions().size());
 
 		// the node this very command gates on, so an op and a non-op visibly differ
-		Tristate admin = snapshot.check(PERMS_NODE);
-		reply(sender, "<gray>" + PERMS_NODE + ": " + describeTristate(admin));
+		Tristate admin = snapshot.check(ADMIN_NODE);
+		reply(sender, "<gray>" + ADMIN_NODE + ": " + describeTristate(admin));
 
 		int shown = 0;
 

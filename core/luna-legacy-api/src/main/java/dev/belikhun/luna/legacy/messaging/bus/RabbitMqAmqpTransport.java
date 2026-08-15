@@ -10,7 +10,9 @@ import dev.belikhun.luna.legacy.messaging.PluginMessageChannel;
 import dev.belikhun.luna.legacy.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.legacy.string.Strings;
 
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A backend's side of the AMQP bus.
@@ -29,6 +31,9 @@ public final class RabbitMqAmqpTransport<P> implements AmqpTransport<P>, AmqpEnd
 	private final String platformLabel;
 	private final LunaLogger logger;
 	private final AmqpConnection connection;
+
+	/** Channels whose listeners must not wait for the tick; see deliverOffTick. */
+	private final Set<String> offTickChannels;
 
 	/**
 	 * @param platformLabel what this backend calls itself in the connection name
@@ -49,6 +54,7 @@ public final class RabbitMqAmqpTransport<P> implements AmqpTransport<P>, AmqpEnd
 		this.platformLabel = platformLabel;
 		this.logger = logger.scope("PluginMessaging").scope("AMQP");
 		this.connection = new AmqpConnection(this, logger, platformLabel + " backend");
+		this.offTickChannels = ConcurrentHashMap.newKeySet();
 	}
 
 	@Override
@@ -107,10 +113,49 @@ public final class RabbitMqAmqpTransport<P> implements AmqpTransport<P>, AmqpEnd
 		return config.backendQueue(resolveLocalServerName(config));
 	}
 
-	/** Deliveries arrive on the client's own thread; listeners expect the server's. */
+	/**
+	 * Deliveries arrive on the broker's own thread; most listeners expect the
+	 * server's, and the envelope has to be opened before we can know which.
+	 *
+	 * **A reply must never queue behind the thread that is waiting for it.** A
+	 * request/response channel is answered while its caller blocks the server
+	 * thread, so handing the reply to that same thread means it cannot run until
+	 * the caller has already given up - the wait always burns its whole budget and
+	 * then succeeds a tick later, whatever the budget is. Channels that opt out of
+	 * the tick are dispatched here and now.
+	 */
 	@Override
 	public void onDelivery(final byte[] body) {
-		players.onServerThread(() -> dispatch(body));
+		final AmqpPluginMessageEnvelope envelope = decode(body);
+
+		if (envelope == null) {
+			return;
+		}
+
+		if (offTickChannels.contains(envelope.channel())) {
+			dispatch(envelope);
+
+			return;
+		}
+
+		players.onServerThread(() -> dispatch(envelope));
+	}
+
+	@Override
+	public void deliverOffTick(PluginMessageChannel channel) {
+		if (channel != null) {
+			offTickChannels.add(channel.value());
+		}
+	}
+
+	private AmqpPluginMessageEnvelope decode(byte[] body) {
+		try {
+			return AmqpPluginMessageEnvelope.decode(body);
+		} catch (Exception exception) {
+			logger.warn("Không thể đọc AMQP payload trên " + platformLabel + ": " + exception.getMessage());
+
+			return null;
+		}
 	}
 
 	/**
@@ -127,6 +172,9 @@ public final class RabbitMqAmqpTransport<P> implements AmqpTransport<P>, AmqpEnd
 
 	@Override
 	public void unregisterIncoming(PluginMessageChannel channel) {
+		if (channel != null) {
+			offTickChannels.remove(channel.value());
+		}
 	}
 
 	@Override
@@ -137,9 +185,8 @@ public final class RabbitMqAmqpTransport<P> implements AmqpTransport<P>, AmqpEnd
 	public void unregisterOutgoing(PluginMessageChannel channel) {
 	}
 
-	private void dispatch(byte[] body) {
+	private void dispatch(AmqpPluginMessageEnvelope envelope) {
 		try {
-			AmqpPluginMessageEnvelope envelope = AmqpPluginMessageEnvelope.decode(body);
 			PluginMessageChannel channel = PluginMessageChannel.of(envelope.channel());
 			P source = resolvePlayer(envelope.sourcePlayerId(), envelope.sourcePlayerName());
 			PluginMessageDispatchResult result = bus.dispatchIncoming(source, channel, envelope.payload());

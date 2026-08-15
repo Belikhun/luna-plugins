@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class ShopGuiController implements Listener {
@@ -61,6 +62,9 @@ public final class ShopGuiController implements Listener {
 	private final GuiManager guiManager;
 	private final NumberSelectorGui numberSelector;
 	private final PlainTextComponentSerializer plainText;
+	/** Last balance the wallet reported, per player; see knownBalanceText. */
+	private final Map<UUID, Double> knownBalance = new ConcurrentHashMap<>();
+
 	private final Map<UUID, SearchRequest> waitingSearch;
 	private final Map<UUID, ItemEditorTextPrompt> waitingItemEditorText;
 	private final Map<UUID, CreateItemDraft> waitingCreateItemCategory;
@@ -677,7 +681,7 @@ public final class ShopGuiController implements Listener {
 			"<green>💰 Tổng mua (áp dụng): <gold>" + service.formatMoney(buyTotal),
 			"<yellow>💵 Tổng bán (áp dụng): <gold>" + service.formatMoney(sellTotal),
 			"",
-			"<white>💰 Số dư hiện tại: <yellow>" + service.formatMoney(service.economy().balance(player))
+			"<white>💰 Số dư hiện tại: <yellow>" + knownBalanceText(player)
 		));
 		displayLore.add("");
 		displayLore.addAll(playerTradeLimitLore(player, shopItem));
@@ -767,11 +771,7 @@ public final class ShopGuiController implements Listener {
 						"<gray>Số lượng sẽ bán: <white>" + effectiveSellAmount,
 						"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(expected)
 					),
-					() -> {
-						ShopResult result = service.sellAllSimilar(clicker, shopItem);
-						clicker.sendMessage(mm(result.message()));
-						openTradeMenu(clicker, normalized);
-					},
+					() -> settle(clicker, normalized, service.sellAllSimilarAsync(clicker, shopItem)),
 					() -> openTradeMenu(clicker, normalized)
 				);
 			});
@@ -787,6 +787,10 @@ public final class ShopGuiController implements Listener {
 			plainLine(LunaPalette.DANGER_500, "Thoát giao diện giao dịch")
 		)), (clicker, event, gui) -> clicker.closeInventory());
 		player.openInventory(view.getInventory());
+
+		// after the menu is on screen, never before: the point is that the draw does
+		// not wait for the wallet
+		refreshKnownBalance(player, normalized);
 	}
 
 	private void handleTradeConfirm(Player player, ShopItem shopItem, TradeSession session, GuiView view, int clickedSlot, ItemStack restoreItem) {
@@ -808,8 +812,11 @@ public final class ShopGuiController implements Listener {
 
 		if (session.mode() == TradeMode.BUY) {
 			double total = shopItem.buyPrice() * effectiveAmount;
-			double balance = service.economy().balance(player);
-			if (balance > 0D && total > balance * 0.5D) {
+			Double balance = knownBalance.get(player.getUniqueId());
+
+			// no dialog when the balance is unknown: a share of an unknown number is
+			// not a threshold, and the service still guards the money
+			if (balance != null && balance.doubleValue() > 0D && total > balance.doubleValue() * 0.5D) {
 				openConfirmationDialog(
 					player,
 					"<yellow>⚠ Xác nhận mua đơn lớn",
@@ -818,22 +825,79 @@ public final class ShopGuiController implements Listener {
 						"<gray>Số dư hiện tại: <white>" + service.formatMoney(balance),
 						"<gray>Lệnh mua này vượt <white>50%</white> số dư của bạn."
 					),
-					() -> {
-						ShopResult result = service.buy(player, shopItem, session.amount());
-						player.sendMessage(mm(result.message()));
-						openTradeMenu(player, session);
-					},
+					() -> settle(player, session, service.buyAsync(player, shopItem, session.amount())),
 					() -> openTradeMenu(player, session)
 				);
 				return;
 			}
 		}
 
-		ShopResult result = session.mode() == TradeMode.BUY
-			? service.buy(player, shopItem, session.amount())
-			: service.sell(player, shopItem, session.amount());
-		player.sendMessage(mm(result.message()));
-		openTradeMenu(player, session);
+		settle(player, session, session.mode() == TradeMode.BUY
+			? service.buyAsync(player, shopItem, session.amount())
+			: service.sellAsync(player, shopItem, session.amount()));
+	}
+
+	/**
+	 * Report a trade once the wallet has answered, back on the main thread.
+	 *
+	 * The player is looked up again rather than captured, because the round trip
+	 * outlives a disconnect and reopening a menu for someone who has left would put
+	 * an inventory view on a player the server has already forgotten.
+	 */
+	private void settle(Player player, TradeSession session, CompletableFuture<ShopResult> pending) {
+		UUID playerId = player.getUniqueId();
+
+		pending.whenComplete((result, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+			Player current = plugin.getServer().getPlayer(playerId);
+
+			if (current == null || !current.isOnline()) {
+				return;
+			}
+
+			current.sendMessage(mm(failure != null || result == null
+				? "<red>❌ Giao dịch không hoàn tất được. Vui lòng thử lại.</red>"
+				: result.message()));
+
+			openTradeMenu(current, session);
+		}));
+	}
+
+	/** The balance as last reported; see refreshKnownBalance. */
+	private String knownBalanceText(Player player) {
+		Double balance = knownBalance.get(player.getUniqueId());
+
+		return balance == null ? "—" : service.formatMoney(balance.doubleValue());
+	}
+
+	/**
+	 * Ask the wallet, and redraw only if the answer is new.
+	 *
+	 * A trade menu is redrawn on every amount click and the wallet may live on the
+	 * proxy, so asking during a draw puts a network round trip inside a click
+	 * handler. The "only if new" is what stops this looping: the redraw asks again,
+	 * gets the same value, and settles.
+	 */
+	private void refreshKnownBalance(Player player, TradeSession session) {
+		UUID playerId = player.getUniqueId();
+
+		service.economy().balanceAsync(player).whenComplete((balance, failure) ->
+			plugin.getServer().getScheduler().runTask(plugin, () -> {
+				if (failure != null || balance == null) {
+					return;
+				}
+
+				Double previous = knownBalance.put(playerId, balance);
+
+				if (previous != null && previous.doubleValue() == balance.doubleValue()) {
+					return;
+				}
+
+				Player current = plugin.getServer().getPlayer(playerId);
+
+				if (current != null && current.isOnline()) {
+					openTradeMenu(current, session);
+				}
+			}));
 	}
 
 	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1503,9 +1567,22 @@ public final class ShopGuiController implements Listener {
 		));
 	}
 
+	/**
+	 * Whether the player is known not to be able to afford this.
+	 *
+	 * Advisory only, and deliberately optimistic: the authority is the wallet, and
+	 * {@code buyAsync} asks it. With no balance remembered yet this answers yes and
+	 * lets the trade go to the service, which will refuse it properly - a cold
+	 * cache must never be the reason a player is told they are broke.
+	 */
 	private boolean hasEnoughMoney(Player player, ShopItem shopItem, int amount) {
-		double total = shopItem.buyPrice() * amount;
-		return service.economy().balance(player) >= total;
+		Double balance = knownBalance.get(player.getUniqueId());
+
+		if (balance == null) {
+			return true;
+		}
+
+		return balance.doubleValue() >= shopItem.buyPrice() * amount;
 	}
 
 	private boolean hasEnoughItems(Player player, ShopItem shopItem, int amount) {
@@ -1515,10 +1592,10 @@ public final class ShopGuiController implements Listener {
 	private void showInsufficientAlert(Player player, GuiView view, int slot, TradeMode mode, ShopItem shopItem, int amount, ItemStack restoreItem) {
 		if (mode == TradeMode.BUY) {
 			double total = shopItem.buyPrice() * amount;
-			double balance = service.economy().balance(player);
+			String balance = knownBalanceText(player);
 			view.setItem(slot, item(Material.ORANGE_STAINED_GLASS_PANE, "<color:" + LunaPalette.WARNING_500 + ">⚠ Không đủ tiền</color>", List.of(
 				line(LunaPalette.WARNING_500, "💰 Cần: <gold>" + service.formatMoney(total)),
-				line(LunaPalette.WARNING_500, "💰 Hiện có: <white>" + service.formatMoney(balance))
+				line(LunaPalette.WARNING_500, "💰 Hiện có: <white>" + balance)
 			)));
 			player.sendMessage(mm("<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn không đủ tiền để thực hiện giao dịch này.</color>"));
 			scheduleAlertReset(player, view, slot, restoreItem);

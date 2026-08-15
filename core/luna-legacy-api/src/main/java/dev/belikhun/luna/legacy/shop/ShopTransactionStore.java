@@ -21,10 +21,18 @@ public final class ShopTransactionStore {
 	private final LunaLogger logger;
 	private final boolean enabled;
 
+	/**
+	 * @param database where history goes; null or a {@link NoopDatabase} turns it off
+	 */
 	public ShopTransactionStore(Database database, LunaLogger logger) {
 		this.database = database;
 		this.logger = logger.scope("Store");
-		this.enabled = !(database instanceof NoopDatabase);
+
+		// null is a platform with no database at all, which 1.12.2 currently is.
+		// Without this it counts as enabled, and every insert fails on a null
+		// reference whose message is the word "null" - the least useful log line a
+		// missing feature can produce
+		this.enabled = database != null && !(database instanceof NoopDatabase);
 	}
 
 	public boolean isEnabled() {

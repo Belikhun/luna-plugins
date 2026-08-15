@@ -176,7 +176,7 @@ final class AuthModeSelector {
 			? AuthMessages.modePremiumChosen(remember)
 			: AuthMessages.modeOfflineChosen(remember)));
 
-		player.closeScreen();
+		menuHost.close(player);
 		controller.flow("ModeChosen player=" + player.getName() + " uuid=" + playerId + " mode=" + mode);
 	}
 
@@ -185,7 +185,7 @@ final class AuthModeSelector {
 		UUID playerId = controller.players().idOf(player);
 
 		if (menuHost.isOpen(playerId)) {
-			player.closeScreen();
+			menuHost.close(player);
 			menuHost.forget(playerId);
 		}
 	}

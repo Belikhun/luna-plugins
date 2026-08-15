@@ -32,11 +32,16 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
  * this mod supplies three things: the FML lifecycle, a {@link LegacyPlayerBridge}
  * and the wiring that lets the proxy hand down the AMQP settings.
  *
- * **No payload fallback, by protocol.** 1.12.2 caps a plugin channel name at 20
- * characters and every luna channel is `luna:`-namespaced past that, so a custom
- * payload cannot carry ours at all. Every message on this backend goes through
- * the broker, which is why the AMQP settings arriving is the difference between
- * this mod working and doing nothing.
+ * **No payload fallback for luna's own channels, by protocol.** 1.12.2 caps a
+ * plugin channel name at 20 characters and every luna channel is `luna:`-namespaced
+ * past that, so a custom payload cannot carry ours at all. Every luna message on
+ * this backend goes through the broker, which is why the AMQP settings arriving is
+ * the difference between this mod working and doing nothing.
+ *
+ * A third party's channel can still fit, and {@link LegacyPayloadFallback} is here
+ * for that case - TAB's `tab:bridge-6` is twelve characters and its proxy half
+ * listens for plugin messages, so it has to ride the connection. The mod that owns
+ * such a channel installs the fallback itself; this one only supplies the bus.
  */
 @Mod(
 	modid = LunaCoreMessagingMc12Mod.MOD_ID,

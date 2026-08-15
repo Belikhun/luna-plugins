@@ -73,5 +73,17 @@ public final class BackendAuthStateRegistry {
 		public static AuthState unauthenticatedState(boolean needsRegister) {
 			return new AuthState(false, needsRegister ? PromptMode.REGISTER : PromptMode.LOGIN);
 		}
+
+		/**
+		 * The auth flow logs states by name, and this used to be a record.
+		 *
+		 * Downgrading it to a plain class dropped the generated toString, which turned
+		 * every flow line into `AuthState@a87d8f0` - a log that names the transition
+		 * but not what it transitioned to.
+		 */
+		@Override
+		public String toString() {
+			return "AuthState[authenticated=" + authenticated + ", promptMode=" + promptMode + "]";
+		}
 		}
 }

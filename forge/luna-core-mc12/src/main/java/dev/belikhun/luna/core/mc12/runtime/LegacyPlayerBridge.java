@@ -61,12 +61,15 @@ public final class LegacyPlayerBridge implements PlayerBridge<EntityPlayerMP> {
 	/**
 	 * 1.12.2's answer to `MinecraftServer.execute`.
 	 *
-	 * `addScheduledTask` runs the task on the server thread on the next tick, or
-	 * immediately when it is already called from there - the same contract the
-	 * modern builds rely on for AMQP deliveries.
+	 * Deliberately **not** `addScheduledTask`: that takes a monitor the server
+	 * thread holds for the whole of every packet handler, so handing work over from
+	 * a network thread can block for as long as a handler runs - and a handler
+	 * waiting on a reply that arrives through here waits for itself. See
+	 * {@link ServerThreadTasks}. The contract is otherwise identical: next tick, or
+	 * inline when the caller is already the server thread.
 	 */
 	@Override
 	public void onServerThread(Runnable task) {
-		server.addScheduledTask(task);
+		ServerThreadTasks.run(server, task);
 	}
 }

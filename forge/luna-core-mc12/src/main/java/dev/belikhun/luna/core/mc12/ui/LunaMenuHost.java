@@ -1,5 +1,7 @@
 package dev.belikhun.luna.core.mc12.ui;
 
+import dev.belikhun.luna.core.mc12.runtime.ServerThreadTasks;
+
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.util.text.ITextComponent;
 
@@ -40,12 +42,58 @@ public final class LunaMenuHost {
 	 * where it runs inside the menu factory. Same reason, different mechanism: the
 	 * contents have to be in place before the client is told about the window, and
 	 * on this line `displayGUIChest` sends that packet immediately.
+	 *
+	 * A call from inside a click handler is held until that click is finished; see
+	 * {@link ServerThreadTasks} for what swapping the window mid-click does to the
+	 * window being opened. Since almost every button on a luna screen opens another screen,
+	 * this is the normal path rather than the exception.
 	 */
-	public void open(EntityPlayerMP player, ITextComponent title, Consumer<LunaChestMenu> renderer) {
+	public void open(final EntityPlayerMP player, final ITextComponent title, final Consumer<LunaChestMenu> renderer) {
 		if (player == null) {
 			return;
 		}
 
+		if (LunaChestMenu.isDispatchingClick()) {
+			ServerThreadTasks.later(new Runnable() {
+				@Override
+				public void run() {
+					openNow(player, title, renderer);
+				}
+			});
+
+			return;
+		}
+
+		openNow(player, title, renderer);
+	}
+
+	/**
+	 * Close whatever this player has open, from inside a click handler or outside it.
+	 *
+	 * Never call `closeScreen` from a button directly: `player.openContainer` becomes
+	 * the player's own inventory, and the rest of `processClickWindow` then locks
+	 * *that* - one object per session, so it stays locked for the session.
+	 */
+	public void close(final EntityPlayerMP player) {
+		if (player == null) {
+			return;
+		}
+
+		if (LunaChestMenu.isDispatchingClick()) {
+			ServerThreadTasks.later(new Runnable() {
+				@Override
+				public void run() {
+					player.closeScreen();
+				}
+			});
+
+			return;
+		}
+
+		player.closeScreen();
+	}
+
+	private void openNow(EntityPlayerMP player, ITextComponent title, Consumer<LunaChestMenu> renderer) {
 		final UUID playerId = player.getUniqueID();
 		LunaChestMenu previous = openMenus.get(playerId);
 

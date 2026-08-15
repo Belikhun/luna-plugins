@@ -334,7 +334,7 @@ public final class ServerSelectorController {
 				}
 
 				if (sendConnectRequest(player, status.serverName())) {
-					player.closeScreen();
+					menuHost.close(player);
 				}
 			});
 		}
@@ -353,14 +353,14 @@ public final class ServerSelectorController {
 		menu.setTopSlot(SLOT_LOBBY, item("oak_door", "<aqua>Về Sảnh</aqua>",
 			"<gray>Kết nối về lobby</gray>", "<yellow>Nhấn để chuyển máy chủ</yellow>"), () -> {
 			if (sendConnectRequest(player, "__lobby__")) {
-				player.closeScreen();
+				menuHost.close(player);
 			}
 		});
 
 		menu.setTopSlot(SLOT_PREVIOUS_SERVER, item("compass", "<gold>Quay Lại Server Trước</gold>",
 			"<gray>Khôi phục server gần nhất</gray>", "<yellow>Nhấn để quay lại</yellow>"), () -> {
 			if (sendConnectRequest(player, "__previous__")) {
-				player.closeScreen();
+				menuHost.close(player);
 			}
 		});
 
@@ -368,7 +368,7 @@ public final class ServerSelectorController {
 			"<gray>TPS, CPU, RAM, latency, uptime</gray>", "<yellow>Nhấn để mở dashboard</yellow>"),
 			() -> openDashboard(player, currentPage));
 
-		menu.setTopSlot(SLOT_CLOSE, item("barrier", "<red>Đóng</red>"), () -> player.closeScreen());
+		menu.setTopSlot(SLOT_CLOSE, item("barrier", "<red>Đóng</red>"), () -> menuHost.close(player));
 
 		if (currentPage < maxPage) {
 			menu.setTopSlot(SLOT_NEXT_PAGE, item("paper", "<yellow>Trang sau →</yellow>",

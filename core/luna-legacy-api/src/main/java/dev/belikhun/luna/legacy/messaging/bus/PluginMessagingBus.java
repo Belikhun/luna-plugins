@@ -130,6 +130,18 @@ public final class PluginMessagingBus<P> implements PluginMessageBus<P, P> {
 	}
 
 	@Override
+	public PluginMessageListenerRegistration<Object, P> registerIncomingOffTick(
+		PluginMessageChannel channel,
+		PluginMessageHandler<P> handler
+	) {
+		PluginMessageListenerRegistration<Object, P> registration = registerIncoming(channel, handler);
+
+		amqpTransport.deliverOffTick(Objects.requireNonNull(channel, "channel"));
+
+		return registration;
+	}
+
+	@Override
 	public PluginMessageListenerRegistration<Object, P> registerIncomingPluginChannel(
 		Object owner,
 		PluginMessageChannel channel,

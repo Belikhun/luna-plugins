@@ -7,6 +7,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 public final class VaultEconomyService implements ShopEconomyService {
 	private final Economy economy;
@@ -44,6 +45,35 @@ public final class VaultEconomyService implements ShopEconomyService {
 	public boolean deposit(Player player, double amount) {
 		EconomyResponse response = economy.depositPlayer(player, amount);
 		return response.transactionSuccess();
+	}
+
+	/**
+	 * Vault has no async form, and must not be given one.
+	 *
+	 * These complete inline, on whatever thread called them, which for a trade is
+	 * the main thread. That is deliberate: Vault implementations are Bukkit
+	 * services and are not thread-safe, so handing one to another thread to look
+	 * asynchronous would trade a stall this call does not have for a data race it
+	 * currently cannot have. There is no network here to wait on.
+	 */
+	@Override
+	public CompletableFuture<Double> balanceAsync(Player player) {
+		return CompletableFuture.completedFuture(Double.valueOf(balance(player)));
+	}
+
+	@Override
+	public CompletableFuture<Boolean> hasAsync(Player player, double amount) {
+		return CompletableFuture.completedFuture(Boolean.valueOf(has(player, amount)));
+	}
+
+	@Override
+	public CompletableFuture<Boolean> withdrawAsync(Player player, double amount) {
+		return CompletableFuture.completedFuture(Boolean.valueOf(withdraw(player, amount)));
+	}
+
+	@Override
+	public CompletableFuture<Boolean> depositAsync(Player player, double amount) {
+		return CompletableFuture.completedFuture(Boolean.valueOf(deposit(player, amount)));
 	}
 
 	@Override

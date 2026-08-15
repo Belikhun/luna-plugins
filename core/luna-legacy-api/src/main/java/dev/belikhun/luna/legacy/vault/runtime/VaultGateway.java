@@ -170,7 +170,10 @@ public final class VaultGateway<P> implements LunaVaultApi {
 			stateCache.apply(VaultCacheRefresh.readFrom(reader));
 			return PluginMessageDispatchResult.HANDLED;
 		});
-		bus.registerIncoming(VaultChannels.RPC, context -> {
+		// the reply only completes a future, and the thread that asked for it is
+		// usually blocked waiting: queueing this behind the tick is queueing it
+		// behind its own caller
+		bus.registerIncomingOffTick(VaultChannels.RPC, context -> {
 			PluginMessageReader reader = PluginMessageReader.of(context.payload());
 			VaultRpcResponse response = VaultRpcResponse.readFrom(reader);
 			CompletableFuture<VaultRpcResponse> future = pendingRequests.remove(response.correlationId());

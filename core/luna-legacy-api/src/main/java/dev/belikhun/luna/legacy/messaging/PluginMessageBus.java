@@ -14,6 +14,21 @@ public interface PluginMessageBus<SOURCE, TARGET> extends PluginMessenger<Object
 		return registerIncomingPluginChannel(DEFAULT_OWNER, channel, handler);
 	}
 
+	/**
+	 * Register a listener that must not be made to wait for the server thread.
+	 *
+	 * For a reply that only completes a future. Such a listener is answered while
+	 * its caller is blocking the server thread, so queueing it for that thread
+	 * makes it wait for the very caller waiting for it. The handler may then touch
+	 * nothing the tick owns, and marshals for itself if it needs to.
+	 *
+	 * The default ignores the request, because a transport that already delivers on
+	 * its own thread has nothing to opt out of.
+	 */
+	default PluginMessageListenerRegistration<Object, SOURCE> registerIncomingOffTick(PluginMessageChannel channel, PluginMessageHandler<SOURCE> handler) {
+		return registerIncoming(channel, handler);
+	}
+
 	default void unregisterIncoming(PluginMessageChannel channel, PluginMessageHandler<SOURCE> handler) {
 		unregisterIncomingPluginChannel(DEFAULT_OWNER, channel, handler);
 	}

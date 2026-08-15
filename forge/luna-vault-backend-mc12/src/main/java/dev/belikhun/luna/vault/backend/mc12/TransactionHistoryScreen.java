@@ -159,7 +159,7 @@ public final class TransactionHistoryScreen {
 		menu.setTopSlot(
 			SLOT_CLOSE,
 			LunaItems.of(ITEM_DOOR, "<red>Đóng</red>", Collections.<String>emptyList()),
-			() -> player.closeScreen()
+			() -> menuHost.close(player)
 		);
 	}
 

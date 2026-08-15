@@ -6,12 +6,22 @@ import dev.belikhun.luna.core.mc12.forwarding.ForwardingInjector;
 import dev.belikhun.luna.core.mc12.logging.LegacyLunaLogger;
 import dev.belikhun.luna.core.mc12.permission.PermissionMirrorListener;
 import dev.belikhun.luna.core.mc12.runtime.LegacyPlayerBridge;
+import dev.belikhun.luna.core.mc12.ui.LegacyChatPrompts;
 import dev.belikhun.luna.core.mc12.serverselector.ServerSelectorController;
 import dev.belikhun.luna.core.mc12.serverselector.SelectorCleanupListener;
+import dev.belikhun.luna.legacy.placeholder.PlaceholderService;
+import dev.belikhun.luna.core.mc12.placeholder.BuiltinLegacyPlaceholders;
+import dev.belikhun.luna.core.mc12.placeholder.LegacyPlaceholderService;
+import dev.belikhun.luna.core.mc12.placeholder.PermissionLegacyPlaceholders;
+import dev.belikhun.luna.core.mc12.placeholder.PlaceholderRefreshListener;
 import dev.belikhun.luna.core.mc12.runtime.LegacyServerProbe;
 import dev.belikhun.luna.legacy.config.BackendCoreConfigLoader;
 import dev.belikhun.luna.legacy.config.BackendCoreRuntimeConfig;
 import dev.belikhun.luna.legacy.config.ForwardingSecretResolver;
+import dev.belikhun.luna.legacy.config.YamlConfigFile;
+import dev.belikhun.luna.legacy.database.Database;
+import dev.belikhun.luna.legacy.database.DatabaseConnector;
+import dev.belikhun.luna.legacy.database.NoopDatabase;
 import dev.belikhun.luna.legacy.dependency.DependencyManager;
 import dev.belikhun.luna.legacy.heartbeat.BackendIdentity;
 import dev.belikhun.luna.legacy.heartbeat.BackendHeartbeatPublisher;
@@ -31,6 +41,7 @@ import net.minecraftforge.fml.common.event.FMLServerStoppingEvent;
 import java.io.File;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 /**
  * LunaCore on 1.12.2.
@@ -71,6 +82,8 @@ public final class LunaCoreMc12Mod {
 	private LunaLogger logger;
 	private Path configDir;
 	private BackendCoreRuntimeConfig runtimeConfig;
+	private YamlConfigFile config;
+	private Database database = new NoopDatabase();
 	private BackendHeartbeatPublisher heartbeatPublisher;
 	private MirroredPermissionService permissions;
 	private ServerSelectorController selector;
@@ -97,6 +110,11 @@ public final class LunaCoreMc12Mod {
 		if (runtimeConfig.debugLoggingEnabled()) {
 			logger = ((LegacyLunaLogger) logger).withDebug(true);
 		}
+
+		// the same file again, unparsed. The loader above has already created it and
+		// merged in any key the shipped defaults gained, so reading it now is what
+		// gives a feature mod a section this bootstrap knows nothing about
+		config = YamlConfigFile.loadOrEmpty(configDir.resolve(MOD_ID).resolve("config.yml"));
 
 		logger.audit("LunaCore (Forge 1.12.2) đã khởi tạo cấu hình.");
 	}
@@ -138,6 +156,15 @@ public final class LunaCoreMc12Mod {
 		DependencyManager registry = new DependencyManager();
 		registry.register(PermissionService.class, permissions);
 
+		// Disabled in the shipped defaults, and a NoopDatabase when it stays that way
+		// rather than a null: every repository above this checks for the no-op and
+		// takes its "database off" path, so a backend with no database is a backend
+		// that records no history, not one that throws on the first trade.
+		database = DatabaseConnector.connect(config.section("database"), logger);
+
+		registry.register(Database.class, database);
+		registry.register(YamlConfigFile.class, config);
+
 		// both faces of the same mirror: a reader asks for the view, and whoever has
 		// to know *when* a backend went up or down asks for the store
 		registry.register(BackendStatusView.class, statusStore);
@@ -155,8 +182,33 @@ public final class LunaCoreMc12Mod {
 		playerBridge = new LegacyPlayerBridge(server);
 		registry.register(PlayerBridge.class, playerBridge);
 
+		// a chest has no text field, so every module that needs one borrows the
+		// player's next chat line; one store, shared, or two modules would each
+		// think the answer was theirs
+		LegacyChatPrompts chatPrompts = new LegacyChatPrompts(server);
+
+		registry.register(LegacyChatPrompts.class, chatPrompts);
+
+		// the tab list and the messenger both resolve through this; the vault and any
+		// other module publish their own namespaces into it as extensions
+		LegacyPlaceholderService placeholders = new LegacyPlaceholderService(
+			logger,
+			server,
+			probe,
+			heartbeatPublisher.identity(),
+			Arrays.<LegacyPlaceholderService.LegacyPlaceholderProvider>asList(
+				new BuiltinLegacyPlaceholders(),
+				new PermissionLegacyPlaceholders(permissions)
+			)
+		);
+
+		registry.register(PlaceholderService.class, placeholders);
+		registry.register(LegacyPlaceholderService.class, placeholders);
+
 		LunaCore.set(registry);
 
+		MinecraftForge.EVENT_BUS.register(chatPrompts);
+		MinecraftForge.EVENT_BUS.register(new PlaceholderRefreshListener(placeholders));
 		MinecraftForge.EVENT_BUS.register(new PermissionMirrorListener(permissions));
 		event.registerServerCommand(new LunaCommand(permissions, heartbeatPublisher, statusStore));
 
@@ -236,6 +288,12 @@ public final class LunaCoreMc12Mod {
 			permissions.close();
 			permissions = null;
 		}
+
+		// last, and replaced rather than nulled: a feature mod shutting down after
+		// this may still reach for it, and a no-op answering nothing is better than
+		// a null dereference on the way out
+		database.close();
+		database = new NoopDatabase();
 
 		logger.audit("LunaCore (Forge 1.12.2) đã dừng.");
 	}

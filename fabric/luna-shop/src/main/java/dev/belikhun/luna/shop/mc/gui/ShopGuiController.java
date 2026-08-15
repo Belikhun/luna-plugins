@@ -31,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -65,6 +66,9 @@ public final class ShopGuiController {
 	private final NumberSelectorScreen numberSelector;
 	private final LunaMenuHost mainHost;
 	private final LunaMenuHost confirmHost;
+	/** Last balance the wallet reported, per player; see knownBalanceText. */
+	private final Map<UUID, Double> knownBalance = new ConcurrentHashMap<>();
+
 	private final Map<UUID, UUID> pendingConfirmations;
 
 	public ShopGuiController(MinecraftServer server, ShopService service, ShopItemStore store, ChatPrompts chatPrompts) {
@@ -560,6 +564,10 @@ public final class ShopGuiController {
 				plainLine(LunaPalette.DANGER_500, "Thoát giao diện giao dịch")
 			)), player::closeContainer);
 		});
+
+		// after the menu is on screen, never before: the point is that the draw does
+		// not wait for the wallet
+		refreshKnownBalance(player, normalized);
 	}
 
 	private void drawTradePreview(ServerPlayer player, LunaChestMenuBase menu, ShopItem shopItem, int amount) {
@@ -573,7 +581,7 @@ public final class ShopGuiController {
 			"<green>💰 Tổng mua (áp dụng): <gold>" + service.formatMoney(shopItem.buyPrice() * cappedBuyAmount),
 			"<yellow>💵 Tổng bán (áp dụng): <gold>" + service.formatMoney(shopItem.sellPrice() * cappedSellAmount),
 			"",
-			"<white>💰 Số dư hiện tại: <yellow>" + service.formatMoney(service.economy().balance(player))
+			"<white>💰 Số dư hiện tại: <yellow>" + knownBalanceText(player)
 		));
 		lore.add("");
 		lore.addAll(playerTradeLimitLore(player, shopItem));
@@ -618,11 +626,7 @@ public final class ShopGuiController {
 					"<gray>Số lượng sẽ bán: <white>" + effectiveSellAmount,
 					"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(shopItem.sellPrice() * effectiveSellAmount)
 				),
-				() -> {
-					ShopResult result = service.sellAllSimilar(player, shopItem);
-					tell(player, result.message());
-					openTradeMenu(player, session);
-				},
+				() -> settle(player, session, service.sellAllSimilarAsync(player, shopItem)),
 				() -> openTradeMenu(player, session)
 			);
 		});
@@ -648,14 +652,19 @@ public final class ShopGuiController {
 
 		if (session.mode() == TradeMode.BUY) {
 			double total = shopItem.buyPrice() * effectiveAmount;
-			double balance = service.economy().balance(player);
+			Double balance = knownBalance.get(player.getUUID());
 
-			if (balance < total) {
+			// advisory, and deliberately optimistic: the wallet is the authority and
+			// buyAsync asks it, so a balance we have not heard yet must never be the
+			// reason a player is told they are broke
+			if (balance != null && balance.doubleValue() < total) {
 				tell(player, "<color:" + LunaPalette.WARNING_500 + ">⚠ Bạn không đủ tiền để thực hiện giao dịch này.</color>");
 				return;
 			}
 
-			if (balance > 0D && total > balance * 0.5D) {
+			// no dialog on an unknown balance: a share of an unknown number is not a
+			// threshold, and the service still guards the money
+			if (balance != null && balance.doubleValue() > 0D && total > balance.doubleValue() * 0.5D) {
 				openConfirmationDialog(
 					player,
 					"<yellow>⚠ Xác nhận mua đơn lớn",
@@ -680,12 +689,71 @@ public final class ShopGuiController {
 	}
 
 	private void completeTrade(ServerPlayer player, ShopItem shopItem, TradeSession session) {
-		ShopResult result = session.mode() == TradeMode.BUY
-			? service.buy(player, shopItem, session.amount())
-			: service.sell(player, shopItem, session.amount());
+		settle(player, session, session.mode() == TradeMode.BUY
+			? service.buyAsync(player, shopItem, session.amount())
+			: service.sellAsync(player, shopItem, session.amount()));
+	}
 
-		tell(player, result.message());
-		openTradeMenu(player, session);
+	/**
+	 * Report a trade once the wallet has answered, back on the server thread.
+	 *
+	 * The player is looked up again rather than captured, because the round trip
+	 * outlives a disconnect and reopening a menu for someone who has left would put
+	 * a container on a player the server has already forgotten.
+	 */
+	private void settle(ServerPlayer player, TradeSession session, CompletableFuture<ShopResult> pending) {
+		UUID playerId = player.getUUID();
+
+		pending.whenComplete((result, failure) -> server.execute(() -> {
+			ServerPlayer current = server.getPlayerList().getPlayer(playerId);
+
+			if (current == null) {
+				return;
+			}
+
+			tell(current, failure != null || result == null
+				? "<red>❌ Giao dịch không hoàn tất được. Vui lòng thử lại.</red>"
+				: result.message());
+
+			openTradeMenu(current, session);
+		}));
+	}
+
+	/** The balance as last reported; see refreshKnownBalance. */
+	private String knownBalanceText(ServerPlayer player) {
+		Double balance = knownBalance.get(player.getUUID());
+
+		return balance == null ? "—" : service.formatMoney(balance.doubleValue());
+	}
+
+	/**
+	 * Ask the wallet, and redraw only if the answer is new.
+	 *
+	 * A trade menu is redrawn on every amount click and the wallet lives on the
+	 * proxy, so asking during a draw puts a network round trip inside a click
+	 * handler. The "only if new" is what stops this looping: the redraw asks again,
+	 * gets the same value, and settles.
+	 */
+	private void refreshKnownBalance(ServerPlayer player, TradeSession session) {
+		UUID playerId = player.getUUID();
+
+		service.economy().balanceAsync(player).whenComplete((balance, failure) -> server.execute(() -> {
+			if (failure != null || balance == null) {
+				return;
+			}
+
+			Double previous = knownBalance.put(playerId, balance);
+
+			if (previous != null && previous.doubleValue() == balance.doubleValue()) {
+				return;
+			}
+
+			ServerPlayer current = server.getPlayerList().getPlayer(playerId);
+
+			if (current != null) {
+				openTradeMenu(current, session);
+			}
+		}));
 	}
 
 	private void tellLimitReached(ServerPlayer player, TradeMode mode) {
