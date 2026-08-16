@@ -6,6 +6,8 @@ dependencies {
 	compileOnly(project(":luna-core-velocity"))
 	compileOnly(libs.velocity.api)
 	annotationProcessor(libs.velocity.api)
+	testImplementation(project(":luna-core-api"))
+	testImplementation(libs.velocity.api)
 }
 
 val generatedConstantsDir = layout.buildDirectory.dir("generated/sources/constants/java")

@@ -14,7 +14,20 @@ public final class LunaProgressBar {
 		ALL_RIGHT
 	}
 
-	private static final String DEFAULT_GLYPH = "█";
+	private static final String DEFAULT_GLYPH = "|";
+
+	/**
+	 * The unfilled track, and exactly vanilla's §7.
+	 *
+	 * 1.12 has no hex colours - every colour snaps to one of the sixteen legacy
+	 * ones - and the palette's NEUTRAL_700 carries enough blue to snap to §1 dark
+	 * blue, which is nearly invisible against the tab list. Using §7's own value
+	 * makes that snap a no-op, so the track reads grey however the client rounds.
+	 * Deliberately not a palette token: it exists because of how this era renders,
+	 * not because the design calls for a different grey.
+	 */
+	public static final String LEGACY_EMPTY_COLOR = "#aaaaaa";
+
 	private static final String COLOR_CLOSE_TAG = "</c>";
 	private static final BarRenderer DEFAULT_BAR_RENDERER = context -> {
 		double percent = clampPercent(context.percent());
@@ -75,12 +88,10 @@ public final class LunaProgressBar {
 		this.min = 0D;
 		this.max = 100D;
 		this.numericValue = 0D;
-		// legacy clients render DEFAULT_GLYPH as a full cell, so fewer of them add
-		// up to the same width on screen; see LunaProgressBarPresets.DEFAULT_WIDTH
-		this.width = 16;
+		this.width = 25;
 		this.glyph = DEFAULT_GLYPH;
 		this.filledColor = LunaPalette.SUCCESS_500;
-		this.emptyColor = LunaPalette.NEUTRAL_700;
+		this.emptyColor = LEGACY_EMPTY_COLOR;
 		this.frameColor = LunaPalette.NEUTRAL_500;
 		this.frameEnabled = false;
 		this.label = "";
@@ -249,7 +260,7 @@ public final class LunaProgressBar {
 	}
 
 	public LunaProgressBar emptyColor(String hexColor) {
-		this.emptyColor = colorOrDefault(hexColor, LunaPalette.NEUTRAL_700);
+		this.emptyColor = colorOrDefault(hexColor, LEGACY_EMPTY_COLOR);
 		return this;
 	}
 

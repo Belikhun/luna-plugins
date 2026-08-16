@@ -18,8 +18,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * placeholder reads the world and the player list.
  */
 public final class TabBridgePlaceholderUpdater<P> {
-	/** One tick. TAB's own default refresh is 50ms and asking slower would show as lag. */
-	private static final long REFRESH_INTERVAL_MILLIS = 50L;
+	/**
+	 * How often this backend volunteers values, and so the fastest the tab list can
+	 * change.
+	 *
+	 * Deliberately 100ms rather than one tick. TAB asks for a refresh interval per
+	 * identifier and the runtime honours it, but two things quietly floor to 50ms:
+	 * this clock, and the fallback used when a registration arrives carrying no
+	 * interval. A value that genuinely moves every sample - tick duration, cpu,
+	 * memory - therefore reached the client twenty times a second, which a 1.12
+	 * client redraws as a visible strobe. 100ms is TAB's own configured default
+	 * here, so this asks for nothing TAB was not already going to use.
+	 *
+	 * The modern trunks stay at 50ms on purpose: their clients redraw it without
+	 * complaint, and this cap belongs to the era that cannot.
+	 */
+	private static final long REFRESH_INTERVAL_MILLIS = 100L;
 
 	private final TabPlayerBridge<P> players;
 	private final TabBridgeRuntime<P> runtime;
@@ -94,7 +108,15 @@ public final class TabBridgePlaceholderUpdater<P> {
 		});
 	}
 
-	/** Re-sample the shared statistics once, then push every online player's values. */
+	/**
+	 * Re-sample the shared statistics once, then push every online player's values.
+	 *
+	 * The re-sample belongs here rather than on the tick listener's one-second
+	 * clock: cpu and memory are the figures this drives, and at one second they
+	 * read as frozen. This runs on {@link #REFRESH_INTERVAL_MILLIS}, so they move
+	 * at that rate and no faster - which is the whole reason that constant is not
+	 * one tick.
+	 */
 	public void refreshOnlinePlayers() {
 		if (closed) {
 			return;

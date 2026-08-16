@@ -10,6 +10,14 @@ public record ResolvedPack(
 	String sha1,
 	long sizeBytes,
 	boolean available,
-	String unavailableReason
+	String unavailableReason,
+	/** Declared format range from the zip's pack.mcmeta; null = undeclared, never filtered */
+	PackFormatRange formatRange
 ) {
+	public boolean loadableBy(PackFormat clientFormat) {
+		if (formatRange == null || clientFormat == null) {
+			return true;
+		}
+		return formatRange.contains(clientFormat);
+	}
 }

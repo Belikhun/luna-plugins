@@ -48,7 +48,7 @@ public final class BuiltInPackHttpService {
 		}
 
 		startOrUpdate(config.packPath());
-		return new LoaderConfig(effectiveBaseUrl, config.packPath());
+		return new LoaderConfig(effectiveBaseUrl, config.packPath(), config.versionFilter(), config.clientFormats());
 	}
 
 	public void stopIfRunning() {

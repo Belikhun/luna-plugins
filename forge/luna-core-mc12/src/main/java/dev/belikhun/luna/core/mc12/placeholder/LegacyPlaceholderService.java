@@ -1,6 +1,7 @@
 package dev.belikhun.luna.core.mc12.placeholder;
 
 import dev.belikhun.luna.legacy.heartbeat.BackendIdentity;
+import dev.belikhun.luna.legacy.heartbeat.BackendMetadata;
 import dev.belikhun.luna.legacy.heartbeat.BackendServerProbe;
 import dev.belikhun.luna.legacy.logging.LunaLogger;
 import dev.belikhun.luna.legacy.placeholder.LunaPlaceholderExtension;
@@ -427,6 +428,33 @@ public final class LegacyPlaceholderService implements PlaceholderService<Entity
 	 */
 	public String localServerName() {
 		return identity == null ? "" : safe(identity.name());
+	}
+
+	/**
+	 * The machine this backend runs on, as the proxy knows it.
+	 *
+	 * Despite the field's name, {@link BackendMetadata#serverName()} carries the
+	 * **host**: the proxy fills it from the connection's host when it answers a
+	 * heartbeat, so it reads `maylocnuoc` or `mayphatdien`, not `lobby`. That is
+	 * what `%luna_host_name%` is for, and wiring it to {@link #localServerName()}
+	 * is why this trunk rendered `skyfactory4/skyfactory4` where the modern ones
+	 * render `mayphatdien/skyfactory4`.
+	 *
+	 * Falls back to the server's own name, so a backend the proxy has not answered
+	 * yet shows something rather than nothing.
+	 */
+	public String currentServerInfoName() {
+		BackendMetadata metadata = identity == null ? null : identity.current();
+
+		if (metadata != null) {
+			String host = metadata.sanitize().serverName();
+
+			if (!Strings.isBlank(host)) {
+				return safe(host);
+			}
+		}
+
+		return localServerName();
 	}
 
 	public String safe(String value) {

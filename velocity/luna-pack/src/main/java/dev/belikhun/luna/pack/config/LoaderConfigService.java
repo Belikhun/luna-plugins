@@ -3,6 +3,7 @@ package dev.belikhun.luna.pack.config;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.pack.model.PackFormat;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -44,7 +45,9 @@ public final class LoaderConfigService {
 			Map<String, Object> map = LunaYamlConfig.loadMap(configPath);
 			String baseUrl = normalizeBaseUrl(ConfigValues.string(map, "base-url", DEFAULT_BASE_URL));
 			String packPathRaw = ConfigValues.string(map, "pack-path", DEFAULT_PACK_PATH);
-			current = new LoaderConfig(baseUrl, resolvePackPath(packPathRaw));
+			boolean versionFilter = ConfigValues.booleanValue(map, "version-filter", true);
+			Map<Integer, PackFormat> clientFormats = readClientFormats(map.get("client-formats"));
+			current = new LoaderConfig(baseUrl, resolvePackPath(packPathRaw), versionFilter, clientFormats);
 			return current;
 		} catch (RuntimeException exception) {
 			logger.error("Không thể đọc config.yml, sử dụng cấu hình mặc định.", exception);
@@ -83,6 +86,44 @@ public final class LoaderConfigService {
 		} catch (URISyntaxException exception) {
 			logger.warn("base-url '" + candidate + "' không hợp lệ, dùng mặc định " + DEFAULT_BASE_URL + ".");
 			return DEFAULT_BASE_URL;
+		}
+	}
+
+	/**
+	 * The client-formats section: protocol number → pack format ("75", "75.0"
+	 * or a plain int). Entries extend and override the built-in table, which is
+	 * how a new Minecraft release is taught without a plugin build.
+	 */
+	private Map<Integer, PackFormat> readClientFormats(Object raw) {
+		if (!(raw instanceof Map<?, ?> section) || section.isEmpty()) {
+			return Map.of();
+		}
+
+		Map<Integer, PackFormat> entries = new java.util.LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : section.entrySet()) {
+			Integer protocol = parseProtocol(entry.getKey());
+			PackFormat format = PackFormat.parse(entry.getValue());
+
+			if (protocol == null || format == null) {
+				logger.warn("Mục client-formats không hợp lệ: " + entry.getKey() + ": " + entry.getValue() + ", bỏ qua.");
+				continue;
+			}
+
+			entries.put(protocol, format);
+		}
+
+		return Map.copyOf(entries);
+	}
+
+	private Integer parseProtocol(Object key) {
+		if (key instanceof Number number) {
+			return number.intValue();
+		}
+
+		try {
+			return Integer.parseInt(String.valueOf(key).trim());
+		} catch (NumberFormatException exception) {
+			return null;
 		}
 	}
 

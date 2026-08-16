@@ -117,6 +117,16 @@ public final class PackHttpEndpoints {
 		row.put("sizeBytes", resolved.sizeBytes());
 		row.put("available", resolved.available());
 		row.put("unavailableReason", resolved.unavailableReason() == null ? "" : resolved.unavailableReason());
+
+		if (resolved.formatRange() != null) {
+			Map<String, Object> formats = new LinkedHashMap<>();
+			formats.put("min", resolved.formatRange().min().render());
+			formats.put("max", resolved.formatRange().max().render());
+			formats.put("source", resolved.formatRange().source());
+			formats.put("clamped", resolved.formatRange().clamped());
+			row.put("formats", formats);
+		}
+
 		return row;
 	}
 
@@ -133,6 +143,7 @@ public final class PackHttpEndpoints {
 		row.put("server", player.getCurrentServer()
 			.map(connection -> connection.getServerInfo().getName())
 			.orElse(""));
+		row.put("protocol", player.getProtocolVersion().getProtocol());
 		row.put("loaded", session == null ? List.of() : new ArrayList<>(session.loadedByName().keySet()));
 		row.put("pending", session == null ? List.of() : new ArrayList<>(session.pendingByPackId().values()));
 		row.put("lastFailure", session == null || session.lastFailure() == null ? "" : session.lastFailure());

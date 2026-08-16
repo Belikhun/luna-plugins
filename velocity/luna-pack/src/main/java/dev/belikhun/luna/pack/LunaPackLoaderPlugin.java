@@ -27,6 +27,7 @@ import dev.belikhun.luna.pack.config.LoaderConfigService;
 import dev.belikhun.luna.pack.listener.PlayerConnectionListener;
 import dev.belikhun.luna.pack.listener.PlayerPackStatusListener;
 import dev.belikhun.luna.pack.model.PackReloadReport;
+import dev.belikhun.luna.pack.service.ClientFormatService;
 import dev.belikhun.luna.pack.service.PackCatalogService;
 import dev.belikhun.luna.pack.service.BuiltInPackHttpService;
 import dev.belikhun.luna.pack.service.LunaPackApiService;
@@ -57,6 +58,7 @@ public final class LunaPackLoaderPlugin {
 	private final PackCatalogService catalogService;
 	private final BuiltInPackHttpService builtInHttpService;
 	private final PlayerPackSessionStore sessionStore;
+	private final ClientFormatService clientFormatService;
 	private final PackDispatchService dispatchService;
 	private final LunaEventManager packReloadEventManager;
 	private final LunaPackApiService packApiService;
@@ -74,7 +76,8 @@ public final class LunaPackLoaderPlugin {
 		this.catalogService = new PackCatalogService(dataDirectory, logger, dynamicRegistry);
 		this.builtInHttpService = new BuiltInPackHttpService(server, logger);
 		this.sessionStore = new PlayerPackSessionStore();
-		this.dispatchService = new PackDispatchService(server, logger);
+		this.clientFormatService = new ClientFormatService(logger);
+		this.dispatchService = new PackDispatchService(server, logger, clientFormatService);
 		this.packReloadEventManager = new LunaEventManager();
 		this.packApiService = new LunaPackApiService(dynamicRegistry, catalogService::snapshot, this::reloadCatalog, packReloadEventManager);
 	}
@@ -104,6 +107,7 @@ public final class LunaPackLoaderPlugin {
 	private synchronized PackReloadReport reloadCatalog() {
 		var previousSnapshot = catalogService.snapshot();
 		LoaderConfig config = builtInHttpService.resolve(configService.load());
+		clientFormatService.configure(config.versionFilter(), config.clientFormats());
 		PackReloadReport report = catalogService.reload(config);
 		packApiService.emitReload(previousSnapshot, catalogService.snapshot(), report);
 		return report;

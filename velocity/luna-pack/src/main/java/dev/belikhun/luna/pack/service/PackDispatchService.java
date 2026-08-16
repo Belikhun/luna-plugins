@@ -5,6 +5,7 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.player.ResourcePackInfo;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.pack.model.PackCatalogSnapshot;
+import dev.belikhun.luna.pack.model.PackFormat;
 import dev.belikhun.luna.pack.model.PlayerPackSession;
 import dev.belikhun.luna.pack.model.ResolvedPack;
 import dev.belikhun.luna.pack.util.SizeFormat;
@@ -17,16 +18,23 @@ public final class PackDispatchService {
 	private final ProxyServer server;
 	private final LunaLogger logger;
 	private final PackSelectionService selectionService;
+	private final ClientFormatService clientFormatService;
 	private PackLoadStateBroadcastService broadcastService;
 
-	public PackDispatchService(ProxyServer server, LunaLogger logger) {
-		this(server, logger, null);
+	public PackDispatchService(ProxyServer server, LunaLogger logger, ClientFormatService clientFormatService) {
+		this(server, logger, clientFormatService, null);
 	}
 
-	public PackDispatchService(ProxyServer server, LunaLogger logger, PackLoadStateBroadcastService broadcastService) {
+	public PackDispatchService(
+		ProxyServer server,
+		LunaLogger logger,
+		ClientFormatService clientFormatService,
+		PackLoadStateBroadcastService broadcastService
+	) {
 		this.server = server;
 		this.logger = logger.scope("Dispatch");
 		this.selectionService = new PackSelectionService();
+		this.clientFormatService = clientFormatService;
 		this.broadcastService = broadcastService;
 	}
 
@@ -46,7 +54,10 @@ public final class PackDispatchService {
 		session.previousServer(previousServer);
 		session.lastKnownServer(currentServer);
 
-		List<ResolvedPack> desired = selectionService.selectForServer(snapshot, currentServer);
+		PackFormat clientFormat = clientFormatService.formatFor(player.getProtocolVersion());
+		List<ResolvedPack> desired = selectionService.selectForServer(snapshot, currentServer, clientFormat);
+		reportWithheld(player, session, snapshot, currentServer, clientFormat, desired);
+
 		PackSelectionService.Delta delta = selectionService.computeDelta(
 			desired,
 			session.loadedByName()
@@ -58,6 +69,42 @@ public final class PackDispatchService {
 
 		unloadPacks(player, session, delta.toUnload());
 		loadPacks(player, session, delta.toLoad(), currentServer);
+	}
+
+	/**
+	 * Say which packs the version filter withheld, once per dispatch: the
+	 * operator debugging "why is this player not getting the pack" needs the
+	 * reason, and the audit trail is where that question gets asked.
+	 */
+	private void reportWithheld(
+		Player player,
+		PlayerPackSession session,
+		PackCatalogSnapshot snapshot,
+		String currentServer,
+		PackFormat clientFormat,
+		List<ResolvedPack> desired
+	) {
+		if (clientFormat == null) {
+			return;
+		}
+
+		List<ResolvedPack> unfiltered = selectionService.selectForServer(snapshot, currentServer, null);
+		if (unfiltered.size() == desired.size()) {
+			return;
+		}
+
+		for (ResolvedPack pack : unfiltered) {
+			if (desired.contains(pack)) {
+				continue;
+			}
+
+			String range = pack.formatRange() == null ? "?" : pack.formatRange().render();
+			debug(session, player, "<gray>[DEBUG] Bỏ qua pack <white>" + pack.definition().name()
+				+ "</white>: client dùng định dạng <white>" + clientFormat.render()
+				+ "</white>, pack hỗ trợ <white>" + range + "</white>.</gray>");
+			logger.audit("Bỏ qua pack " + pack.definition().name() + " cho " + player.getUsername()
+				+ " (định dạng client " + clientFormat.render() + ", pack hỗ trợ " + range + ")");
+		}
 	}
 
 	private void unloadPacks(Player player, PlayerPackSession session, List<Map.Entry<String, ResourcePackInfo>> toUnload) {

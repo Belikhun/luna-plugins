@@ -2,3 +2,15 @@
 # Ví dụ: base-url: "built-in"
 base-url: "https://mc.belikhun.dev/mcds/packs/"
 pack-path: "plugins/lunapackloader/packs"
+
+# Chỉ gửi pack khi phiên bản client nằm trong khoảng định dạng mà pack.mcmeta
+# của pack khai báo (min_format/max_format, hoặc pack_format/supported_formats
+# kiểu cũ). Pack không khai báo gì vẫn được gửi cho mọi client.
+version-filter: true
+
+# Bổ sung bảng protocol -> pack format cho các phiên bản Minecraft mới hơn
+# bản build plugin này. Client mới hơn mục cuối của bảng được tạm coi là dùng
+# định dạng mới nhất đã biết; thêm mục ở đây để chính xác hơn.
+# Ví dụ:
+# client-formats:
+#   775: "80.0"

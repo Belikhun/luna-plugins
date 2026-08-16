@@ -2,6 +2,7 @@ package dev.belikhun.luna.pack.service;
 
 import com.velocitypowered.api.proxy.player.ResourcePackInfo;
 import dev.belikhun.luna.pack.model.PackCatalogSnapshot;
+import dev.belikhun.luna.pack.model.PackFormat;
 import dev.belikhun.luna.pack.model.ResolvedPack;
 
 import java.util.ArrayList;
@@ -16,7 +17,12 @@ public final class PackSelectionService {
 		.comparingInt((ResolvedPack pack) -> pack.definition().priority())
 		.thenComparing(pack -> pack.definition().normalizedName());
 
-	public List<ResolvedPack> selectForServer(PackCatalogSnapshot snapshot, String serverName) {
+	/**
+	 * The packs a client with `clientFormat` should hold on `serverName`.
+	 * A null clientFormat skips the version filter (filtering disabled); a pack
+	 * with no declared range is never filtered.
+	 */
+	public List<ResolvedPack> selectForServer(PackCatalogSnapshot snapshot, String serverName, PackFormat clientFormat) {
 		List<ResolvedPack> selected = new ArrayList<>();
 		for (ResolvedPack pack : snapshot.resolvedPacks()) {
 			if (!pack.available()) {
@@ -26,6 +32,9 @@ public final class PackSelectionService {
 				continue;
 			}
 			if (!pack.definition().matchesServer(serverName)) {
+				continue;
+			}
+			if (!pack.loadableBy(clientFormat)) {
 				continue;
 			}
 			selected.add(pack);

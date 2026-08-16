@@ -84,7 +84,7 @@ public final class BuiltinLegacyPlaceholders implements LegacyPlaceholderProvide
 		values.put("version", support.safe(gameVersion(support)));
 		values.put("display", support.localServerName());
 		values.put("server_name", support.localServerName());
-		values.put("host_name", support.localServerName());
+		values.put("host_name", support.currentServerInfoName());
 		values.put("color", LegacyPlaceholderService.DEFAULT_COLOR);
 		values.put("whitelist", Boolean.toString(whitelisted(support)));
 		values.put("total_entities", Integer.toString(snapshot.totalEntities()));
@@ -181,6 +181,16 @@ public final class BuiltinLegacyPlaceholders implements LegacyPlaceholderProvide
 
 		if (normalizedParams.startsWith("tps_bar_")) {
 			return support.buildBar(LunaProgressBarPresets.tps("tps", snapshot.currentTps()), widthOf(normalizedParams, "tps_bar_"));
+		}
+
+		// Before the plain `ram_bar_` branch on purpose: `ram_bar_only_55` starts with
+		// that prefix too, and letting it match first left widthOf() parsing "only_55",
+		// throwing, and silently falling back to a labelled bar at the default width.
+		if (normalizedParams.startsWith("ram_bar_only_")) {
+			return support.buildBarOnly(
+				LunaProgressBarPresets.ram("ram", snapshot.ramUsedBytes(), snapshot.ramMaxBytes()),
+				widthOf(normalizedParams, "ram_bar_only_")
+			);
 		}
 
 		if (normalizedParams.startsWith("ram_bar_")) {
