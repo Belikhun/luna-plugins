@@ -110,8 +110,8 @@ final class PlaceholderRoutingTest {
 
 	@Test
 	void escapesPercentSignsForSafePlaceholderValues() {
-		assertEquals("50:percent:", PlaceholderEscaping.escapePercents("50%"));
-		assertEquals("CPU 12.5:percent::percent:", PlaceholderEscaping.escapePercents("CPU 12.5%%"));
+		assertEquals("50％", PlaceholderEscaping.escapePercents("50%"));
+		assertEquals("CPU 12.5％％", PlaceholderEscaping.escapePercents("CPU 12.5%%"));
 		assertEquals("", PlaceholderEscaping.escapePercents(null));
 		assertEquals("plain text", PlaceholderEscaping.escapePercents("plain text"));
 	}

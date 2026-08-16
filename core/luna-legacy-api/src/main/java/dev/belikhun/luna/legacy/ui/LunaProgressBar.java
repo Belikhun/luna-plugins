@@ -14,7 +14,7 @@ public final class LunaProgressBar {
 		ALL_RIGHT
 	}
 
-	private static final String DEFAULT_GLYPH = "▋";
+	private static final String DEFAULT_GLYPH = "|";
 	private static final String COLOR_CLOSE_TAG = "</c>";
 	private static final BarRenderer DEFAULT_BAR_RENDERER = context -> {
 		double percent = clampPercent(context.percent());

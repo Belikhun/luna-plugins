@@ -6,6 +6,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendServerStatus;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderEscaping;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaProgressBar;
 import dev.belikhun.luna.core.api.ui.LunaProgressBarPresets;
@@ -440,7 +441,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 		if (value == null || value.indexOf('%') < 0) {
 			return value == null ? "" : value;
 		}
-		return value.replace("%", ":percent:");
+		return PlaceholderEscaping.escapePercents(value);
 	}
 
 	private int clampWidth(int width) {

@@ -2,7 +2,7 @@ package dev.belikhun.luna.core.api.placeholder;
 
 /** How a value reaches a consumer that would otherwise re-read its percent signs. */
 public final class PlaceholderEscaping {
-	private static final String PERCENT_ESCAPE = ":percent:";
+	private static final String PERCENT_ESCAPE = "％";
 
 	private PlaceholderEscaping() {
 	}
