@@ -14,7 +14,7 @@ public final class LunaProgressBar {
 		ALL_RIGHT
 	}
 
-	private static final String DEFAULT_GLYPH = "|";
+	private static final String DEFAULT_GLYPH = "█";
 	private static final String COLOR_CLOSE_TAG = "</c>";
 	private static final BarRenderer DEFAULT_BAR_RENDERER = context -> {
 		double percent = clampPercent(context.percent());
@@ -75,7 +75,9 @@ public final class LunaProgressBar {
 		this.min = 0D;
 		this.max = 100D;
 		this.numericValue = 0D;
-		this.width = 25;
+		// legacy clients render DEFAULT_GLYPH as a full cell, so fewer of them add
+		// up to the same width on screen; see LunaProgressBarPresets.DEFAULT_WIDTH
+		this.width = 16;
 		this.glyph = DEFAULT_GLYPH;
 		this.filledColor = LunaPalette.SUCCESS_500;
 		this.emptyColor = LunaPalette.NEUTRAL_700;

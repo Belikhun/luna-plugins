@@ -108,7 +108,6 @@ public final class LunaProgressBarPresets {
 			.range(min, max)
 			.value(current)
 			.width(DEFAULT_WIDTH)
-			.glyph("▋")
 			.emptyColor(LunaPalette.NEUTRAL_700)
 			.frameColor(LunaPalette.NEUTRAL_500)
 			.valueColor(LunaPalette.NEUTRAL_50);

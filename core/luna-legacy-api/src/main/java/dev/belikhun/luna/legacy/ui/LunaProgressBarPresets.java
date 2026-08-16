@@ -10,7 +10,12 @@ import java.util.Locale;
  * Presets return {@link LunaProgressBar} so callers can continue composing.
  */
 public final class LunaProgressBarPresets {
-	private static final int DEFAULT_WIDTH = 25;
+	// Narrower than the modern trunk's 25 on purpose. Legacy clients (1.19 and
+	// older) have no glyph for the partial block ▋ and fall back to a filled box,
+	// so this line renders █ instead - a full-width cell rather than a five-eighths
+	// one. At 25 cells that overflows the tab list, so the count comes down to keep
+	// the bar the same physical width on screen.
+	private static final int DEFAULT_WIDTH = 16;
 
 	private LunaProgressBarPresets() {
 	}
@@ -110,7 +115,6 @@ public final class LunaProgressBarPresets {
 			.range(min, max)
 			.value(current)
 			.width(DEFAULT_WIDTH)
-			.glyph("▋")
 			.emptyColor(LunaPalette.NEUTRAL_700)
 			.frameColor(LunaPalette.NEUTRAL_500)
 			.valueColor(LunaPalette.NEUTRAL_50);

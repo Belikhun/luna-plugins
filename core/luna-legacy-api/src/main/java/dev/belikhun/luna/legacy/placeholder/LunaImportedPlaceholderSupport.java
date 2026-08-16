@@ -117,7 +117,7 @@ public final class LunaImportedPlaceholderSupport {
 	}
 
 	public static String playerStatusDot(WorldKind worldKind, String dot) {
-		String safeDot = (dot == null || dot.isEmpty()) ? "▋" : dot;
+		String safeDot = (dot == null || dot.isEmpty()) ? "█" : dot;
 		String color;
 
 		switch (worldKind == null ? WorldKind.CUSTOM : worldKind) {
