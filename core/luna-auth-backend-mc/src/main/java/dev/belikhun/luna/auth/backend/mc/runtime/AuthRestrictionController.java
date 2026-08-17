@@ -267,6 +267,12 @@ public final class AuthRestrictionController {
 		hidePrompt(player);
 		closeModeSelector(playerId);
 		stateRegistry.clear(playerId);
+
+		// Lift the lock before forgetting it. `Invulnerable` is persisted in player
+		// NBT, so dropping the record while the flag is still set writes an
+		// invulnerable player to disk - which is what left players unkillable after
+		// disconnecting at the password prompt.
+		releaseAuthLockIfNeeded(player);
 		lockedPlayers.remove(playerId);
 		modeSelectorEligible.remove(playerId);
 		modePreferencePresent.remove(playerId);
@@ -713,7 +719,7 @@ public final class AuthRestrictionController {
 			StoredLocation anchor = config.teleportToSpawnOnConnect() && spawnService.hasSpawn()
 				? spawnService.spawnLocation()
 				: StoredLocation.capture(player);
-			LockedPlayerState state = new LockedPlayerState(anchor, player.isInvulnerable(), player.gameMode.getGameModeForPlayer());
+			LockedPlayerState state = new LockedPlayerState(anchor, preLockInvulnerability(player), player.gameMode.getGameModeForPlayer());
 
 			if (config.lobbyItemsEnabled()) {
 				AuthLobbyItems.clearInventory(player);
@@ -723,6 +729,23 @@ public final class AuthRestrictionController {
 
 			return state;
 		});
+	}
+
+	/**
+	 * What invulnerability to hand back when the lock lifts.
+	 *
+	 * Always false, and deliberately not `player.isInvulnerable()`. The lock is the
+	 * only thing here that raises the entity flag, and that flag is persisted in
+	 * player NBT - so a player who is already invulnerable when we lock them is a
+	 * player whose previous lock never lifted. Reading the flag back made that
+	 * permanent and self-confirming: capture true, restore true, for every login
+	 * after the first. Returning false repairs those players on their next login.
+	 *
+	 * Creative immunity does not come from this flag (it is `abilities.invulnerable`
+	 * plus the creative checks in `hurt`), so a creative player loses nothing.
+	 */
+	private boolean preLockInvulnerability(ServerPlayer player) {
+		return false;
 	}
 
 	private void applyAuthLock(ServerPlayer player, LockedPlayerState state) {

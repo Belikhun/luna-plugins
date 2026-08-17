@@ -184,6 +184,12 @@ public final class LegacyAuthRestrictionController {
 		hidePrompt(player);
 		modeSelector.forget(playerId);
 		stateRegistry.clear(playerId);
+
+		// Lift the lock before forgetting it. `Invulnerable` is persisted in player
+		// NBT, so dropping the record while the flag is still set writes an
+		// invulnerable player to disk - which is what left players unkillable after
+		// disconnecting at the password prompt.
+		releaseAuthLockIfNeeded(player);
 		lockAnchors.remove(playerId);
 		lockWasInvulnerable.remove(playerId);
 		announcedPromptMode.remove(playerId);
@@ -415,7 +421,7 @@ public final class LegacyAuthRestrictionController {
 			? spawnService.spawnLocation()
 			: StoredLocation.capture(player);
 
-		lockWasInvulnerable.put(playerId, Boolean.valueOf(player.isEntityInvulnerable(net.minecraft.util.DamageSource.GENERIC)));
+		lockWasInvulnerable.put(playerId, Boolean.valueOf(preLockInvulnerability(player)));
 		lockAnchors.put(playerId, anchor);
 
 		player.setEntityInvulnerable(true);
@@ -428,17 +434,36 @@ public final class LegacyAuthRestrictionController {
 	private void releaseAuthLockIfNeeded(EntityPlayerMP player) {
 		UUID playerId = players.idOf(player);
 		StoredLocation previous = lockAnchors.remove(playerId);
+		Boolean wasInvulnerable = lockWasInvulnerable.remove(playerId);
+
+		// The flag is cleared before the anchor is checked, not after. Gating it on
+		// the anchor is what stranded it: any path that dropped the anchor first left
+		// an invulnerable player with nothing left to undo it.
+		if (wasInvulnerable != null) {
+			player.setEntityInvulnerable(wasInvulnerable.booleanValue());
+		}
 
 		if (previous == null) {
 			return;
 		}
 
-		Boolean wasInvulnerable = lockWasInvulnerable.remove(playerId);
-
-		player.setEntityInvulnerable(wasInvulnerable != null && wasInvulnerable.booleanValue());
 		LegacyAuthPlayerCompat.clearLockEffects(player);
 		LegacyAuthPlayerCompat.halt(player);
 		flow("ReleaseAuthLock player=" + player.getName() + " uuid=" + playerId);
+	}
+
+	/**
+	 * What invulnerability to hand back when the lock lifts.
+	 *
+	 * Always false, and deliberately not the player's current flag. The lock is the
+	 * only thing here that raises it, and it is persisted in player NBT - so a
+	 * player already invulnerable when we lock them is one whose previous lock never
+	 * lifted. Reading it back made that permanent and self-confirming: capture true,
+	 * restore true, for every login after the first. Returning false repairs those
+	 * players on their next login.
+	 */
+	private boolean preLockInvulnerability(EntityPlayerMP player) {
+		return false;
 	}
 
 	private void keepProtectedState(EntityPlayerMP player) {
