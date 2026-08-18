@@ -49,6 +49,8 @@ import dev.belikhun.luna.core.velocity.heartbeat.VelocityRegistryStream;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.core.velocity.permissions.VelocityPermissionHttpEndpoints;
 import dev.belikhun.luna.core.velocity.skins.VelocitySkinHttpEndpoints;
+import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanHttpEndpoints;
+import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanStore;
 import dev.belikhun.luna.core.velocity.players.PlayerDatabaseMigrations;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerDirectoryHttpEndpoints;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerHttpEndpoints;
@@ -125,6 +127,11 @@ public final class LunaCoreVelocityPlugin {
 	private EventHandler<TabLoadEvent> tabLoadHandler;
 	private final VelocityPlayerSessionRegistry playerSessionRegistry;
 	private final VelocityPlayerRecordStore playerRecordStore;
+	/**
+	 * Long-lived like the record store: the enforcement cache and the hit
+	 * counters must survive a config reload; only the database handle swaps.
+	 */
+	private final VelocityNetworkBanStore networkBanStore;
 	private final SseBroadcaster telemetryBroadcaster;
 	private final SseBroadcaster playerBroadcaster;
 	private Consumer<VelocityPlayerSessionRegistry.Activity> playerActivityListener;
@@ -150,6 +157,7 @@ public final class LunaCoreVelocityPlugin {
 		// Long-lived like the registry — a reload only swaps its database handle,
 		// so no join/chat event is lost while modules restart.
 		this.playerRecordStore = new VelocityPlayerRecordStore(proxyServer, this.logger);
+		this.networkBanStore = new VelocityNetworkBanStore(this.logger);
 		// The database handle is built here so it exists before anything can ask for
 		// it; the messaging bus cannot be, because it registers a Velocity listener
 		// and the plugin has no container yet while Guice is still constructing it.
@@ -179,6 +187,7 @@ public final class LunaCoreVelocityPlugin {
 		ensureDefaults();
 		proxyServer.getEventManager().register(this, playerSessionRegistry);
 		proxyServer.getEventManager().register(this, playerRecordStore);
+		proxyServer.getEventManager().register(this, networkBanStore);
 		ensureTabReloadHookRegistered();
 		reloadModules();
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
@@ -190,6 +199,7 @@ public final class LunaCoreVelocityPlugin {
 		telemetryBroadcaster.close();
 		playerBroadcaster.close();
 		playerRecordStore.shutdown();
+		networkBanStore.shutdown();
 		heartbeatSweepExecutor.shutdownNow();
 		backendStatusRegistry.shutdown();
 		teardownRuntime();
@@ -231,6 +241,7 @@ public final class LunaCoreVelocityPlugin {
 		sharedDatabase.swap(createSharedDatabase(databaseConfig));
 		prepareDirectorySchema(sharedDatabase);
 		playerRecordStore.attach(sharedDatabase);
+		networkBanStore.attach(sharedDatabase);
 		backendStatusRegistry.updateTimeoutMillis(heartbeatTimeoutMillis);
 		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, backendStatusRegistry);
 
@@ -278,6 +289,13 @@ public final class LunaCoreVelocityPlugin {
 			playerSessionRegistry,
 			playerRecordStore,
 			permissionService,
+			authorizer
+		).register(nextHttpServerManager.router());
+
+		new VelocityNetworkBanHttpEndpoints(
+			logger,
+			networkBanStore,
+			playerRecordStore,
 			authorizer
 		).register(nextHttpServerManager.router());
 

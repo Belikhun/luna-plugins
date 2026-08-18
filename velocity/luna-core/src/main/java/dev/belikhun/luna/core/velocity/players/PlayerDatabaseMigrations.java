@@ -108,5 +108,38 @@ public final class PlayerDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return NAMESPACE;
+			}
+
+			@Override
+			public int version() {
+				return 2;
+			}
+
+			@Override
+			public String name() {
+				return "create_network_ip_bans_table";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_network_ip_bans ("
+						+ "ip VARCHAR(64) PRIMARY KEY, "
+						+ "reason TEXT NULL, "
+						+ "actor VARCHAR(64) NOT NULL DEFAULT '', "
+						+ "created_at BIGINT NOT NULL, "
+						+ "expires_at BIGINT NULL, "
+						+ "hits BIGINT NOT NULL DEFAULT 0, "
+						+ "last_hit_at BIGINT NULL"
+						+ ")",
+					List.of()
+				);
+			}
+		});
 	}
 }
