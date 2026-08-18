@@ -309,6 +309,28 @@ discord:
           thumbnail-url: "%player_avatar_url%"
           image-url: ""
 
+    # Thông báo người chơi chết ra Discord.
+    # Câu thông báo do backend dựng sẵn và gửi lên (%message%): vanilla ghép nó từ
+    # nguồn sát thương và tên kẻ giết, mod tự thêm câu của mình, proxy không có
+    # những thứ đó nên không tự dựng lại được.
+    # Mặc định tắt: máy chủ PvP thì đây là nội dung chính, máy chủ mod thì mỗi tối
+    # vài trăm dòng.
+    death:
+      enabled: false
+      mode: embed # text | embed
+      # Placeholder dùng được: %user_name%, %user_username%, %user_nickname%, %sender_name%, %server_name%, %server_display%, %server_color%, %channel_name%, %message%, %player_avatar_url%
+      content: "<gray>[<dark_red>\u2620<gray>]</gray> %message%"
+      embed:
+        # Placeholder dùng được giống content
+        author: ""
+        author-url: ""
+        author-icon-url: ""
+        title: "Đã chết"
+        description: "<gray>[<dark_red>\u2620<gray>]</gray> %message%"
+        color: "#8C1C1C"
+        thumbnail-url: "%player_avatar_url%"
+        image-url: ""
+
 # Chống spam phía proxy (authoritative).
 rate-limit:
   enabled: true

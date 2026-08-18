@@ -298,7 +298,45 @@ public final class VelocityMessengerRouter {
 			case SEND_POKE -> handlePoke(sender, request.resolvedValues(), correlationId);
 			case SEND_CHAT -> routeChat(sender, request.argument(), request.resolvedValues(), correlationId);
 			case SEND_REPLY -> handleReply(sender, request.argument(), request.resolvedValues(), correlationId);
+			case SEND_DEATH -> handleDeath(sender, request.argument(), request.resolvedValues());
 		}
+	}
+
+	/**
+	 * Announce a death to the Discord channels.
+	 *
+	 * Discord only, on purpose: the backend has already printed the sentence to
+	 * everyone who was there to see it, and echoing it to the network channel too
+	 * would show it twice to exactly those players.
+	 *
+	 * Not rate limited and not mute-checked either, unlike everything above it in
+	 * the switch. Those guard what a player *chose* to send; a death is something
+	 * that happened to them, and silencing it because they died twice in a minute
+	 * would drop the announcement people most want to see. `isSilentBroadcastSender`
+	 * still applies, because that is a deliberate "hide this player" setting.
+	 */
+	private void handleDeath(Player sender, String deathMessage, Map<String, String> resolvedValues) {
+		if (deathMessage == null || deathMessage.isBlank()) {
+			return;
+		}
+
+		if (isSilentBroadcastSender(sender)) {
+			return;
+		}
+
+		String serverName = sender.getCurrentServer()
+			.map(connection -> connection.getServerInfo().getName())
+			.orElse("");
+
+		publishDiscord(config.discord().deathMessage(), Map.of(
+			"sender_name", sender.getUsername(),
+			"server_name", serverName,
+			"server_display", normalizeDiscordDisplayToken(serverDisplay(serverName)),
+			"server_color", serverColor(serverName),
+			"channel_name", config.discord().networkChannelName(),
+			"player_avatar_url", resolveAvatarUrl(sender, resolvedValues),
+			"message", deathMessage
+		), resolvedValues, sender, DiscordOutboundMessage.DispatchType.BROADCAST);
 	}
 
 	private void handlePoke(Player sender, Map<String, String> resolvedValues, UUID correlationId) {

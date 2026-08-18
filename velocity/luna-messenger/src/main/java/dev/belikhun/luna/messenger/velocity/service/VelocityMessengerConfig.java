@@ -141,7 +141,8 @@ public final class VelocityMessengerConfig {
 			parseMessageRoute(map(network.get("message")), defaultNetworkRoute()),
 			parseMessageRoute(map(joinLeave.get("join")), defaultJoinRoute()),
 			parseMessageRoute(map(joinLeave.get("leave")), defaultLeaveRoute()),
-			parseMessageRoute(map(joinLeave.get("switch")), defaultSwitchRoute())
+			parseMessageRoute(map(joinLeave.get("switch")), defaultSwitchRoute()),
+			parseMessageRoute(map(outbound.get("death")), defaultDeathRoute())
 		);
 	}
 
@@ -368,6 +369,30 @@ public final class VelocityMessengerConfig {
 		);
 	}
 
+	/**
+	 * The death announcement, off unless the operator asks for it.
+	 *
+	 * Every other route here defaults to on, because a server that configured a
+	 * Discord bridge wants its chat and its joins in it. Deaths are the one people
+	 * disagree about - on a hardcore or a PvP server they are the point, on a
+	 * modded one they are noise a hundred times a night - so this one is opt-in.
+	 */
+	private static MessageRouteConfig defaultDeathRoute() {
+		return new MessageRouteConfig(
+			false,
+			PayloadType.TEXT,
+			"%message%",
+			"",
+			"",
+			"",
+			"",
+			"",
+			null,
+			"",
+			""
+		);
+	}
+
 	private static MessageRouteConfig defaultJoinRoute() {
 		return new MessageRouteConfig(
 			true,
@@ -483,7 +508,8 @@ public final class VelocityMessengerConfig {
 		MessageRouteConfig networkMessage,
 		MessageRouteConfig joinMessage,
 		MessageRouteConfig leaveMessage,
-		MessageRouteConfig switchMessage
+		MessageRouteConfig switchMessage,
+		MessageRouteConfig deathMessage
 	) {
 		public DiscordConfig {
 			webhookUrls = webhookUrls == null ? List.of() : List.copyOf(webhookUrls);

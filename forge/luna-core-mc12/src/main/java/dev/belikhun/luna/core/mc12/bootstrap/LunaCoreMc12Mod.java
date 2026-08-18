@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.mc12.command.LunaCommand;
 import dev.belikhun.luna.core.mc12.LunaCore;
 import dev.belikhun.luna.core.mc12.forwarding.ForwardingInjector;
 import dev.belikhun.luna.core.mc12.logging.LegacyLunaLogger;
+import dev.belikhun.luna.core.mc12.network.KeepaliveExtender;
 import dev.belikhun.luna.core.mc12.permission.PermissionMirrorListener;
 import dev.belikhun.luna.core.mc12.runtime.LegacyTickListener;
 import dev.belikhun.luna.core.mc12.runtime.LegacyPlayerBridge;
@@ -79,6 +80,18 @@ public final class LunaCoreMc12Mod {
 	 * loader reached first.
 	 */
 	private static final String CONFIG_RESOURCE = MOD_ID + "/config.yml";
+
+	/**
+	 * The keepalive deadline 1.12.2 compiles in. A configured timeout at or below it
+	 * asks for nothing vanilla is not already doing.
+	 */
+	private static final int VANILLA_KEEPALIVE_TIMEOUT_SECONDS = 15;
+
+	/**
+	 * Matches `network.keepaliveTimeoutSeconds` in the shipped config, which in turn
+	 * matches the `-Dpaper.playerconnection.keepalive` the Paper backends run with.
+	 */
+	private static final int DEFAULT_KEEPALIVE_TIMEOUT_SECONDS = 300;
 
 	private LunaLogger logger;
 	private Path configDir;
@@ -215,6 +228,7 @@ public final class LunaCoreMc12Mod {
 		event.registerServerCommand(new LunaCommand(permissions, heartbeatPublisher, statusStore));
 
 		startServerSelector(registry);
+		startKeepaliveExtender();
 
 		if (permissions.isAvailable()) {
 			logger.info("Permission mirror đọc từ proxy (LuckPerms không có bản Forge 1.12.2).");
@@ -247,6 +261,29 @@ public final class LunaCoreMc12Mod {
 		registry.register(ServerSelectorController.class, selector);
 
 		MinecraftForge.EVENT_BUS.register(new SelectorCleanupListener(selector));
+	}
+
+	/**
+	 * How long a player may stop answering keepalives, which 1.12.2 fixes at fifteen
+	 * seconds and offers no setting for.
+	 *
+	 * Read off the raw config rather than {@link BackendCoreRuntimeConfig}: the other
+	 * platforms take this from their server software (Paper from
+	 * `-Dpaper.playerconnection.keepalive`) and have nothing to do with the key, so
+	 * putting it in the shared schema would publish a setting three of them ignore.
+	 */
+	private void startKeepaliveExtender() {
+		int timeoutSeconds = config.getInt("network.keepaliveTimeoutSeconds", DEFAULT_KEEPALIVE_TIMEOUT_SECONDS);
+
+		if (timeoutSeconds <= VANILLA_KEEPALIVE_TIMEOUT_SECONDS) {
+			logger.info("Timeout keepalive giữ nguyên mặc định 15 giây của 1.12.2.");
+
+			return;
+		}
+
+		MinecraftForge.EVENT_BUS.register(new KeepaliveExtender(server, logger, timeoutSeconds * 1000L));
+
+		logger.info("Timeout keepalive nâng lên " + timeoutSeconds + " giây.");
 	}
 
 	/**

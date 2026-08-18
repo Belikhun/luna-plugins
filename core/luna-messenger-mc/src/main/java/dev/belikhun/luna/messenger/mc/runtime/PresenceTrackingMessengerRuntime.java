@@ -356,13 +356,22 @@ final class PresenceTrackingMessengerRuntime implements MessengerRuntime {
 	}
 
 	private void notifyTimeout(PendingRequest pending) {
+		String text = timeoutMessage(pending.commandType());
+
+		// an announcement has nobody to apologise to: a death is reported *about* a
+		// player rather than requested *by* them, so a timeout on one is a log line
+		// and nothing the player should be shown
+		if (text.isEmpty()) {
+			return;
+		}
+
 		ServerPlayer player = server.getPlayerList().getPlayer(pending.playerId());
 
 		if (player == null) {
 			return;
 		}
 
-		Component message = Component.literal(timeoutMessage(pending.commandType()));
+		Component message = Component.literal(text);
 
 		server.execute(() -> player.sendSystemMessage(message));
 	}
@@ -374,6 +383,7 @@ final class PresenceTrackingMessengerRuntime implements MessengerRuntime {
 			case SEND_REPLY -> "❌ Tin nhắn trả lời đã hết thời gian chờ.";
 			case SEND_CHAT -> "❌ Tin nhắn chat đã hết thời gian chờ.";
 			case SWITCH_NETWORK, SWITCH_SERVER, SWITCH_DIRECT -> "❌ Không thể cập nhật kênh nhắn tin lúc này.";
+			case SEND_DEATH -> "";
 		};
 	}
 

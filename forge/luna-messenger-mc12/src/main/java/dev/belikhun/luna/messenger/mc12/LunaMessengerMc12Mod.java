@@ -19,7 +19,9 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraft.util.text.ITextComponent;
 import net.minecraftforge.event.ServerChatEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
@@ -144,6 +146,51 @@ public final class LunaMessengerMc12Mod {
 		if (!runtime.sendCommand(player, MessengerCommandType.SEND_CHAT, message.trim())) {
 			player.sendMessage(LunaTextComponents.mini(MessengerMessages.chatFailed()));
 		}
+	}
+
+	/**
+	 * A death leaves this server for the proxy, which announces it on Discord.
+	 *
+	 * The sentence vanilla already built is what travels: it is assembled from the
+	 * combat tracker's record of what killed the player, including a mod's own
+	 * damage source, and the proxy can see none of that.
+	 *
+	 * Nothing is cancelled and the local announcement is left alone, unlike chat
+	 * above. Chat is cancelled because the proxy re-broadcasts it to every server;
+	 * a death belongs to the server it happened on, and suppressing it here would
+	 * take it away from the players who were standing there.
+	 */
+	@SubscribeEvent
+	public void onLivingDeath(LivingDeathEvent event) {
+		if (runtime == null) {
+			return;
+		}
+
+		if (!(event.getEntityLiving() instanceof EntityPlayerMP)) {
+			return;
+		}
+
+		EntityPlayerMP player = (EntityPlayerMP) event.getEntityLiving();
+
+		// the gamerule is the operator saying they do not want death messages at
+		// all; announcing to Discord anyway would route around that
+		if (player.world == null || !player.world.getGameRules().getBoolean("showDeathMessages")) {
+			return;
+		}
+
+		ITextComponent deathMessage = player.getCombatTracker().getDeathMessage();
+
+		if (deathMessage == null) {
+			return;
+		}
+
+		String rendered = deathMessage.getUnformattedText().trim();
+
+		if (Strings.isBlank(rendered)) {
+			return;
+		}
+
+		runtime.sendCommand(player, MessengerCommandType.SEND_DEATH, rendered);
 	}
 
 	@Mod.EventHandler

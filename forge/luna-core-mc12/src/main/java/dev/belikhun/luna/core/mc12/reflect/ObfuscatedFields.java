@@ -1,4 +1,4 @@
-package dev.belikhun.luna.core.mc12.forwarding;
+package dev.belikhun.luna.core.mc12.reflect;
 
 import dev.belikhun.luna.legacy.exception.LunaLegacyException;
 
@@ -18,12 +18,13 @@ import java.util.Map;
  * Hence both spellings for each field. A production server runs SRG
  * (`field_147337_i`); a dev workspace runs MCP (`loginGameProfile`). Trying both
  * is what makes one jar work in both places, and it is why each call site names
- * the SRG id first: that is the one that matters on a real server.
+ * the SRG id first: that is the one that matters on a real server. A field MCP
+ * never named carries one spelling, because both runtimes then agree on it.
  *
  * Lookups are cached because they happen inside a login, and `getDeclaredField`
  * walks and allocates every time.
  */
-final class ObfuscatedFields {
+public final class ObfuscatedFields {
 	private static final Map<String, Field> CACHE = new HashMap<String, Field>();
 
 	private ObfuscatedFields() {
@@ -33,7 +34,7 @@ final class ObfuscatedFields {
 	 * @param owner the class declaring the field
 	 * @param names the field's names, SRG first, MCP after
 	 */
-	static synchronized Field find(Class<?> owner, String... names) {
+	public static synchronized Field find(Class<?> owner, String... names) {
 		String key = owner.getName() + "#" + names[0];
 		Field cached = CACHE.get(key);
 
@@ -60,7 +61,7 @@ final class ObfuscatedFields {
 		);
 	}
 
-	static Object get(Class<?> owner, Object instance, String... names) {
+	public static Object get(Class<?> owner, Object instance, String... names) {
 		try {
 			return find(owner, names).get(instance);
 		} catch (IllegalAccessException failure) {
@@ -68,7 +69,7 @@ final class ObfuscatedFields {
 		}
 	}
 
-	static void set(Class<?> owner, Object instance, Object value, String... names) {
+	public static void set(Class<?> owner, Object instance, Object value, String... names) {
 		try {
 			find(owner, names).set(instance, value);
 		} catch (IllegalAccessException failure) {

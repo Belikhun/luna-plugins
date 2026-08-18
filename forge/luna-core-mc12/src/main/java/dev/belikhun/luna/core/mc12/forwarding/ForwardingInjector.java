@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.mc12.forwarding;
 
+import dev.belikhun.luna.core.mc12.reflect.ObfuscatedFields;
 import dev.belikhun.luna.legacy.logging.LunaLogger;
 import dev.belikhun.luna.legacy.string.Strings;
 

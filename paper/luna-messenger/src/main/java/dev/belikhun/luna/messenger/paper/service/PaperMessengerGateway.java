@@ -270,6 +270,16 @@ public final class PaperMessengerGateway implements Listener {
 		send(player, MessengerCommandType.SEND_CHAT, message);
 	}
 
+	/**
+	 * Announce a death to the network.
+	 *
+	 * @param player the player who died
+	 * @param deathMessage the sentence the server already rendered, as plain text
+	 */
+	public void sendDeath(Player player, String deathMessage) {
+		send(player, MessengerCommandType.SEND_DEATH, deathMessage);
+	}
+
 	public void close() {
 		bus.unregisterOutgoing(MessengerChannels.COMMAND);
 		bus.unregisterIncoming(MessengerChannels.RESULT);
@@ -441,7 +451,11 @@ public final class PaperMessengerGateway implements Listener {
 			}
 
 			Player player = plugin.getServer().getPlayer(pending.playerId());
-			if (player != null) {
+
+			// an announcement has nobody to apologise to: a death is reported *about*
+			// a player rather than requested *by* them, and "try again" is advice they
+			// cannot act on
+			if (player != null && pending.commandType() != MessengerCommandType.SEND_DEATH) {
 				player.sendRichMessage("<red>❌ Hệ thống chat liên server đang chậm. Vui lòng thử lại.</red>");
 			}
 			logger.warn("Timeout command=" + pending.commandType().name() + " reqId=" + entry.getKey());

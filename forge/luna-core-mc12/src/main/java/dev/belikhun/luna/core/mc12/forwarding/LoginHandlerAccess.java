@@ -3,6 +3,7 @@ package dev.belikhun.luna.core.mc12.forwarding;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 
+import dev.belikhun.luna.core.mc12.reflect.ObfuscatedFields;
 import dev.belikhun.luna.legacy.forwarding.ForwardedPlayer;
 import dev.belikhun.luna.legacy.logging.LunaLogger;
 

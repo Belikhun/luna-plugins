@@ -486,6 +486,64 @@ public final class VelocityPlayerRecordStore {
 		return scalar("SELECT COUNT(*) AS n FROM luna_player_moderation WHERE target_uuid = ?", List.of(uuid));
 	}
 
+	/** Page of moderation entries across every target, newest first; filters apply when non-blank. */
+	public List<Map<String, Object>> moderationLog(String search, String action, int offset, int limit) {
+		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_moderation");
+		List<Object> bindings = new ArrayList<>();
+
+		appendModerationFilter(sql, bindings, search, action);
+
+		sql.append(" ORDER BY at DESC LIMIT ? OFFSET ?");
+		bindings.add(limit);
+		bindings.add(offset);
+
+		return database.query(sql.toString(), bindings);
+	}
+
+	/** Total moderation entries matching the same filters as {@link #moderationLog}. */
+	public long moderationLogCount(String search, String action) {
+		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_moderation");
+		List<Object> bindings = new ArrayList<>();
+
+		appendModerationFilter(sql, bindings, search, action);
+
+		return scalar(sql.toString(), bindings);
+	}
+
+	/** Distinct actions present in the moderation log, for filter menus. */
+	public List<String> moderationActions() {
+		List<String> out = new ArrayList<>();
+
+		for (Map<String, Object> row : database.query(
+			"SELECT DISTINCT action FROM luna_player_moderation ORDER BY action", List.of()
+		)) {
+			out.add(String.valueOf(row.get("action")));
+		}
+
+		return out;
+	}
+
+	private void appendModerationFilter(StringBuilder sql, List<Object> bindings, String search, String action) {
+		List<String> clauses = new ArrayList<>();
+
+		if (!blankIfNull(search).isBlank()) {
+			String term = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
+			clauses.add("(LOWER(target_name) LIKE ? OR target_uuid LIKE ? OR LOWER(actor) LIKE ?)");
+			bindings.add(term);
+			bindings.add(term);
+			bindings.add(term);
+		}
+
+		if (!blankIfNull(action).isBlank()) {
+			clauses.add("action = ?");
+			bindings.add(action.trim());
+		}
+
+		if (!clauses.isEmpty()) {
+			sql.append(" WHERE ").append(String.join(" AND ", clauses));
+		}
+	}
+
 	/** Known usernames for a set of UUIDs, from the profile table. */
 	public Map<String, String> usernames(java.util.Collection<String> uuids) {
 		Map<String, String> out = new java.util.LinkedHashMap<>();

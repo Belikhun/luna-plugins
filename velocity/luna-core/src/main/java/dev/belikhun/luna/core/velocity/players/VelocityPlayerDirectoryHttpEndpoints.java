@@ -186,6 +186,49 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 			});
 		});
 
+		// The whole network's moderation history, newest first, across every
+		// target; the per-player view stays under /players/registered/{player}.
+		router.get("/moderation/log", request -> {
+			if (!authorizer.authorized(request)) {
+				logger.warn("Từ chối truy vấn /moderation/log do sai token hoặc thiếu token.");
+				return authorizer.unauthorized();
+			}
+
+			long startedAt = System.nanoTime();
+
+			if (!recordStore.available()) {
+				return LunaJson.error(503, "player directory database is not available");
+			}
+
+			String search = request.queryParam("search", "");
+			String action = request.queryParam("action", "");
+			int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
+			int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
+
+			List<Map<String, Object>> entries = new ArrayList<>();
+			for (Map<String, Object> row : recordStore.moderationLog(search, action, offset, limit)) {
+				Map<String, Object> entry = new LinkedHashMap<>();
+				entry.put("id", longOf(row.get("id")));
+				entry.put("targetUuid", stringOf(row.get("target_uuid")));
+				entry.put("targetName", stringOf(row.get("target_name")));
+				entry.put("action", stringOf(row.get("action")));
+				entry.put("actor", stringOf(row.get("actor")));
+				entry.put("reason", stringOf(row.get("reason")));
+				entry.put("server", stringOf(row.get("server")));
+				entry.put("details", stringOf(row.get("details")));
+				entry.put("atEpochMillis", longOf(row.get("at")));
+				entries.add(entry);
+			}
+
+			Map<String, Object> payload = new LinkedHashMap<>();
+			payload.put("total", recordStore.moderationLogCount(search, action));
+			payload.put("offset", offset);
+			payload.put("limit", limit);
+			payload.put("actions", recordStore.moderationActions());
+			payload.put("entries", entries);
+			return LunaJson.envelope(200, payload, startedAt);
+		});
+
 		// The daemon reports every moderation action it performs (ban, whitelist,
 		// op, …) here, so the player's moderation history is complete even for
 		// actions LunaCore itself never sees.

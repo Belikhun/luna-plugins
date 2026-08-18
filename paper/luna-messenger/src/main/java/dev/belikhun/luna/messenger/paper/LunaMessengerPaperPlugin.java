@@ -7,6 +7,7 @@ import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.messenger.paper.command.MessengerContextCommand;
 import dev.belikhun.luna.messenger.paper.command.MessengerPokeCommand;
 import dev.belikhun.luna.messenger.paper.listener.PaperChatCaptureListener;
+import dev.belikhun.luna.messenger.paper.listener.PaperDeathCaptureListener;
 import dev.belikhun.luna.messenger.paper.listener.PaperJoinLeaveSuppressListener;
 import dev.belikhun.luna.messenger.paper.service.PaperBackendPlaceholderResolver;
 import dev.belikhun.luna.messenger.paper.service.PaperMessengerGateway;
@@ -52,6 +53,7 @@ public final class LunaMessengerPaperPlugin extends JavaPlugin {
 		bindCommand("poke", new MessengerPokeCommand(gateway));
 		getServer().getPluginManager().registerEvents(new PaperChatCaptureListener(gateway), this);
 		getServer().getPluginManager().registerEvents(new PaperJoinLeaveSuppressListener(), this);
+		getServer().getPluginManager().registerEvents(new PaperDeathCaptureListener(gateway), this);
 
 		if (debugLogging) {
 			logger.info("Đang bật debug logging cho LunaMessenger Paper.");
