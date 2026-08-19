@@ -85,7 +85,7 @@ final class PresenceTrackingMessengerRuntime<P> implements MessengerRuntime<P> {
 		this.latestResults = new ConcurrentHashMap<>();
 		this.recentControlCommands = new ConcurrentHashMap<>();
 		this.timeoutExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
-			Thread thread = new Thread(task, "luna-messenger-fabric-timeouts");
+			Thread thread = new Thread(task, "luna-messenger-timeouts");
 			thread.setDaemon(true);
 			return thread;
 		});
@@ -172,7 +172,12 @@ final class PresenceTrackingMessengerRuntime<P> implements MessengerRuntime<P> {
 			return false;
 		}
 
-		pendingRequests.put(requestId, new PendingRequest(players.idOf(player), commandType, System.currentTimeMillis()));
+		// An announcement is not a request: the proxy routes SEND_DEATH to Discord and
+		// answers nothing, so tracking it would time out every single time and warn
+		// about a reply that was never coming.
+		if (commandType != MessengerCommandType.SEND_DEATH) {
+			pendingRequests.put(requestId, new PendingRequest(players.idOf(player), commandType, System.currentTimeMillis()));
+		}
 		logger.audit("Đã gửi command " + commandType.name() + " reqId=" + requestId + " cho " + playerName);
 
 		return true;

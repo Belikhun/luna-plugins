@@ -407,7 +407,12 @@ public final class PaperMessengerGateway implements Listener {
 		PluginMessageWriter writer = PluginMessageWriter.create();
 		request.writeTo(writer);
 		bus.send(player, MessengerChannels.COMMAND, writer.toByteArray());
-		pendingRequests.put(requestId, new PendingRequest(player.getUniqueId(), commandType, System.currentTimeMillis()));
+		// An announcement is not a request: the proxy routes SEND_DEATH to Discord and
+		// answers nothing, so tracking it would time out every single time and warn
+		// about a reply that was never coming.
+		if (commandType != MessengerCommandType.SEND_DEATH) {
+			pendingRequests.put(requestId, new PendingRequest(player.getUniqueId(), commandType, System.currentTimeMillis()));
+		}
 		logger.audit("Đã gửi command " + commandType.name() + " reqId=" + requestId + " cho " + player.getName());
 	}
 
@@ -451,11 +456,7 @@ public final class PaperMessengerGateway implements Listener {
 			}
 
 			Player player = plugin.getServer().getPlayer(pending.playerId());
-
-			// an announcement has nobody to apologise to: a death is reported *about*
-			// a player rather than requested *by* them, and "try again" is advice they
-			// cannot act on
-			if (player != null && pending.commandType() != MessengerCommandType.SEND_DEATH) {
+			if (player != null) {
 				player.sendRichMessage("<red>❌ Hệ thống chat liên server đang chậm. Vui lòng thử lại.</red>");
 			}
 			logger.warn("Timeout command=" + pending.commandType().name() + " reqId=" + entry.getKey());
