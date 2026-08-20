@@ -63,11 +63,25 @@ public final class VelocityVaultMiniPlaceholders {
 		return values.rank(player.getUniqueId(), player.getUsername());
 	}
 
+	/**
+	 * Wrap a placeholder's value as a tag the surrounding message can survive.
+	 *
+	 * The empty parent is load-bearing. MiniMessage writes an inserted component's
+	 * style as an *unclosed* tag when the component carries that style at its root,
+	 * so on the serialize/re-parse round trip the rest of the line becomes a child
+	 * of it and inherits the colour: a server-coloured status dot at the start of a
+	 * chat format ends up tinting the player's name and everything after it. Giving
+	 * the value a styleless parent hands the serializer a boundary to close at, and
+	 * the value's colour then reaches exactly the value.
+	 *
+	 * @param value MiniMessage source for the placeholder's value
+	 * @return an inserting tag whose style cannot escape into its siblings
+	 */
 	private Tag textTag(String value) {
 		if (value == null || value.isEmpty()) {
 			return Tag.inserting(Component.empty());
 		}
 
-		return Tag.inserting(MINI_MESSAGE.deserialize(value));
+		return Tag.inserting(Component.empty().append(MINI_MESSAGE.deserialize(value)));
 	}
 }

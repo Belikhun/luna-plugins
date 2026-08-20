@@ -240,7 +240,7 @@ discord:
     username-format: "[%server_display%] %luckperms_prefix% %user_name%"
     # Placeholder dùng được tương tự username-format.
     # Có thể dùng third-party token như %skinsrestorer_texture_id_or_steve%.
-    avatar-url-format: "https://visage.surgeplay.com/bust/128/<skinsrestorer_texture_id_or_steve>.png"
+    avatar-url-format: "https://mc.belikhun.dev/api/public/avatar/bust/128/%player_name%.png"
 
   outbound:
     # Chỉ tin nhắn kênh network được gửi ra Discord.

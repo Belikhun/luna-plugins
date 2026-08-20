@@ -105,13 +105,34 @@ public final class LunaImportedPlaceholderSupport {
 
 	public static String playerStatusDot(WorldKind worldKind, String dot) {
 		String safeDot = (dot == null || dot.isEmpty()) ? "▋" : dot;
-		String color = switch (worldKind == null ? WorldKind.CUSTOM : worldKind) {
+		return "<c:" + dimensionColor(worldKind) + ">" + safeDot + "<reset>";
+	}
+
+	/**
+	 * A glyph coloured by the dimension the player is standing in.
+	 *
+	 * Separate from {@link #playerStatusDot} on purpose: the two answer different
+	 * questions and only agree by accident on a backend. Status is about the server
+	 * a player is on, which the proxy colours by that server's accent; this is about
+	 * the dimension, which only the backend can know.
+	 *
+	 * @param worldKind the dimension; null and unrecognised worlds read as CUSTOM
+	 * @param glyph the glyph to colour, or null/empty for the default
+	 * @return MiniMessage source for the coloured glyph
+	 */
+	public static String playerDimensionDot(WorldKind worldKind, String glyph) {
+		String safeGlyph = (glyph == null || glyph.isEmpty()) ? "◎" : glyph;
+		return "<c:" + dimensionColor(worldKind) + ">" + safeGlyph + "<reset>";
+	}
+
+	/** Overworld green, nether red, end magenta, anything else the custom yellow. */
+	private static String dimensionColor(WorldKind worldKind) {
+		return switch (worldKind == null ? WorldKind.CUSTOM : worldKind) {
 			case NORMAL -> "#55ff55";
 			case NETHER -> "#ff5555";
 			case END -> "#ff55ff";
 			case CUSTOM -> "#f2f36e";
 		};
-		return "<c:" + color + ">" + safeDot + "<reset>";
 	}
 
 	public static String stripLegacyColors(String value) {

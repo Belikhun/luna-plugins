@@ -57,6 +57,7 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 	static final DateTimeFormatter WORLD_TIME_FORMATTER = DateTimeFormatter.ofPattern("h:mm a", Locale.US);
 	static final Pattern WORLD_WEATHER_PATTERN = Pattern.compile("^world_(.+)_(weather|weathericon|weathercolor|weatherduration)$", Pattern.CASE_INSENSITIVE);
 	static final Pattern PLAYER_STATUS_PATTERN = Pattern.compile("^player_status(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
+	static final Pattern PLAYER_DIMENSION_PATTERN = Pattern.compile("^player_dimension(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
 	static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("^stripcolor_(legacy|mm)_(.+)$", Pattern.CASE_INSENSITIVE);
 	static final Pattern MM2L_PATTERN = Pattern.compile("^mm2l_(.+)$", Pattern.CASE_INSENSITIVE);
 	static final Pattern BRACKET_PATTERN = Pattern.compile("\\{([^{}]+)}");

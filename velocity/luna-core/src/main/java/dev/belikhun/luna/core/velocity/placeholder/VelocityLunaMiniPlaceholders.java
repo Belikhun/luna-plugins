@@ -11,6 +11,7 @@ import io.github.miniplaceholders.api.Expansion;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.Tag;
+import net.kyori.adventure.text.minimessage.tag.resolver.ArgumentQueue;
 
 public final class VelocityLunaMiniPlaceholders {
 	private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
@@ -63,8 +64,7 @@ public final class VelocityLunaMiniPlaceholders {
 			.globalPlaceholder("total_servers", (queue, context) -> textTag(Integer.toString(values.registeredServers())))
 			.globalPlaceholder("total_players", (queue, context) -> textTag(Integer.toString(values.totalPlayers())))
 			.audiencePlaceholder(Player.class, "player_name", (player, queue, context) -> textTag(values.playerName(player)))
-			.audiencePlaceholder(Player.class, "player_status", (player, queue, context) -> textTag(values.playerStatus(player, null)))
-			.audiencePlaceholder(Player.class, "player_status_⏺", (player, queue, context) -> textTag(values.playerStatus(player, "⏺")))
+			.audiencePlaceholder(Player.class, "player_status", (player, queue, context) -> textTag(values.playerStatus(player, popArgument(queue))))
 			.audiencePlaceholder(Player.class, "player_group_name", (player, queue, context) -> textTag(values.playerGroupName(player)))
 			.audiencePlaceholder(Player.class, "player_group_display", (player, queue, context) -> textTag(values.playerGroupDisplay(player)))
 			.audiencePlaceholder(Player.class, "player_prefix", (player, queue, context) -> textTag(values.playerPrefix(player)))
@@ -91,11 +91,43 @@ public final class VelocityLunaMiniPlaceholders {
 		return builder.build();
 	}
 
+	/**
+	 * Reads the optional first argument of a tag, which is how a flexible suffix reaches the
+	 * proxy. MiniMessage restricts a tag name to {@code [a-zA-Z0-9_-]}, so a glyph such as the
+	 * status dot cannot ride in the name the way it does on PlaceholderAPI: {@code
+	 * <luna_player_status:'⏺'>} resolves, {@code <luna_player_status_⏺>} is never parsed
+	 * as a tag at all.
+	 *
+	 * @param queue the tag's argument queue
+	 * @return the first argument, or null when the tag was used without one
+	 */
+	private static String popArgument(ArgumentQueue queue) {
+		if (!queue.hasNext()) {
+			return null;
+		}
+
+		return queue.pop().value();
+	}
+
+	/**
+	 * Wrap a placeholder's value as a tag the surrounding message can survive.
+	 *
+	 * The empty parent is load-bearing. MiniMessage writes an inserted component's
+	 * style as an *unclosed* tag when the component carries that style at its root,
+	 * so on the serialize/re-parse round trip the rest of the line becomes a child
+	 * of it and inherits the colour: a server-coloured status dot at the start of a
+	 * chat format ends up tinting the player's name and everything after it. Giving
+	 * the value a styleless parent hands the serializer a boundary to close at, and
+	 * the value's colour then reaches exactly the value.
+	 *
+	 * @param value MiniMessage source for the placeholder's value
+	 * @return an inserting tag whose style cannot escape into its siblings
+	 */
 	private Tag textTag(String value) {
 		if (value == null || value.isEmpty()) {
 			return Tag.inserting(Component.empty());
 		}
 
-		return Tag.inserting(MINI_MESSAGE.deserialize(value));
+		return Tag.inserting(Component.empty().append(MINI_MESSAGE.deserialize(value)));
 	}
 }

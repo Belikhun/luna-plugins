@@ -137,7 +137,7 @@ public final class VelocityMessengerConfig {
 			),
 			List.copyOf(parseWebhookUrls(webhook)),
 			str(webhook.get("username-format"), "%luckperms_prefix% %sender_name%"),
-			str(webhook.get("avatar-url-format"), "https://visage.surgeplay.com/bust/128/<skinsrestorer_texture_id_or_steve>.png"),
+			str(webhook.get("avatar-url-format"), "https://mc.belikhun.dev/api/public/avatar/bust/128/%player_name%.png"),
 			parseMessageRoute(map(network.get("message")), defaultNetworkRoute()),
 			parseMessageRoute(map(joinLeave.get("join")), defaultJoinRoute()),
 			parseMessageRoute(map(joinLeave.get("leave")), defaultLeaveRoute()),

@@ -91,7 +91,7 @@ public final class VelocityMessengerRouter {
 		this.bus = bus;
 		this.config = config;
 		this.renderer = renderer;
-		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
+		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver(this.logger);
 		this.playerDisplayFormat = playerDisplayFormat;
 		this.serverDisplayResolver = serverDisplayResolver;
 		this.discordBridge = discordBridge;

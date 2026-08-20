@@ -38,6 +38,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 	private static final String SAFE_SUFFIX = "_safe";
 	private static final Pattern WORLD_WEATHER_PATTERN = Pattern.compile("^world_(.+)_(weather|weathericon|weathercolor|weatherduration)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern PLAYER_STATUS_PATTERN = Pattern.compile("^player_status(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
+	private static final Pattern PLAYER_DIMENSION_PATTERN = Pattern.compile("^player_dimension(?:_(.+))?$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern STRIP_COLOR_PATTERN = Pattern.compile("^stripcolor_(legacy|mm)_(.+)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern MM2L_PATTERN = Pattern.compile("^mm2l_(.+)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern BRACKET_PATTERN = Pattern.compile("\\{[^{}]+}");
@@ -242,6 +243,19 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			return LunaImportedPlaceholderSupport.playerStatusDot(
 				toWorldKind(onlinePlayer.getWorld().getEnvironment()),
 				playerStatusMatcher.group(1)
+			);
+		}
+
+		Matcher playerDimensionMatcher = PLAYER_DIMENSION_PATTERN.matcher(expandedKey);
+		if (playerDimensionMatcher.matches()) {
+			Player onlinePlayer = player == null ? null : player.getPlayer();
+			if (onlinePlayer == null || onlinePlayer.getWorld() == null) {
+				return "<white>❌<reset>";
+			}
+
+			return LunaImportedPlaceholderSupport.playerDimensionDot(
+				toWorldKind(onlinePlayer.getWorld().getEnvironment()),
+				playerDimensionMatcher.group(1)
 			);
 		}
 

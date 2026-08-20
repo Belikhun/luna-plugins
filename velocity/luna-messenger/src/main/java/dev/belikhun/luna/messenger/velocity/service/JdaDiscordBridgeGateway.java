@@ -92,7 +92,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		this.relayWebhookEndpoints = resolveRelayWebhookEndpoints(webhookUrls);
 		this.presenceUpdaterConfig = config.presenceUpdater();
 		this.presencePlaceholderSupplier = presencePlaceholderSupplier;
-		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver();
+		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver(this.logger);
 		this.rotatingPresenceCursor = new AtomicInteger();
 		this.commandRegistry = commandRegistry;
 		this.presenceExecutor = Executors.newSingleThreadScheduledExecutor(task -> {

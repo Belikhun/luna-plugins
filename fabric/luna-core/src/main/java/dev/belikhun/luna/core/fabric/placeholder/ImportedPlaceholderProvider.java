@@ -80,6 +80,15 @@ final class ImportedPlaceholderProvider implements FabricPlaceholderProvider {
 			return LunaImportedPlaceholderSupport.playerStatusDot(support.toWorldKind(level), playerStatusMatcher.group(1));
 		}
 
+		Matcher playerDimensionMatcher = BuiltInFabricPlaceholderService.PLAYER_DIMENSION_PATTERN.matcher(expandedKey);
+		if (playerDimensionMatcher.matches()) {
+			ServerLevel dimensionLevel = player.serverLevel();
+			if (dimensionLevel == null) {
+				return "<white>❌<reset>";
+			}
+			return LunaImportedPlaceholderSupport.playerDimensionDot(support.toWorldKind(dimensionLevel), playerDimensionMatcher.group(1));
+		}
+
 		Matcher stripColorMatcher = BuiltInFabricPlaceholderService.STRIP_COLOR_PATTERN.matcher(expandedKey);
 
 		if (stripColorMatcher.matches()) {

@@ -181,7 +181,7 @@ final class VelocityLunaPlaceholderValues {
 			.map(connection -> connection.getServerInfo().getName())
 			.orElse("");
 		String color = serverColor(serverName);
-		String safeDot = (dot == null || dot.isBlank()) ? "|" : dot;
+		String safeDot = (dot == null || dot.isBlank()) ? "▋" : dot;
 		return "<c:" + color + ">" + safeDot + "<reset>";
 	}
 

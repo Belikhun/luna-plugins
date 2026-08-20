@@ -28,7 +28,10 @@ final class CoreBackedPlaceholderResolver implements BackendPlaceholderResolver 
 		"vault_prefix",
 		"vault_suffix",
 		"vault_primary_group",
-		"player_displayname"
+		"player_displayname",
+		// the chat formats use it and only a backend can answer it: the proxy has no
+		// idea which dimension a player is standing in
+		"luna_player_dimension"
 	);
 
 	private final DependencyManager dependencyManager;

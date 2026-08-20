@@ -9,6 +9,9 @@ dependencies {
 	compileOnly(libs.miniplaceholders.api)
 	compileOnly(libs.luckperms.api)
 	annotationProcessor(libs.velocity.api)
+	testImplementation(project(":luna-core-api"))
+	testImplementation(libs.velocity.api)
+	testImplementation(libs.miniplaceholders.api)
 	implementation(libs.jda) {
 		// Voice codecs are not used by this plugin (text channel only).
 		exclude(group = "club.minnced", module = "opus-java")
