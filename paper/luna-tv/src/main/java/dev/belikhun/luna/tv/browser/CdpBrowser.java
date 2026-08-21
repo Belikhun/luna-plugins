@@ -2,6 +2,7 @@ package dev.belikhun.luna.tv.browser;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Map;
@@ -10,6 +11,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.image.DataBufferByte;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import com.google.gson.JsonObject;
 
@@ -39,6 +46,21 @@ public final class CdpBrowser implements AutoCloseable {
 	private final int height;
 	private volatile int captureWidth;
 	private volatile int captureHeight;
+
+	/**
+	 * Frame decoding is done here, never on the WebSocket thread.
+	 *
+	 * Decoding a screencast frame is JPEG decompression plus a full-screen
+	 * upscale; doing that inline on the HTTP client's reader thread pinned a
+	 * whole core and stalled every other CDP reply behind it.
+	 */
+	private final ExecutorService decoder;
+	private final AtomicReference<String> pending = new AtomicReference<>();
+
+	private ImageReader jpegReader;
+	private BufferedImage decodeTarget;
+	private int[] columnIndex;
+	private int columnIndexFor;
 	private final FrameBuffers buffers;
 	private final AtomicReference<BrowserFrame> latest = new AtomicReference<>();
 	private final AtomicLong decoded = new AtomicLong();
@@ -68,6 +90,13 @@ public final class CdpBrowser implements AutoCloseable {
 		this.captureWidth = Math.max(1, width / scale);
 		this.captureHeight = Math.max(1, height / scale);
 		this.buffers = new FrameBuffers(width * height);
+		this.decoder = Executors.newSingleThreadExecutor(runnable -> {
+			Thread thread = new Thread(runnable, "LunaTv-Decode-" + process.port());
+
+			thread.setDaemon(true);
+
+			return thread;
+		});
 		this.currentUrl = url;
 		this.minFrameIntervalNanos = 1_000_000_000L / Math.max(1, config.fps());
 	}
@@ -166,6 +195,7 @@ public final class CdpBrowser implements AutoCloseable {
 
 		captureWidth = Math.max(1, width / safe);
 		captureHeight = Math.max(1, height / safe);
+		columnIndex = null;
 
 		cdp.call("Emulation.setDeviceMetricsOverride", Map.of(
 			"width", captureWidth,
@@ -252,15 +282,30 @@ public final class CdpBrowser implements AutoCloseable {
 			return;
 		}
 
+		// newest wins: a frame still queued when the next arrives is worthless,
+		// and dropping it here costs nothing because nothing has been decoded yet
+		pending.set(params.get("data").getAsString());
+
 		try {
-			byte[] jpeg = Base64.getDecoder().decode(params.get("data").getAsString());
-			BufferedImage image = ImageIO.read(new ByteArrayInputStream(jpeg));
+			decoder.execute(this::drainPending);
+		} catch (java.util.concurrent.RejectedExecutionException ignored) {
+			// shutting down
+		}
+	}
 
-			if (image == null) {
-				return;
+	private void drainPending() {
+		String data = pending.getAndSet(null);
+
+		if (data == null || closed) {
+			return;
+		}
+
+		try {
+			BufferedImage image = decodeJpeg(Base64.getDecoder().decode(data));
+
+			if (image != null) {
+				publish(image);
 			}
-
-			publish(image);
 		} catch (Throwable throwable) {
 			if (config.debug()) {
 				logger.debug("Không giải mã được khung hình: " + throwable);
@@ -268,34 +313,95 @@ public final class CdpBrowser implements AutoCloseable {
 		}
 	}
 
-	private void publish(BufferedImage image) {
-		int[] pixels = buffers.take();
-		int frameWidth;
-		int frameHeight;
+	/**
+	 * Decodes a JPEG frame into a reused INT_RGB image.
+	 *
+	 * ImageIO.read would build a reader, a stream and a fresh image every
+	 * frame, and hand back a 3BYTE_BGR raster whose getRGB costs a colour
+	 * conversion per pixel. Decoding straight into an int-backed destination
+	 * lets the pixels be read as a plain array afterwards.
+	 *
+	 * @param jpeg the compressed frame
+	 * @return the decoded image, or null when the frame was unreadable
+	 */
+	private BufferedImage decodeJpeg(byte[] jpeg) throws IOException {
+		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(jpeg))) {
+			if (jpegReader == null) {
+				java.util.Iterator<ImageReader> readers = ImageIO.getImageReadersByFormatName("jpeg");
 
-		if (captureWidth == width) {
-			frameWidth = Math.min(image.getWidth(), width);
-			frameHeight = Math.min(image.getHeight(), height);
-			image.getRGB(0, 0, frameWidth, frameHeight, pixels, 0, width);
-		} else {
-			// captured small to keep Chromium's JPEG encode cheap; blown back up
-			// here by pixel replication, which the map palette then swallows
-			int sourceWidth = Math.min(image.getWidth(), captureWidth);
-			int sourceHeight = Math.min(image.getHeight(), captureHeight);
-			int[] source = image.getRGB(0, 0, sourceWidth, sourceHeight, null, 0, sourceWidth);
-
-			frameWidth = Math.min(width, sourceWidth * width / captureWidth);
-			frameHeight = Math.min(height, sourceHeight * height / captureHeight);
-
-			for (int y = 0; y < frameHeight; y++) {
-				int sourceRow = Math.min(sourceHeight - 1, y * captureHeight / height) * sourceWidth;
-				int destinationRow = y * width;
-
-				for (int x = 0; x < frameWidth; x++) {
-					pixels[destinationRow + x] = source[sourceRow
-						+ Math.min(sourceWidth - 1, x * captureWidth / width)];
+				if (!readers.hasNext()) {
+					return null;
 				}
+
+				jpegReader = readers.next();
 			}
+
+			jpegReader.setInput(input, true, true);
+
+			int frameWidth = jpegReader.getWidth(0);
+			int frameHeight = jpegReader.getHeight(0);
+
+			// 3BYTE_BGR is what the JPEG decoder produces natively. Asking for
+			// INT_RGB instead makes it colour-convert every pixel on the way out,
+			// which measured ~7ms/frame slower than converting ourselves later.
+			if (decodeTarget == null
+					|| decodeTarget.getWidth() != frameWidth
+					|| decodeTarget.getHeight() != frameHeight) {
+				decodeTarget = new BufferedImage(frameWidth, frameHeight, BufferedImage.TYPE_3BYTE_BGR);
+			}
+
+			ImageReadParam param = jpegReader.getDefaultReadParam();
+
+			param.setDestination(decodeTarget);
+
+			return jpegReader.read(0, param);
+		} finally {
+			if (jpegReader != null) {
+				jpegReader.setInput(null);
+			}
+		}
+	}
+
+	private void publish(BufferedImage image) {
+		// Read straight out of the decoder's own BGR raster and fold the colour
+		// conversion into the scaling pass, so the pixels are only walked once.
+		byte[] source = ((DataBufferByte) image.getRaster().getDataBuffer()).getData();
+		int sourceWidth = image.getWidth();
+		int sourceHeight = image.getHeight();
+		int[] pixels = buffers.take();
+		int frameWidth = Math.min(width, sourceWidth * width / Math.max(1, captureWidth));
+		int frameHeight = Math.min(height, sourceHeight * height / Math.max(1, captureHeight));
+		int[] columns = columns(sourceWidth);
+		int lastSourceRow = -1;
+		int lastDestinationRow = 0;
+
+		for (int y = 0; y < frameHeight; y++) {
+			int sourceRow = Math.min(sourceHeight - 1, y * captureHeight / height);
+			int destinationRow = y * width;
+
+			// a source row repeated across several destination rows is copied
+			// wholesale rather than rebuilt pixel by pixel
+			if (sourceRow == lastSourceRow) {
+				System.arraycopy(pixels, lastDestinationRow, pixels, destinationRow, frameWidth);
+
+				continue;
+			}
+
+			int base = sourceRow * sourceWidth;
+
+			for (int x = 0; x < frameWidth; x++) {
+				int at = (base + columns[x]) * 3;
+
+				// the palette treats a transparent pixel as a hole, so alpha is
+				// forced opaque here rather than trusted from the decoder
+				pixels[destinationRow + x] = 0xFF000000
+					| ((source[at + 2] & 0xFF) << 16)
+					| ((source[at + 1] & 0xFF) << 8)
+					| (source[at] & 0xFF);
+			}
+
+			lastSourceRow = sourceRow;
+			lastDestinationRow = destinationRow;
 		}
 
 		decoded.incrementAndGet();
@@ -325,6 +431,32 @@ public final class CdpBrowser implements AutoCloseable {
 	 *
 	 * @param frame a frame previously returned by {@link #poll()}
 	 */
+	/**
+	 * The source column each destination column samples, cached.
+	 *
+	 * Recomputed only when the capture size changes; without it every pixel of
+	 * every frame pays for a multiply and a divide.
+	 *
+	 * @param sourceWidth width of the decoded frame
+	 * @return one source index per destination column
+	 */
+	private int[] columns(int sourceWidth) {
+		if (columnIndex != null && columnIndexFor == sourceWidth) {
+			return columnIndex;
+		}
+
+		int[] table = new int[width];
+
+		for (int x = 0; x < width; x++) {
+			table[x] = Math.min(sourceWidth - 1, x * captureWidth / width);
+		}
+
+		columnIndex = table;
+		columnIndexFor = sourceWidth;
+
+		return table;
+	}
+
 	public void recycle(BrowserFrame frame) {
 		if (frame == null) {
 			return;
@@ -555,6 +687,12 @@ public final class CdpBrowser implements AutoCloseable {
 	@Override
 	public void close() {
 		closed = true;
+		decoder.shutdownNow();
+
+		if (jpegReader != null) {
+			jpegReader.dispose();
+			jpegReader = null;
+		}
 
 		try {
 			cdp.close();
@@ -563,7 +701,7 @@ public final class CdpBrowser implements AutoCloseable {
 		}
 	}
 
-	/** The four keys the chat controller offers, in CDP's own vocabulary. */
+	/** The keys the controllers offer, in CDP's own vocabulary. */
 	private record KeySpec(String key, String code, int code0, String text) {
 
 		static KeySpec of(String name) {

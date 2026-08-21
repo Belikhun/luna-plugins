@@ -71,6 +71,10 @@ public final class LunaTvPlugin extends JavaPlugin {
 		logger = PaperPluginBootstrap.initLogger(this, "TV").withDebug(config.debug());
 		TvDebug.init(logger, config.debug());
 
+		// every screencast frame builds an image input stream; the default cache
+		// backs those with temp files on disk
+		javax.imageio.ImageIO.setUseCache(false);
+
 		if (!DisplayService.available()) {
 			logger.error("Không tìm thấy MapEngine. LunaTv sẽ tắt.");
 			getServer().getPluginManager().disablePlugin(this);
