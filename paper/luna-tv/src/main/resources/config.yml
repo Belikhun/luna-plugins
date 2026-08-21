@@ -1,0 +1,93 @@
+# Cấu hình Luna TV. Mỗi màn hình là một tiến trình Chromium riêng, chạy ngoài
+# JVM của server, nên một trang web bị treo không kéo theo cả máy chủ.
+
+render:
+  # Số khung hình mỗi giây đẩy lên bản đồ (1-30). Trang tĩnh gần như không tốn gì:
+  # chỉ khung nào thực sự đổi mới được gửi đi.
+  fps: 20
+  # Giới hạn băng thông gửi hình cho mỗi màn hình (megabit/giây). Video trên màn
+  # hình lớn thay đổi gần hết các bản đồ mỗi khung: không giới hạn thì kết nối
+  # của người xem nghẽn và màn hình trắng trơn. Vượt ngân sách thì bỏ khung,
+  # hình vẫn liền mạch nhưng ít khung hình hơn. Đặt theo đường truyền người xem.
+  max-megabits: 36
+  # Chất lượng JPEG Chromium dùng khi gửi khung hình (1-100). Bản đồ chỉ có 143 màu
+  # nên trên 70 gần như không thấy khác biệt.
+  quality: 60
+  # Độ phân giải mặc định cho MÀN HÌNH MỚI (mỗi màn hình chỉnh riêng được bằng
+  # /lunatv scale hoặc GUI): 1 = trang chạy đúng kích thước tường, nét nhất;
+  # 2-4 = trang chạy ở 1/2-1/4 kích thước rồi phóng to lại, nhẹ máy hơn nhiều
+  # (video tự chọn chất lượng thấp hơn, mã hoá JPEG rẻ hơn theo bình phương).
+  capture-scale: 1
+  # Gói toàn bộ khung hình vào một packet bundle để tránh xé hình giữa các bản
+  # đồ. Mặc định tắt: qua Velocity của cluster này, dữ liệu bản đồ trong bundle
+  # không bao giờ tới client (đã kiểm chứng 2026-08-21) - màn hình trắng trơn.
+  bundling: false
+  # Thuật toán chuyển màu sang bảng màu bản đồ:
+  #   DIRECT          - lấy màu gần nhất, mặt phẳng sạch, chữ rõ. Mặc định, vì
+  #                     trang web phần lớn là màu phẳng và chữ.
+  #   FLOYD_STEINBERG - tán màu, chuyển sắc mượt hơn nhưng nền trắng bị rỗ hạt
+  #                     và tốn CPU hơn nhiều. Chỉ nên dùng cho ảnh/video.
+  converter: DIRECT
+  # Khoảng cách người chơi bắt đầu nhìn thấy màn hình (block). Màn hình lớn nên
+  # đặt xa hơn: phải đứng lùi mới thấy hết, và ra khỏi bán kính này là mất hình.
+  spawn-distance: 64
+  # Khoảng cách tối đa để bấm được vào màn hình (block). Màn hình lớn cần đứng xa
+  # mới thấy hết, nên giá trị này phải đủ lớn: bấm từ ngoài bán kính sẽ không ăn.
+  interact-distance: 64
+
+screens:
+  # Số màn hình tối đa. Mỗi màn hình là một Chromium riêng và tốn khoảng 400-450MB
+  # RAM thật (đo trên máy này với trang có hoạt ảnh), nằm ngoài heap của server.
+  # Tăng lên chỉ khi máy còn dư RAM: kiểm tra bằng `free -m` trước.
+  max: 2
+  # Trang mở sẵn khi tạo màn hình mới.
+  homepage: "https://www.google.com"
+  # Các trang bấm nhanh trong bảng điều khiển.
+  presets:
+    - name: YouTube
+      url: "https://www.youtube.com"
+    - name: Google
+      url: "https://www.google.com"
+
+browser:
+  # Đường dẫn Chromium. Bản snap không đọc được file:// nên chỉ dùng http(s).
+  executable: "/snap/bin/chromium"
+  # User agent trình duyệt khai với trang web. Headless bị nhiều trang coi là bot
+  # (YouTube từ chối phát video), nên khai như một Chrome bình thường. Để trống
+  # thì dùng chuỗi gốc của trình duyệt, chỉ bỏ chữ "Headless".
+  user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+  # Cổng CDP cấp cho màn hình đầu tiên; các màn hình sau lấy cổng trống kế tiếp.
+  # Chỉ nghe trên 127.0.0.1, không mở ra ngoài.
+  debug-port-start: 39330
+  # Số giây chờ Chromium mở cổng CDP trước khi coi là lỗi.
+  startup-timeout: 20
+  # Tham số dòng lệnh thêm vào Chromium.
+  switches:
+    - "--headless=new"
+    - "--no-sandbox"
+    - "--disable-gpu"
+    # Không có GPU thật thì compositing và WebGL đều chạy bằng SwiftShader trên
+    # CPU. Một trang nặng hiệu ứng (TikTok) từng đốt 6 lõi chỉ để vẽ 60fps mà
+    # tường bản đồ không bao giờ hiển thị nổi. Tắt WebGL: trang 3D sẽ tự hạ cấp.
+    - "--disable-gpu-compositing"
+    - "--disable-gpu-vsync"
+    - "--disable-webgl"
+    - "--autoplay-policy=no-user-gesture-required"
+    - "--disable-background-timer-throttling"
+    - "--disable-backgrounding-occluded-windows"
+    - "--disable-renderer-backgrounding"
+    - "--disable-dev-shm-usage"
+
+audio:
+  enabled: true
+  # Tiền tố tên null-sink PulseAudio; mỗi màn hình có một sink riêng.
+  sink-prefix: "lunatv"
+  pactl-path: "pactl"
+  parec-path: "parec"
+  # Bán kính nghe được tiếng của màn hình (block).
+  distance: 24.0
+  # Giữ lại null-sink khi plugin tắt. Bật lên nếu PulseAudio hay bị dọn sink.
+  keep-sinks-on-disable: false
+
+logging:
+  debug: false

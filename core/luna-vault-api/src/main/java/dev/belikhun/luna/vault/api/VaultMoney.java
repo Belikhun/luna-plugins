@@ -65,6 +65,25 @@ public final class VaultMoney {
 		return Formatters.money(minor, SCALE, currencySymbol, grouping, template == null || template.isBlank() ? DEFAULT_TEMPLATE : template);
 	}
 
+	/**
+	 * The same amount with every colour code taken out.
+	 *
+	 * Vault's {@code format} is a display string a *third-party* plugin drops into a
+	 * message of its own, so it has to survive a renderer that is not MiniMessage:
+	 * HuskHomes builds its lines with MineDown and printed luna's tags verbatim
+	 * ("Đã trừ &lt;#FFDFD4&gt;&lt;b&gt;1,00&lt;/b&gt;..."). The template still applies, so the symbol
+	 * and the spacing stay where the config puts them; only the markup goes.
+	 *
+	 * @param minor the amount in minor units
+	 * @param currencySymbol the configured symbol, markup and all
+	 * @param grouping whether to group thousands
+	 * @param template the configured layout
+	 * @return the formatted amount, free of MiniMessage tags and legacy colour codes
+	 */
+	public static String formatPlain(long minor, String currencySymbol, boolean grouping, String template) {
+		return Formatters.stripFormats(format(minor, currencySymbol, grouping, template));
+	}
+
 	@Deprecated(forRemoval = false)
 	public static String formatDefault(long minor) {
 		return format(minor, DEFAULT_CURRENCY_SYMBOL, true, DEFAULT_TEMPLATE);

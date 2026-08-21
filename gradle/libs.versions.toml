@@ -62,6 +62,8 @@ slf4j = "2.0.16"
 tab = "5.5.0"
 forgeplaceholderapi = "2.1.0"
 voicechatapi = "2.6.13"
+# MapEngine renders images onto map walls by packet, and is what luna-tv draws through.
+mapengine = "1.8.12"
 # The mixin fork fabric ships. Only the no-loom 26.x builds name it: loom puts the
 # same artifact on the classpath itself for every 1.21 module.
 spongemixin = "0.15.5+mixin.0.8.7"
@@ -90,6 +92,7 @@ rabbitmq-client = { module = "com.rabbitmq:amqp-client", version.ref = "rabbitmq
 tab-api = { module = "com.github.NEZNAMY:TAB-API", version.ref = "tab" }
 forgeplaceholderapi-neoforge = { module = "com.envyful.papi:neo21", version.ref = "forgeplaceholderapi" }
 voicechat-api = { module = "de.maxhenkel.voicechat:voicechat-api", version.ref = "voicechatapi" }
+mapengine-api = { module = "de.pianoman911:mapengine-api", version.ref = "mapengine" }
 sponge-mixin = { module = "net.fabricmc:sponge-mixin", version.ref = "spongemixin" }
 
 [plugins]

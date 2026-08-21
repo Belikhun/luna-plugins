@@ -1,0 +1,29 @@
+name: LunaTv
+version: ${version}
+main: dev.belikhun.luna.tv.LunaTvPlugin
+api-version: '1.21'
+description: Màn hình trình duyệt web trên tường bản đồ, kèm âm thanh qua Simple Voice Chat.
+authors:
+  - Belikhun
+permissions:
+  lunatv.control:
+    default: op
+    description: Điều khiển màn hình Luna TV.
+commands:
+  lunatv:
+    description: Quản lý và điều khiển màn hình Luna TV.
+    usage: /lunatv <create|remove|list|control|url|audio>
+    aliases: [tv]
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true
+    MapEngine:
+      load: BEFORE
+      required: true
+    voicechat:
+      load: BEFORE
+      required: false
+      join-classpath: true

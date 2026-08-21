@@ -2,6 +2,7 @@ package dev.belikhun.luna.vault.backend.service;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
 import dev.belikhun.luna.core.api.concurrent.FutureUtils;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
@@ -52,15 +53,19 @@ public final class LunaVaultEconomyProvider implements Economy {
 		return 2;
 	}
 
+	// Vault's display surfaces are read by other plugins, which embed them in their
+	// own messages and render with their own parser. luna's MiniMessage template is
+	// for luna's own output; handing it out here shows up as raw tags in anything
+	// that is not MiniMessage-aware.
 	@Override
 	public String format(double amount) {
 		long minor = VaultMoney.fromDouble(amount);
-		return VaultMoney.format(minor, currencySymbol, moneyGrouping, moneyTemplate);
+		return VaultMoney.formatPlain(minor, currencySymbol, moneyGrouping, moneyTemplate);
 	}
 
 	@Override
 	public String currencyNamePlural() {
-		return currencySymbol;
+		return Formatters.stripFormats(currencySymbol);
 	}
 
 	@Override

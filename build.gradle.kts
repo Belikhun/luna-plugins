@@ -158,6 +158,7 @@ subprojects {
         maven("https://repo.william278.net/releases")
         maven("https://maven.neoforged.net/releases")
         maven("https://repo.codemc.org/repository/maven-public/")
+        maven("https://repo.minceraft.dev/releases/")
         maven("https://jitpack.io")
 
         if (isMc26FabricModule) {
