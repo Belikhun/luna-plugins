@@ -36,7 +36,8 @@ public final class PanelRenderer {
 		boolean audio,
 		String url,
 		int fps,
-		int scale
+		int scale,
+		int brightness
 	) {}
 
 	private static final Color BACKGROUND = new Color(0x10, 0x14, 0x18);
@@ -107,63 +108,49 @@ public final class PanelRenderer {
 			state.powered() ? RED : GREEN, state.powered() ? "TẮT" : "BẬT", 12);
 
 		// navigation row
-		button(g, "back", 8, 42, 56, 26, CARD, "BACK", 10);
-		button(g, "forward", 68, 42, 56, 26, CARD, "FWD", 10);
-		button(g, "reload", 128, 42, 56, 26, CARD, "RELOAD", 9);
-		button(g, "home", 188, 42, 60, 26, CARD, "HOME", 10);
+		button(g, "back", 8, 42, 56, 24, CARD, "BACK", 10);
+		button(g, "forward", 68, 42, 56, 24, CARD, "FWD", 10);
+		button(g, "reload", 128, 42, 56, 24, CARD, "RELOAD", 9);
+		button(g, "home", 188, 42, 60, 24, CARD, "HOME", 10);
 
 		// playback row
-		button(g, "seekback", 8, 72, 56, 26, CARD, "-10s", 11);
-		button(g, "play", 68, 72, 116, 26, CARD_HI, "PLAY / PAUSE", 11);
-		button(g, "seekfwd", 188, 72, 60, 26, CARD, "+10s", 11);
+		button(g, "seekback", 8, 70, 56, 24, CARD, "-10s", 11);
+		button(g, "play", 68, 70, 116, 24, CARD_HI, "PLAY / PAUSE", 11);
+		button(g, "seekfwd", 188, 70, 60, 24, CARD, "+10s", 11);
 
-		// volume: minus, slider, plus, mute - all on one line
-		button(g, "voldown", 8, 102, 24, 22, CARD, "-", 14);
-		button(g, "volup", 190, 102, 24, 22, CARD, "+", 12);
-		button(g, "mute", 218, 102, 30, 22, state.audio() ? CARD_HI : CARD,
-			state.audio() ? "ON" : "OFF", 9);
+		// volume, then brightness: same shape so the pair reads as one group
+		slider(g, "volume", 98, "voldown", "volup", state.volume(), 0, 100,
+			state.audio() ? BLUE : MUTED, state.volume() + "%",
+			"mute", state.audio() ? "ON" : "OFF", state.audio());
+		slider(g, "brightness", 124, "brightdown", "brightup", state.brightness(), 50, 200,
+			GOLD, "\u2600 " + state.brightness() + "%",
+			"brightreset", "100", false);
 
-		int trackX = 36;
-		int trackWidth = 150;
-
-		g.setColor(fillFor("volume", CARD));
-		g.fillRoundRect(trackX, 102, trackWidth, 22, 6, 6);
-		g.setColor(state.audio() ? BLUE : MUTED);
-		g.fillRoundRect(trackX, 102, trackWidth * state.volume() / 100, 22, 6, 6);
-		widgets.add(new Widget("volume", trackX, 102, trackWidth, 22));
-
-		g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-		g.setColor(TEXT);
-
-		String volumeLabel = state.volume() + "%";
-
-		g.drawString(volumeLabel, trackX + (trackWidth - g.getFontMetrics().stringWidth(volumeLabel)) / 2, 118);
-
-		// arrow cluster, laid out as a d-pad so it reads at a glance
-		button(g, "up", 38, 128, 28, 18, CARD, "\u25B2", 11);
-		button(g, "left", 8, 148, 28, 18, CARD, "\u25C0", 11);
-		button(g, "right", 68, 148, 28, 18, CARD, "\u25B6", 11);
-		button(g, "down", 38, 168, 28, 18, CARD, "\u25BC", 11);
+		// arrows in the keyboard's own shape: up alone, then left/down/right
+		button(g, "up", 38, 152, 28, 18, CARD, "\u25B2", 11);
+		button(g, "left", 8, 174, 28, 18, CARD, "\u25C0", 11);
+		button(g, "down", 38, 174, 28, 18, CARD, "\u25BC", 11);
+		button(g, "right", 68, 174, 28, 18, CARD, "\u25B6", 11);
 
 		// scroll wheel, and the two keys that pair with browsing
-		button(g, "scrollup", 104, 128, 66, 26, CARD, "SCROLL \u25B2", 9);
-		button(g, "scrolldown", 104, 160, 66, 26, CARD, "SCROLL \u25BC", 9);
-		button(g, "esc", 176, 128, 72, 26, CARD, "ESC", 11);
-		button(g, "tab", 176, 160, 72, 26, CARD, "TAB", 11);
+		button(g, "scrollup", 104, 152, 66, 18, CARD, "SCROLL \u25B2", 9);
+		button(g, "scrolldown", 104, 174, 66, 18, CARD, "SCROLL \u25BC", 9);
+		button(g, "esc", 176, 152, 72, 18, CARD, "ESC", 10);
+		button(g, "tab", 176, 174, 72, 18, CARD, "TAB", 10);
 
 		// text keys
-		button(g, "enter", 8, 190, 120, 22, CARD_HI, "ENTER", 11);
-		button(g, "backspace", 134, 190, 114, 22, CARD, "BACKSPACE", 10);
+		button(g, "enter", 8, 196, 120, 20, CARD_HI, "ENTER", 11);
+		button(g, "backspace", 134, 196, 114, 20, CARD, "BACKSPACE", 10);
 
 		// status footer, with room to actually read it
 		g.setColor(CARD);
-		g.fillRect(0, 218, 256, 38);
+		g.fillRect(0, 220, 256, 36);
 		g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
 		g.setColor(TEXT);
-		g.drawString(trim(state.url(), 42), 8, 234);
+		g.drawString(trim(state.url(), 42), 8, 236);
 		g.setColor(MUTED);
 		g.drawString(state.fps() + " fps · 1/" + state.scale() + " · "
-			+ (state.audio() ? "có tiếng" : "không tiếng"), 8, 249);
+			+ (state.audio() ? "có tiếng" : "không tiếng"), 8, 250);
 
 		g.dispose();
 
@@ -172,6 +159,37 @@ public final class PanelRenderer {
 		image.getRGB(0, 0, 256, 256, pixels, 0, 256);
 
 		return pixels;
+	}
+
+	/**
+	 * One value row: a minus, a filled track carrying its own label, a plus, and
+	 * a trailing button.
+	 *
+	 * Volume and brightness are drawn by the same code so they read as a pair;
+	 * pressing the track sets the value directly from where it was touched.
+	 */
+	private void slider(Graphics2D g, String id, int y, String downId, String upId,
+			int value, int min, int max, Color fill, String label,
+			String trailingId, String trailingLabel, boolean trailingActive) {
+		int height = 22;
+
+		button(g, downId, 8, y, 24, height, CARD, "-", 14);
+		button(g, upId, 190, y, 24, height, CARD, "+", 12);
+		button(g, trailingId, 218, y, 30, height, trailingActive ? CARD_HI : CARD, trailingLabel, 9);
+
+		int trackX = 36;
+		int trackWidth = 150;
+		int filled = trackWidth * Math.max(0, value - min) / Math.max(1, max - min);
+
+		g.setColor(fillFor(id, CARD));
+		g.fillRoundRect(trackX, y, trackWidth, height, 6, 6);
+		g.setColor(fill);
+		g.fillRoundRect(trackX, y, filled, height, 6, 6);
+		widgets.add(new Widget(id, trackX, y, trackWidth, height));
+
+		g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+		g.setColor(TEXT);
+		g.drawString(label, trackX + (trackWidth - g.getFontMetrics().stringWidth(label)) / 2, y + 16);
 	}
 
 	private void button(Graphics2D g, String id, int x, int y, int width, int height,

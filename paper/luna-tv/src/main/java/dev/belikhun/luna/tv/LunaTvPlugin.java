@@ -24,6 +24,7 @@ import dev.belikhun.luna.core.api.gui.AnvilInputManager;
 import dev.belikhun.luna.core.api.gui.GuiManager;
 
 import dev.belikhun.luna.tv.gui.ScreenSettingsGui;
+import dev.belikhun.luna.tv.input.ScrollListener;
 import dev.belikhun.luna.tv.input.MapClickListener;
 import dev.belikhun.luna.tv.input.RedstoneListener;
 import dev.belikhun.luna.tv.input.WandTool;
@@ -53,6 +54,7 @@ public final class LunaTvPlugin extends JavaPlugin {
 	private RenderPump render;
 	private ViewerTracker viewers;
 	private MapClickListener clicks;
+	private ScrollListener scrolls;
 	private WandTool wand;
 	private RedstoneListener redstone;
 	private TouchPanelService panels;
@@ -100,6 +102,7 @@ public final class LunaTvPlugin extends JavaPlugin {
 		viewers.start();
 
 		clicks = new MapClickListener(this, screens, config);
+		scrolls = new ScrollListener(screens, config);
 		wand = new WandTool(this);
 		redstone = new RedstoneListener(screens, logger.scope("Redstone"));
 		panels = new TouchPanelService(this, logger.scope("Panel"), screens, config);
@@ -111,6 +114,7 @@ public final class LunaTvPlugin extends JavaPlugin {
 
 		getServer().getPluginManager().registerEvents(viewers, this);
 		getServer().getPluginManager().registerEvents(clicks, this);
+		getServer().getPluginManager().registerEvents(scrolls, this);
 		getServer().getPluginManager().registerEvents(wand, this);
 		getServer().getPluginManager().registerEvents(redstone, this);
 		getServer().getPluginManager().registerEvents(panels, this);
@@ -194,6 +198,7 @@ public final class LunaTvPlugin extends JavaPlugin {
 		screens.config(config);
 		render.config(config);
 		clicks.config(config);
+		scrolls.config(config);
 		TvDebug.enabled(config.debug());
 		panels.config(config);
 	}

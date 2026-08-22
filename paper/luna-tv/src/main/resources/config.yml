@@ -13,6 +13,12 @@ render:
   # Chất lượng JPEG Chromium dùng khi gửi khung hình (1-100). Bản đồ chỉ có 143 màu
   # nên trên 70 gần như không thấy khác biệt.
   quality: 60
+  # Độ sáng ảnh mặc định cho màn hình mới, tính theo phần trăm (100 = nguyên bản).
+  # Bảng màu bản đồ chỉ có 143 màu và dải rất hẹp, nên cảnh tối bị mất chi tiết
+  # sau khi đổi màu; kéo sáng trước khi đổi sẽ giữ lại được. Áp dụng bằng đường
+  # cong gamma nên vùng sáng không bị cháy trắng. Chỉnh riêng từng màn hình bằng
+  # /lunatv brightness hoặc GUI.
+  brightness: 100
   # Độ phân giải mặc định cho MÀN HÌNH MỚI (mỗi màn hình chỉnh riêng được bằng
   # /lunatv scale hoặc GUI): 1 = trang chạy đúng kích thước tường, nét nhất;
   # 2-4 = trang chạy ở 1/2-1/4 kích thước rồi phóng to lại, nhẹ máy hơn nhiều
@@ -23,11 +29,19 @@ render:
   # không bao giờ tới client (đã kiểm chứng 2026-08-21) - màn hình trắng trơn.
   bundling: false
   # Thuật toán chuyển màu sang bảng màu bản đồ:
-  #   DIRECT          - lấy màu gần nhất, mặt phẳng sạch, chữ rõ. Mặc định, vì
-  #                     trang web phần lớn là màu phẳng và chữ.
-  #   FLOYD_STEINBERG - tán màu, chuyển sắc mượt hơn nhưng nền trắng bị rỗ hạt
-  #                     và tốn CPU hơn nhiều. Chỉ nên dùng cho ảnh/video.
-  converter: DIRECT
+  #   DIRECT          - lấy màu gần nhất, mặt phẳng sạch, chữ rõ.
+  #   ORDERED         - tán màu nhanh (Bayer 8x8) ngay trong bước giải mã khung
+  #                     hình, chuyển sắc mượt hơn DIRECT mà gần như không tốn
+  #                     thêm CPU. Mặc định.
+  #   FLOYD_STEINBERG - tán màu khuếch tán lỗi của MapEngine, mượt nhất nhưng
+  #                     tốn CPU hơn rất nhiều (đo được ~1.5 lõi trên tường 12x6).
+  converter: ORDERED
+  # Hoa văn cho chế độ ORDERED (chung cho mọi màn hình):
+  #   bayer - ma trận Bayer 8x8 cổ điển, hoa văn lưới caro đều.
+  #   a1/a2 - "a dither" (pippin.gimp.org/a_dither) dạng xor, nhiễu như vân.
+  #   a3/a4 - "a dither" dạng cộng, mịn hơn; a2/a4 lệch riêng từng kênh màu,
+  #           chi tiết hơn nhưng có chút nhiễu màu. Mặc định a4.
+  ordered-pattern: a4
   # Khoảng cách người chơi bắt đầu nhìn thấy màn hình (block). Màn hình lớn nên
   # đặt xa hơn: phải đứng lùi mới thấy hết, và ra khỏi bán kính này là mất hình.
   spawn-distance: 64
@@ -78,6 +92,14 @@ browser:
     - "--disable-renderer-backgrounding"
     - "--disable-dev-shm-usage"
 
+input:
+  # Giữ Shift rồi lăn chuột sẽ cuộn trang tại chỗ đang nhìn (không giữ Shift
+  # thì lăn chuột đổi ô đồ như bình thường).
+  # Số pixel cuộn cho mỗi nấc lăn; 120 là mức một trình duyệt để bàn hay dùng.
+  scroll-step: 120
+  # Đảo chiều lăn, nếu thấy cuộn ngược với mong đợi.
+  invert-scroll: false
+
 audio:
   enabled: true
   # Tiền tố tên null-sink PulseAudio; mỗi màn hình có một sink riêng.
@@ -86,6 +108,10 @@ audio:
   parec-path: "parec"
   # Bán kính nghe được tiếng của màn hình (block).
   distance: 24.0
+  # Bitrate Opus (bit/s). Simple Voice Chat tự dựng bộ mã hoá ở mức mặc định
+  # của Opus (khoảng 51 kbps mono) kèm FEC cho micro, quá thấp cho nhạc. Đặt 0
+  # để dùng lại bộ mã hoá của voice chat.
+  bitrate: 128000
   # Giữ lại null-sink khi plugin tắt. Bật lên nếu PulseAudio hay bị dọn sink.
   keep-sinks-on-disable: false
 

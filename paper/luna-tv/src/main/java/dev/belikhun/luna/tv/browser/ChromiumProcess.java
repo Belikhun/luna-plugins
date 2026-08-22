@@ -276,6 +276,10 @@ public final class ChromiumProcess {
 
 	/** Kills the browser, waiting briefly for a clean exit first. */
 	public void stop() {
+		// the children are collected before the parent dies, because once it is
+		// gone they are reparented to init and there is no handle to them left
+		java.util.List<ProcessHandle> children = process.descendants().toList();
+
 		process.destroy();
 
 		try {
@@ -286,7 +290,30 @@ public final class ChromiumProcess {
 			Thread.currentThread().interrupt();
 			process.destroyForcibly();
 		} finally {
+			reap(children);
 			releasePort(port);
+		}
+	}
+
+	/**
+	 * Kills any renderer or helper the browser left behind.
+	 *
+	 * Chromium normally takes its own children down, but a process that is not
+	 * running cannot act on the request: a wedged or stopped renderer survives
+	 * its browser, is reparented to init, and keeps its memory for the life of
+	 * the machine. One of those is several hundred megabytes, and the watchdog
+	 * relaunches on exactly the failures that produce them, so they would
+	 * accumulate.
+	 *
+	 * @param children handles captured while the parent was still alive
+	 */
+	private static void reap(java.util.List<ProcessHandle> children) {
+		for (ProcessHandle child : children) {
+			if (!child.isAlive()) {
+				continue;
+			}
+
+			child.destroyForcibly();
 		}
 	}
 

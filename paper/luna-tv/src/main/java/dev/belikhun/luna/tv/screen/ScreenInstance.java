@@ -41,6 +41,11 @@ public final class ScreenInstance {
 	private volatile boolean redrawRequested;
 	private volatile boolean mismatchReported;
 	private volatile boolean powered;
+	private final java.util.concurrent.atomic.AtomicBoolean launching =
+		new java.util.concurrent.atomic.AtomicBoolean();
+	private final java.util.concurrent.atomic.AtomicLong budgetSkips =
+		new java.util.concurrent.atomic.AtomicLong();
+	private volatile boolean budgetWarned;
 	private double budgetTokens;
 	private long budgetRefilledAt;
 
@@ -219,6 +224,48 @@ public final class ScreenInstance {
 		return previous;
 	}
 
+
+	/**
+	 * Claims the right to launch a browser for this screen.
+	 *
+	 * Chromium takes a couple of seconds to open its debug port, and until it
+	 * does nothing records that a launch is under way. Power cycling, a scale
+	 * change and the crash relaunch could therefore each start their own, and
+	 * every loser of that race stayed alive as an orphan holding ~450MB and a
+	 * debug port.
+	 *
+	 * @return true when the caller may launch
+	 */
+	public boolean claimLaunch() {
+		return launching.compareAndSet(false, true);
+	}
+
+	/** Releases the launch claim, whatever the outcome. */
+	public void releaseLaunch() {
+		launching.set(false);
+	}
+
+	/** How many frames the bandwidth budget has dropped. */
+	public long budgetSkips() {
+		return budgetSkips.get();
+	}
+
+	/**
+	 * Records a frame dropped for want of budget.
+	 *
+	 * @return true the first time it is worth telling the operator
+	 */
+	public boolean budgetSkipped() {
+		long count = budgetSkips.incrementAndGet();
+
+		if (count < 150 || budgetWarned) {
+			return false;
+		}
+
+		budgetWarned = true;
+
+		return true;
+	}
 
 	/**
 	 * Whether the operator wants this screen running.

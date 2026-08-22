@@ -9,9 +9,15 @@ import dev.belikhun.luna.tv.TvConfig;
 /**
  * Records one screen's null sink into 20ms frames.
  *
- * parec is asked for exactly what voice chat wants (48kHz, mono, signed 16-bit
- * little endian), so there is no resampling anywhere in this plugin: bytes come
- * off the pipe, become shorts, and go to the encoder.
+ * parec is asked for exactly what voice chat wants (48kHz, signed 16-bit little
+ * endian), so there is no resampling anywhere in this plugin: bytes come off
+ * the pipe, become shorts, and go to the encoder.
+ *
+ * In stereo mode the frames stay interleaved in a single ring, and the consumer
+ * splits them. One ring is the point: with a ring per channel, each side is
+ * drained by its own voice-chat thread and drops frames on its own schedule, so
+ * one hiccup shifts a channel against the other permanently and only a restart
+ * puts them back. Sharing the ring means a drop is a drop for both.
  *
  * The reader thread restarts parec on death with a widening delay, and the ring
  * keeps serving silence in the meantime, because a voice-chat audio player that
@@ -21,8 +27,6 @@ public final class ParecCapture {
 
 	/** Samples in one voice-chat frame: 20ms at 48kHz. */
 	public static final int FRAME_SAMPLES = 960;
-	/** Bytes for that frame: mono, two bytes a sample. */
-	private static final int FRAME_BYTES = FRAME_SAMPLES * 2;
 
 	private static final long[] RESTART_BACKOFF_MS = { 1_000L, 5_000L, 15_000L, 30_000L };
 	private static final int RING_FRAMES = 16;
@@ -31,18 +35,31 @@ public final class ParecCapture {
 	private final TvConfig config;
 	private final String sink;
 	private final String screenName;
-	private final AudioFrameRing ring = new AudioFrameRing(RING_FRAMES, FRAME_SAMPLES);
+	private final boolean stereo;
+	private final AudioFrameRing ring;
 
 	private volatile Process process;
 	private volatile Thread thread;
 	private volatile boolean running;
 	private volatile String failure;
 
-	public ParecCapture(LunaLogger logger, TvConfig config, String screenName, String sink) {
+	public ParecCapture(LunaLogger logger, TvConfig config, String screenName, String sink, boolean stereo) {
 		this.logger = logger;
 		this.config = config;
 		this.screenName = screenName;
 		this.sink = sink;
+		this.stereo = stereo;
+		this.ring = new AudioFrameRing(RING_FRAMES, frameSamples());
+	}
+
+	/** Samples in one ring frame: 960 mono, 1920 interleaved stereo. */
+	public int frameSamples() {
+		return stereo ? FRAME_SAMPLES * 2 : FRAME_SAMPLES;
+	}
+
+	/** Whether this recorder splits the sink into two channels. */
+	public boolean stereo() {
+		return stereo;
 	}
 
 	/** Starts recording. Safe to call twice; the second call does nothing. */
@@ -87,6 +104,7 @@ public final class ParecCapture {
 	public boolean poll(short[] into) {
 		return ring.poll(into);
 	}
+
 
 	/** The last capture failure worth reporting, or null. */
 	public String failure() {
@@ -139,7 +157,7 @@ public final class ParecCapture {
 			"--device=" + sink + ".monitor",
 			"--format=s16le",
 			"--rate=48000",
-			"--channels=1",
+			"--channels=" + (stereo ? 2 : 1),
 			"--latency-msec=40",
 			"--client-name=LunaTV-" + screenName);
 
@@ -148,8 +166,8 @@ public final class ParecCapture {
 		Process started = builder.start();
 		process = started;
 
-		byte[] bytes = new byte[FRAME_BYTES];
-		short[] frame = new short[FRAME_SAMPLES];
+		byte[] bytes = new byte[frameSamples() * 2];
+		short[] frame = new short[frameSamples()];
 
 		try (InputStream stream = started.getInputStream()) {
 			while (running) {

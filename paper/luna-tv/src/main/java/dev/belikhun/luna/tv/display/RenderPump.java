@@ -173,19 +173,21 @@ public final class RenderPump implements Runnable {
 		boolean redraw = instance.consumeRedraw();
 
 		if (frame == null) {
+			// This path used to be entirely silent, which made a screen that never
+			// draws indistinguishable from one with nothing to draw.
+			TvDebug.sampled("idle-frame:" + instance.name(), 100,
+				"no frame screen=" + instance.name()
+				+ " decoded=" + browser.framesDecoded()
+				+ " pushed=" + instance.framesPushed()
+				+ " retained=" + (instance.retained() != null)
+				+ " browser=@" + Integer.toHexString(System.identityHashCode(browser))
+				+ " instance=@" + Integer.toHexString(System.identityHashCode(instance)));
+
 			// nothing new: only worth doing anything if a viewer is owed a re-send,
 			// which on a static page is the only way they ever see anything
 			if (redraw) {
 				send(instance, instance.retained());
 			}
-
-			return;
-		}
-
-		// a frame whose rows are not contiguous cannot be pushed or retained
-		if (frame.width() != frame.stride()) {
-			reportMismatch(instance, frame);
-			browser.recycle(frame);
 
 			return;
 		}
@@ -204,6 +206,21 @@ public final class RenderPump implements Runnable {
 		if (!instance.budgetTake(cost, megabits)) {
 			TvDebug.sampled("budget:" + instance.name(), 50,
 				"budget-skip screen=" + instance.name() + " cost=" + (cost / 1024) + "KB");
+
+			// A throttled wall looks broken rather than slow, so the reason is
+			// stated plainly once. It bites hardest when the whole picture starts
+			// changing at once - a video going fullscreen is the usual trigger.
+			if (instance.budgetSkipped()) {
+				long full = (long) budgetScreen.mapsWide() * budgetScreen.mapsHigh() * 128 * 128;
+				long ceiling = megabits * 1_000_000L / 8 / Math.max(1, full);
+
+				logger.warn("Màn hình '" + instance.name() + "' đang bị giới hạn băng thông: "
+					+ "một khung hình toàn màn hình tốn " + (full / 1024 / 1024) + "MB, "
+					+ "ngân sách " + megabits + " Mbit/s chỉ đủ ~" + ceiling + " fps. "
+					+ "Tăng bằng /lunatv bandwidth " + instance.name() + " <Mbit>, "
+					+ "hoặc giảm /lunatv scale · fps.");
+			}
+
 			browser.recycle(frame);
 
 			return;
@@ -234,18 +251,6 @@ public final class RenderPump implements Runnable {
 	 * @param instance the screen
 	 * @param frame the frame to send; a null is a no-op
 	 */
-	private void reportMismatch(ScreenInstance instance, BrowserFrame frame) {
-		// rows are only contiguous when the painted width is the buffer's width.
-		// This used to fail silently, which looks exactly like a broken plugin: the
-		// maps spawn and stay empty. It is now reported once per screen.
-		if (instance.reportMismatch()) {
-			logger.warn("Màn hình '" + instance.name() + "' nhận khung hình "
-				+ frame.width() + "×" + frame.height() + " nhưng cần rộng "
-				+ frame.stride() + "px, nên không vẽ được. "
-				+ "Trình duyệt có thể đang dùng cổng CDP của màn hình khác.");
-		}
-	}
-
 	/**
 	 * What this frame will roughly cost on the wire, in bytes.
 	 *
@@ -303,12 +308,6 @@ public final class RenderPump implements Runnable {
 
 	private void send(ScreenInstance instance, BrowserFrame frame) {
 		if (frame == null) {
-			return;
-		}
-
-		if (frame.width() != frame.stride()) {
-			reportMismatch(instance, frame);
-
 			return;
 		}
 

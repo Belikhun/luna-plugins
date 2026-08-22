@@ -48,9 +48,9 @@ public final class LunaTvCommand implements BasicCommand {
 	private static final String PERMISSION = "lunatv.control";
 
 	private static final List<String> SUBCOMMANDS = List.of(
-		"audio", "back", "control", "create", "debug", "forward", "gui", "info",
-		"bandwidth", "fps", "key", "list", "lock", "panel", "power", "redstone", "refresh", "reload", "remove", "resend", "scale",
-		"status", "teleport", "type", "url", "volume", "wand");
+		"audio", "back", "clear", "control", "create", "debug", "forward", "gui", "info",
+		"bandwidth", "brightness", "cleanup", "dither", "fps", "key", "list", "lock", "panel", "power", "redstone", "refresh", "reload", "remove", "resend", "scale",
+		"scroll", "status", "stereo", "teleport", "type", "url", "volume", "wand");
 
 	private static final List<String> KEYS = List.of("enter", "backspace", "tab", "escape",
 		"up", "down", "left", "right", "space", "home", "end", "pageup", "pagedown");
@@ -117,9 +117,15 @@ public final class LunaTvCommand implements BasicCommand {
 			case "power" -> power(sender, args);
 			case "redstone" -> redstoneLink(sender, args);
 			case "panel" -> panel(sender, args);
+			case "cleanup" -> cleanup(sender);
 			case "gui" -> openGui(sender, args);
 			case "scale" -> scale(sender, args);
 			case "fps" -> fps(sender, args);
+			case "brightness" -> brightness(sender, args);
+			case "dither" -> dither(sender, args);
+			case "stereo" -> stereo(sender, args);
+			case "scroll" -> scroll(sender, args);
+			case "clear" -> clearData(sender, args);
 			case "bandwidth" -> bandwidth(sender, args);
 			case "debug" -> debug(sender, args);
 			case "reload" -> reload(sender);
@@ -308,7 +314,17 @@ public final class LunaTvCommand implements BasicCommand {
 				+ "</white> · cổng CDP <white>" + browser.debugPort() + "</white></gray>");
 			sender.sendRichMessage("<gray>Khung hình: giải mã <white>" + browser.framesDecoded()
 				+ "</white> · đã gửi <white>" + instance.framesPushed()
-				+ "</white> · bỏ qua <white>" + browser.framesDropped() + "</white></gray>");
+				+ "</white> · bỏ qua <white>" + browser.framesDropped()
+				+ "</white> · thiếu băng thông <white>" + instance.budgetSkips()
+				+ "</white></gray>");
+
+			long fullFrame = (long) instance.screen().mapsWide() * instance.screen().mapsHigh() * 128 * 128;
+			int megabits = screens.effectiveMegabits(instance.screen());
+
+			sender.sendRichMessage("<gray>Khung hình toàn màn hình: <white>"
+				+ (fullFrame / 1024 / 1024) + " MB</white> · ngân sách <white>" + megabits
+				+ " Mbit/s</white> → tối đa <white>"
+				+ (megabits * 1_000_000L / 8 / Math.max(1, fullFrame)) + " fps</white> khi cả màn hình đổi</gray>");
 		}
 
 		if (instance.failure() != null) {
@@ -429,6 +445,86 @@ public final class LunaTvCommand implements BasicCommand {
 
 		sender.sendRichMessage("<green>✔ Đã " + (on ? "bật" : "tắt") + " tiếng cho màn hình.</green>");
 		panel(sender, instance);
+	}
+
+	/** Splits a screen's sound into two positioned channels, or rejoins it. */
+	private void stereo(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		ScreenInstance instance = found.get();
+		boolean on = args.length > 2 ? "on".equalsIgnoreCase(args[2]) : !instance.screen().stereo();
+
+		screens.stereo(instance, on);
+		sender.sendRichMessage("<green>✔ Âm thanh của '" + MiniText.escape(instance.name()) + "': "
+			+ (on ? "stereo (hai loa ở hai mép màn hình)" : "mono (một nguồn ở giữa)") + ".</green>");
+
+		if (on) {
+			sender.sendRichMessage("<gray>Đứng trước màn hình mới nghe rõ hai bên.</gray>");
+		}
+	}
+
+	/** Turns wheel scrolling on or off for one screen. */
+	private void scroll(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		ScreenInstance instance = found.get();
+		boolean on = args.length > 2 ? "on".equalsIgnoreCase(args[2]) : !instance.screen().scroll();
+
+		screens.scroll(instance, on);
+
+		if (on) {
+			sender.sendRichMessage("<green>✔ '" + MiniText.escape(instance.name())
+				+ "': giữ Shift rồi lăn chuột để cuộn trang.</green>");
+			sender.sendRichMessage("<gray>Không giữ Shift thì lăn chuột vẫn đổi ô đồ như thường.</gray>");
+
+			return;
+		}
+
+		sender.sendRichMessage("<green>✔ '" + MiniText.escape(instance.name())
+			+ "': lăn chuột đổi ô đồ như bình thường, không cuộn trang.</green>");
+	}
+
+	/** Wipes a screen's browsing data; --sau also deletes the profile. */
+	private void clearData(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		ScreenInstance instance = found.get();
+		boolean deep = args.length > 2 && ("sau".equalsIgnoreCase(args[2])
+			|| "--sau".equalsIgnoreCase(args[2])
+			|| "deep".equalsIgnoreCase(args[2])
+			|| "all".equalsIgnoreCase(args[2]));
+
+		ScreenManager.Outcome outcome = screens.clearBrowserData(instance, deep);
+
+		if (!outcome.success()) {
+			sender.sendRichMessage("<red>❌ " + MiniText.escape(outcome.reason()) + "</red>");
+
+			return;
+		}
+
+		if (deep) {
+			sender.sendRichMessage("<green>✔ Đã xoá toàn bộ profile của '"
+				+ MiniText.escape(instance.name()) + "' và mở lại trình duyệt.</green>");
+
+			return;
+		}
+
+		sender.sendRichMessage("<green>✔ Đã xoá cookie, cache và bộ nhớ trang của '"
+			+ MiniText.escape(instance.name()) + "'.</green>");
+		sender.sendRichMessage("<gray>Muốn xoá cả mật khẩu đã lưu và profile: /lunatv clear "
+			+ MiniText.escape(instance.name()) + " sau</gray>");
 	}
 
 	private void volume(CommandSender sender, String[] args) {
@@ -610,6 +706,71 @@ public final class LunaTvCommand implements BasicCommand {
 				: String.valueOf(value)) + ".</green>");
 	}
 
+	/** Sets one screen's dither mode or pattern; "config" follows the global setting. */
+	private void dither(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		String mode = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
+		// a pattern word both picks the pattern and switches the screen to
+		// ORDERED, so comparing patterns is one command per look; "on" returns
+		// the pattern to the config's
+		String value = switch (mode) {
+			case "on", "ordered" -> "ORDERED";
+			case "bayer", "a1", "a2", "a3", "a4" -> "ORDERED";
+			case "floyd", "floyd_steinberg" -> "FLOYD_STEINBERG";
+			case "off", "direct" -> "DIRECT";
+			case "config", "auto", "chung" -> "";
+			default -> null;
+		};
+		String pattern = switch (mode) {
+			case "bayer", "a1", "a2", "a3", "a4" -> mode;
+			case "on", "ordered" -> "";
+			default -> null;
+		};
+
+		if (value == null) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv dither <tên> <on|off|floyd|bayer|a1|a2|a3|a4|config>"));
+			sender.sendRichMessage("<gray>on = tán màu nhanh (gần như miễn phí CPU)"
+				+ " · off = màu gần nhất (chữ và mảng phẳng sạch hơn)"
+				+ " · floyd = mượt nhất, tốn CPU nhất</gray>");
+			sender.sendRichMessage("<gray>bayer = lưới caro đều · a1/a2 = \"a dither\" dạng xor"
+				+ " · a3/a4 = dạng cộng, mịn hơn; a2/a4 lệch riêng từng kênh màu</gray>");
+
+			return;
+		}
+
+		screens.dither(found.get(), value, pattern);
+		sender.sendRichMessage("<green>✔ Tán màu của '" + MiniText.escape(found.get().name())
+			+ "': " + screens.converterLabel(found.get().screen()) + ".</green>");
+	}
+
+	/** Sets a screen's picture brightness as a percentage; 100 is untouched. */
+	private void brightness(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 50 || value > 200) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv brightness <tên> <50-200> (100 = nguyên bản)"));
+
+			return;
+		}
+
+		screens.brightness(found.get(), value);
+		sender.sendRichMessage("<green>✔ Độ sáng của '" + MiniText.escape(found.get().name())
+			+ "' giờ là " + found.get().screen().brightness() + "%.</green>");
+	}
+
 	/** Sets a screen's bandwidth budget; 0 follows the global render.max-megabits. */
 	private void bandwidth(CommandSender sender, String[] args) {
 		Optional<ScreenInstance> found = require(sender, args);
@@ -632,6 +793,20 @@ public final class LunaTvCommand implements BasicCommand {
 			+ (value == 0
 				? "theo config (" + screens.effectiveMegabits(found.get().screen()) + " Mbit/s)"
 				: value + " Mbit/s") + ".</green>");
+	}
+
+	/**
+	 * Destroys map displays left behind by a failed teardown.
+	 *
+	 * Those frames are client-side only, so nothing in the world holds them and
+	 * a reconnect also clears them; this removes them for everyone at once.
+	 */
+	private void cleanup(CommandSender sender) {
+		int removed = screens.cleanupOrphans(panels::owns);
+
+		sender.sendRichMessage(removed == 0
+			? "<green>✔ Không có bản đồ mồ côi nào.</green>"
+			: "<green>✔ Đã dọn " + removed + " màn hình mồ côi.</green>");
 	}
 
 	/** Powers a screen on or off; without an argument it toggles. */
@@ -709,6 +884,20 @@ public final class LunaTvCommand implements BasicCommand {
 	 * or removes it with "off". The panel faces its creator, like a screen.
 	 */
 	private void panel(CommandSender sender, String[] args) {
+		// removal is resolved by name, not by screen: a panel can outlive the
+		// screen it controls, and that is exactly when it needs removing
+		if (args.length > 2 && "off".equalsIgnoreCase(args[2])) {
+			if (panels.remove(args[1])) {
+				sender.sendRichMessage("<green>✔ Đã gỡ bảng điều khiển của '"
+					+ MiniText.escape(args[1]) + "'.</green>");
+			} else {
+				sender.sendRichMessage("<yellow>⚠ Không có bảng điều khiển nào tên '"
+					+ MiniText.escape(args[1]) + "'.</yellow>");
+			}
+
+			return;
+		}
+
 		Optional<ScreenInstance> found = require(sender, args);
 
 		if (found.isEmpty()) {
@@ -716,17 +905,6 @@ public final class LunaTvCommand implements BasicCommand {
 		}
 
 		String screenName = found.get().name();
-
-		if (args.length > 2 && "off".equalsIgnoreCase(args[2])) {
-			if (panels.remove(screenName)) {
-				sender.sendRichMessage("<green>✔ Đã gỡ bảng điều khiển của '"
-					+ MiniText.escape(screenName) + "'.</green>");
-			} else {
-				sender.sendRichMessage("<yellow>⚠ Màn hình này không có bảng điều khiển.</yellow>");
-			}
-
-			return;
-		}
 
 		if (!(sender instanceof Player player)) {
 			sender.sendRichMessage("<red>❌ Cần một người chơi chọn vị trí bằng đũa.</red>");
@@ -976,12 +1154,28 @@ public final class LunaTvCommand implements BasicCommand {
 				: args.length == 2
 					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
 					: List.of();
-			case "lock", "audio", "power" -> args.length == 3
+			case "lock", "audio", "power", "stereo", "scroll" -> args.length == 3
 				? CommandCompletions.filterPrefix(TOGGLES, args[2])
 				: List.of();
+			case "clear" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("sau"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
 			case "key" -> args.length == 3
 				? CommandCompletions.filterPrefix(KEYS, args[2])
 				: List.of();
+			case "dither" -> args.length == 3
+				? CommandCompletions.filterPrefix(
+					List.of("on", "off", "floyd", "bayer", "a1", "a2", "a3", "a4", "config"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
+			case "brightness" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("100", "120", "140", "160", "180"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
 			case "bandwidth" -> args.length == 3
 				? CommandCompletions.filterPrefix(List.of("0", "20", "36", "50", "100", "200"), args[2])
 				: args.length == 2

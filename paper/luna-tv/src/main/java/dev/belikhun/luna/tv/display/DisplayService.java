@@ -14,6 +14,7 @@ import de.pianoman911.mapengine.api.util.Converter;
 import de.pianoman911.mapengine.api.util.FullSpacedColorBuffer;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.tv.browser.CdpBrowser;
 import dev.belikhun.luna.tv.TvConfig;
 import dev.belikhun.luna.tv.TvDebug;
 import dev.belikhun.luna.tv.screen.ScreenInstance;
@@ -93,7 +94,7 @@ public final class DisplayService {
 		// overwriting
 		IPipelineContext ctx = api.pipeline().createCtx(display);
 
-		ctx.converter(converter());
+		ctx.converter(converter(instance));
 		// per-player deltas: MapEngine caches what each viewer already has, so only
 		// the maps whose pixels changed go out
 		ctx.buffering(true);
@@ -118,7 +119,7 @@ public final class DisplayService {
 			+ " maps=" + display.width() + "x" + display.height()
 			+ " px=" + display.pixelWidth() + "x" + display.pixelHeight()
 			+ " box=" + display.box()
-			+ " converter=" + converter() + " interactDistance=" + display.interactDistance());
+			+ " converter=" + converter(instance) + " interactDistance=" + display.interactDistance());
 
 		return true;
 	}
@@ -145,19 +146,76 @@ public final class DisplayService {
 			return;
 		}
 
-		ctx.converter(converter());
+		ctx.converter(converter(instance));
 		ctx.bundling(config.bundling());
+
+		CdpBrowser browser = instance.browser();
+
+		if (browser != null) {
+			browser.dither(browserPattern(instance));
+		}
+
 		instance.requestRedraw();
 	}
 
-	private Converter converter() {
-		try {
-			return Converter.valueOf(config.converter().toUpperCase(Locale.ROOT));
-		} catch (IllegalArgumentException exception) {
-			logger.warn("render.converter không hợp lệ: " + config.converter() + ", dùng FLOYD_STEINBERG.");
+	/**
+	 * The dither mode a screen actually renders with: its own, else the config's.
+	 *
+	 * @param instance the screen, or null to resolve the global default
+	 * @return DIRECT, ORDERED or FLOYD_STEINBERG
+	 */
+	public String mode(ScreenInstance instance) {
+		String own = instance == null ? "" : instance.screen().converter();
+		String name = (own.isEmpty() ? config.converter() : own).toUpperCase(Locale.ROOT);
 
+		return switch (name) {
+			case "DIRECT", "ORDERED", "FLOYD_STEINBERG" -> name;
+			default -> {
+				logger.warn("render.converter không hợp lệ: " + name + ", dùng ORDERED.");
+
+				yield "ORDERED";
+			}
+		};
+	}
+
+	/**
+	 * The dither pattern a screen's browser should apply in the decode pass.
+	 *
+	 * Only the ORDERED mode dithers there; the pattern is the screen's own
+	 * when set, else the config's render.ordered-pattern.
+	 *
+	 * @param instance the screen
+	 * @return bayer or a1..a4, or an empty string when the browser must not dither
+	 */
+	public String browserPattern(ScreenInstance instance) {
+		if (!"ORDERED".equals(mode(instance))) {
+			return "";
+		}
+
+		String own = instance.screen().ditherPattern();
+
+		if (own.isEmpty()) {
+			return config.orderedPattern();
+		}
+
+		return own;
+	}
+
+	/**
+	 * The MapEngine converter for a screen's resolved mode.
+	 *
+	 * ORDERED maps to DIRECT here: the dithering happened upstream in the
+	 * decode pass, so MapEngine only does the nearest-colour lookup.
+	 *
+	 * @param instance the screen, or null to resolve the global default
+	 * @return the converter to install on the pipeline
+	 */
+	public Converter converter(ScreenInstance instance) {
+		if ("FLOYD_STEINBERG".equals(mode(instance))) {
 			return Converter.FLOYD_STEINBERG;
 		}
+
+		return Converter.DIRECT;
 	}
 
 	/**

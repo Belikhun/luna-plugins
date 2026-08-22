@@ -232,7 +232,22 @@ public final class TouchPanelService implements Listener {
 	private void tick() {
 		long now = System.currentTimeMillis();
 
-		for (Panel panel : panels.values()) {
+		for (Map.Entry<String, Panel> entry : java.util.List.copyOf(panels.entrySet())) {
+			Panel panel = entry.getValue();
+
+			// A panel outlives its screen if the screen is removed: it keeps its
+			// maps spawned but redraw() has nothing to draw, so it sits there as a
+			// blank wall forever. It is its own orphan, so it cleans itself up.
+			if (screens.find(panel.screen).isEmpty()) {
+				logger.warn("Bảng điều khiển của '" + panel.screen
+					+ "' không còn màn hình tương ứng; đang gỡ.");
+				detach(panel);
+				panels.remove(entry.getKey());
+				save();
+
+				continue;
+			}
+
 			if (panel.display == null) {
 				attach(panel);
 
@@ -314,7 +329,8 @@ public final class TouchPanelService implements Listener {
 			screen.audio(),
 			screen.url(),
 			screens.effectiveFps(screen),
-			screen.scale());
+			screen.scale(),
+			screen.brightness());
 
 		float press = 0f;
 
@@ -328,6 +344,22 @@ public final class TouchPanelService implements Listener {
 
 		panel.drawing.pixels(pixels, 0, 0, 256, 256);
 		panel.drawing.flush();
+	}
+
+	/**
+	 * Whether a display belongs to one of the panels.
+	 *
+	 * @param display the display to test
+	 * @return true when a panel is drawing to it
+	 */
+	public boolean owns(IMapDisplay display) {
+		for (Panel panel : panels.values()) {
+			if (panel.display != null && panel.display.equals(display)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	@EventHandler
@@ -421,6 +453,15 @@ public final class TouchPanelService implements Listener {
 				screens.volume(instance, value);
 			}
 			case "mute" -> screens.audio(instance, !screen.audio());
+			case "brightdown" -> screens.brightness(instance, screen.brightness() - 10);
+			case "brightup" -> screens.brightness(instance, screen.brightness() + 10);
+			case "brightreset" -> screens.brightness(instance, 100);
+			case "brightness" -> {
+				// the track: the press position is the value, over 50..200
+				int value = 50 + (x - widget.x()) * 150 / Math.max(1, widget.width());
+
+				screens.brightness(instance, value);
+			}
 			case "up", "down", "left", "right", "tab", "enter", "esc", "backspace" -> {
 				if (browser != null) {
 					browser.key(widget.id());

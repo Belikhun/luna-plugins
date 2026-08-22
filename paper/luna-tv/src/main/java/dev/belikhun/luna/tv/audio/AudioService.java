@@ -151,19 +151,33 @@ public final class AudioService {
 	 *
 	 * @param screenName the screen's name
 	 * @param sink the sink its browser plays into
-	 * @param at where the sound should come from
+	 * @param at where the sound should come from (the left edge, in stereo)
+	 * @param rightAt where the right channel sounds from, null for mono
 	 * @param volume starting volume, 0 to 100
 	 * @return true when the stream started
 	 */
-	public boolean start(String screenName, String sink, Location at, int volume) {
+	public boolean start(String screenName, String sink, Location at, Location rightAt, int volume) {
 		if (!available() || sink == null) {
 			return false;
 		}
 
-		ScreenAudio stream = streams.computeIfAbsent(screenName,
-			name -> new ScreenAudio(logger, config, name, sink));
+		boolean stereo = rightAt != null;
+		ScreenAudio existing = streams.get(screenName);
 
-		return stream.start(api, at, volume);
+		// stereo is decided when the recorder is built (parec is asked for one
+		// channel or two), so a change of mode means a new stream object
+		if (existing != null && existing.stereo() != stereo) {
+			existing.stop();
+			streams.remove(screenName);
+			existing = null;
+		}
+
+		ScreenAudio stream = existing != null
+			? existing
+			: streams.computeIfAbsent(screenName,
+				name -> new ScreenAudio(logger, config, name, sink, stereo));
+
+		return stream.start(api, at, rightAt, volume);
 	}
 
 	/**

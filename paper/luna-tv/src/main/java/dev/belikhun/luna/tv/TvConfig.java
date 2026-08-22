@@ -2,10 +2,12 @@ package dev.belikhun.luna.tv;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.bukkit.configuration.ConfigurationSection;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
+import dev.belikhun.luna.tv.audio.HighQualityEncoder;
 
 /**
  * Typed snapshot of config.yml.
@@ -26,8 +28,13 @@ public final class TvConfig {
 	private final int maxMegabits;
 	private final boolean bundling;
 	private final int captureScale;
+	private final int brightness;
 	private final int quality;
 	private final String converter;
+	private final String orderedPattern;
+	private final int audioBitrate;
+	private final int scrollStep;
+	private final boolean invertScroll;
 	private final double spawnDistance;
 	private final double interactDistance;
 	private final int maxScreens;
@@ -51,8 +58,15 @@ public final class TvConfig {
 		this.maxMegabits = clamp(store.get("render.max-megabits").asInt(36), 5, 1000);
 		this.bundling = store.get("render.bundling").asBoolean(false);
 		this.captureScale = clamp(store.get("render.capture-scale").asInt(1), 1, 4);
+		this.brightness = clamp(store.get("render.brightness").asInt(100), 50, 200);
 		this.quality = clamp(store.get("render.quality").asInt(60), 1, 100);
-		this.converter = store.get("render.converter").asString("FLOYD_STEINBERG");
+		this.converter = store.get("render.converter").asString("ORDERED");
+		this.orderedPattern = normalizePattern(store.get("render.ordered-pattern").asString("a4"));
+		this.audioBitrate = Math.max(0, Math.min(HighQualityEncoder.MAX_BITRATE,
+			store.get("audio.bitrate").asInt(128_000)));
+		this.scrollStep = Math.max(20, Math.min(1_000,
+			store.get("input.scroll-step").asInt(120)));
+		this.invertScroll = store.get("input.invert-scroll").asBoolean(false);
 		this.spawnDistance = store.get("render.spawn-distance").asDouble(48.0);
 		this.interactDistance = store.get("render.interact-distance").asDouble(6.0);
 
@@ -152,12 +166,56 @@ public final class TvConfig {
 		return captureScale;
 	}
 
+	/** Default picture brightness for new screens, as a percentage. */
+	public int brightness() {
+		return brightness;
+	}
+
 	public int quality() {
 		return quality;
 	}
 
 	public String converter() {
 		return converter;
+	}
+
+	/** Which positional pattern the ORDERED dither mode uses. */
+	public String orderedPattern() {
+		return orderedPattern;
+	}
+
+	/**
+	 * Opus bitrate in bits per second; 0 uses voice chat's own encoder.
+	 *
+	 * Voice chat's default lands near 51 kbps with FEC overhead on top, which
+	 * is a speech budget. Music wants more.
+	 */
+	public int audioBitrate() {
+		return audioBitrate;
+	}
+
+	/**
+	 * Pixels the page scrolls for one notch of the mouse wheel.
+	 *
+	 * 120 is roughly what a desktop browser moves for one notch, so a page
+	 * behaves the way its author expected.
+	 */
+	public int scrollStep() {
+		return scrollStep;
+	}
+
+	/** Flips wheel direction, for a client whose wheel is set up the other way. */
+	public boolean invertScroll() {
+		return invertScroll;
+	}
+
+	private static String normalizePattern(String value) {
+		String lower = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+
+		return switch (lower) {
+			case "bayer", "a1", "a2", "a3", "a4" -> lower;
+			default -> "a4";
+		};
 	}
 
 	public double spawnDistance() {

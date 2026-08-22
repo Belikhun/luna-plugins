@@ -11,6 +11,12 @@
 
 set -euo pipefail
 
+# the luna daemon builds with a systemd service PATH that has no rustup shims,
+# so cargo has to be found by its install location rather than assumed
+if ! command -v cargo >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+	PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="$(cd "$here/.." && pwd)/output/pumpkin"
 

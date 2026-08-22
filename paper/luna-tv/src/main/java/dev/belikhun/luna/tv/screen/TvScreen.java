@@ -26,6 +26,11 @@ public final class TvScreen {
 	private boolean audio;
 	private int scale;
 	private int fps;
+	private int brightness;
+	private String converter;
+	private String ditherPattern;
+	private boolean stereo;
+	private boolean scroll;
 	private int maxMegabits;
 	private String redstoneWorld;
 	private BlockVector redstone;
@@ -43,6 +48,11 @@ public final class TvScreen {
 		int scale,
 		int fps,
 		int maxMegabits,
+		int brightness,
+		String converter,
+		String ditherPattern,
+		boolean stereo,
+		boolean scroll,
 		String createdBy,
 		long createdAt
 	) {
@@ -58,6 +68,11 @@ public final class TvScreen {
 		this.scale = clampScale(scale);
 		this.fps = clampFps(fps);
 		this.maxMegabits = clampMegabits(maxMegabits);
+		this.brightness = clampBrightness(brightness);
+		this.converter = normalizeConverter(converter);
+		this.ditherPattern = normalizePattern(ditherPattern);
+		this.stereo = stereo;
+		this.scroll = scroll;
 		this.createdBy = createdBy;
 		this.createdAt = createdAt;
 	}
@@ -98,6 +113,57 @@ public final class TvScreen {
 	 * @param value the requested megabits per second
 	 * @return the value, held to 0..1000
 	 */
+	/**
+	 * Clamps a brightness percentage; 100 leaves the picture untouched.
+	 *
+	 * @param value the requested percentage
+	 * @return the value, held to 50..200
+	 */
+	/**
+	 * Normalises a dither mode; anything unrecognised means "follow the config".
+	 *
+	 * @param value the requested mode
+	 * @return DIRECT, ORDERED, FLOYD_STEINBERG, or an empty string for the default
+	 */
+	public static String normalizeConverter(String value) {
+		if (value == null) {
+			return "";
+		}
+
+		String upper = value.trim().toUpperCase(java.util.Locale.ROOT);
+
+		return switch (upper) {
+			case "DIRECT", "OFF" -> "DIRECT";
+			case "ORDERED", "ON" -> "ORDERED";
+			case "FLOYD_STEINBERG", "FLOYD" -> "FLOYD_STEINBERG";
+			default -> "";
+		};
+	}
+
+	/**
+	 * Normalises an ordered-dither pattern; anything unrecognised means
+	 * "follow the config".
+	 *
+	 * @param value the requested pattern
+	 * @return bayer, a1..a4, or an empty string for the default
+	 */
+	public static String normalizePattern(String value) {
+		if (value == null) {
+			return "";
+		}
+
+		String lower = value.trim().toLowerCase(java.util.Locale.ROOT);
+
+		return switch (lower) {
+			case "bayer", "a1", "a2", "a3", "a4" -> lower;
+			default -> "";
+		};
+	}
+
+	public static int clampBrightness(int value) {
+		return Math.max(50, Math.min(200, value == 0 ? 100 : value));
+	}
+
 	public static int clampMegabits(int value) {
 		return Math.max(0, Math.min(1000, value));
 	}
@@ -175,6 +241,79 @@ public final class TvScreen {
 
 	public void fps(int fps) {
 		this.fps = clampFps(fps);
+	}
+
+	/**
+	 * Picture brightness as a percentage, 100 being the page's own colours.
+	 *
+	 * The map palette is 143 colours with a narrow range, so dark content loses
+	 * most of its detail once quantised; lifting it before conversion is what
+	 * gets that detail back.
+	 */
+	public int brightness() {
+		return brightness;
+	}
+
+	public void brightness(int brightness) {
+		this.brightness = clampBrightness(brightness);
+	}
+
+	/**
+	 * Per-screen dither mode; empty follows render.converter.
+	 *
+	 * DIRECT takes the nearest palette colour, which keeps flat areas and text
+	 * clean. ORDERED dithers positionally inside the decode pass (see
+	 * {@link #ditherPattern()}), near DIRECT's cost. FLOYD_STEINBERG is
+	 * MapEngine's error-diffusion dither, the smoothest gradients but by far
+	 * the most CPU per frame.
+	 */
+	public String converter() {
+		return converter;
+	}
+
+	public void converter(String converter) {
+		this.converter = normalizeConverter(converter);
+	}
+
+	/**
+	 * Per-screen ordered-dither pattern; empty follows render.ordered-pattern.
+	 *
+	 * Only read while the dither mode resolves to ORDERED.
+	 */
+	public String ditherPattern() {
+		return ditherPattern;
+	}
+
+	public void ditherPattern(String ditherPattern) {
+		this.ditherPattern = normalizePattern(ditherPattern);
+	}
+
+	/**
+	 * Whether this screen's sound is split into two positioned channels.
+	 *
+	 * A voice-chat channel is mono, so stereo means one channel at each end of
+	 * the wall and the game's positional mixing doing the separation.
+	 */
+	public boolean stereo() {
+		return stereo;
+	}
+
+	public void stereo(boolean stereo) {
+		this.stereo = stereo;
+	}
+
+	/**
+	 * Whether the mouse wheel scrolls this screen's page.
+	 *
+	 * Off leaves the hotbar alone entirely, which is what somebody who keeps
+	 * their tools in order and only wants to watch the screen wants.
+	 */
+	public boolean scroll() {
+		return scroll;
+	}
+
+	public void scroll(boolean scroll) {
+		this.scroll = scroll;
 	}
 
 	/** Per-screen bandwidth budget in megabits; 0 follows the global default. */

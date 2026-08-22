@@ -20,6 +20,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.BlockVector;
 import org.bukkit.util.BoundingBox;
 
+import de.pianoman911.mapengine.api.MapEngineApi;
 import de.pianoman911.mapengine.api.clientside.IMapDisplay;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
@@ -52,6 +53,12 @@ public final class ScreenManager {
 	 * `/lunatv info`, so a number picked here would only be in the way.
 	 */
 	private static final int LARGE_MAPS = 64;
+
+	/**
+	 * How far in from each edge a stereo screen's speakers sit, as a fraction
+	 * of its width.
+	 */
+	private static final double SPEAKER_INSET = 0.15;
 
 	private final JavaPlugin plugin;
 	private final LunaLogger logger;
@@ -188,7 +195,8 @@ public final class ScreenManager {
 		}
 
 		TvScreen screen = new TvScreen(name, world.getName(), cornerA, cornerB, facing,
-			url, 100, false, false, config.captureScale(), 0, 0, creator, System.currentTimeMillis());
+			url, 100, false, false, config.captureScale(), 0, 0, config.brightness(), "", "", true, true,
+			creator, System.currentTimeMillis());
 
 		int maps = screen.mapsWide() * screen.mapsHigh();
 
@@ -201,7 +209,7 @@ public final class ScreenManager {
 			logger.warn("Màn hình '" + name + "' rất lớn: " + screen.mapsWide() + "×" + screen.mapsHigh()
 				+ " = " + maps + " bản đồ (" + screen.pixelWidth() + "×" + screen.pixelHeight()
 				+ "px, ~" + poolMegabytes + "MB bộ đệm khung hình). Nếu thấy chậm: giảm render.fps, "
-				+ "hoặc đổi render.converter sang DIRECT (rẻ hơn FLOYD_STEINBERG nhiều).");
+				+ "hoặc đổi render.converter sang ORDERED/DIRECT (rẻ hơn FLOYD_STEINBERG nhiều).");
 		}
 
 		ScreenInstance instance = new ScreenInstance(screen);
@@ -298,12 +306,21 @@ public final class ScreenManager {
 	public void launchBrowser(ScreenInstance instance) {
 		TvScreen screen = instance.screen();
 
+		// one launch at a time: the previous one may still be waiting for Chromium
+		// to open its port, and a second would leave an orphan browser behind
+		if (!instance.claimLaunch()) {
+			logger.info("Đang mở trình duyệt cho '" + instance.name() + "' rồi, bỏ qua yêu cầu trùng.");
+
+			return;
+		}
+
 		instance.state(ScreenState.STARTING);
 		instance.placeholderStale();
 
 		String url = screen.url() == null || screen.url().isBlank() ? config.homepage() : screen.url();
 		String sink = audio.prepareSink(screen.name());
 		Path profile = profileDir(screen.name());
+		String dither = displays.browserPattern(instance);
 
 		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
 			try {
@@ -315,6 +332,8 @@ public final class ScreenManager {
 					screen.pixelWidth(),
 					screen.pixelHeight(),
 					screen.scale(),
+					screen.brightness(),
+					dither,
 					url,
 					throwable -> plugin.getServer().getScheduler()
 						.runTask(plugin, () -> onBrowserDied(instance, throwable)));
@@ -328,6 +347,17 @@ public final class ScreenManager {
 	}
 
 	private void onBrowserReady(ScreenInstance instance, CdpBrowser browser, String sink) {
+		instance.releaseLaunch();
+
+		// an instance already holding a live browser keeps it; the newcomer is the
+		// loser of a race and would otherwise linger unreferenced
+		if (instance.browser() != null) {
+			logger.warn("Màn hình '" + instance.name() + "' đã có trình duyệt, đóng bản vừa mở.");
+			browser.close();
+
+			return;
+		}
+
 		// powered off while Chromium was still starting: the browser is not wanted
 		if (!instance.powered()) {
 			browser.close();
@@ -359,6 +389,7 @@ public final class ScreenManager {
 	}
 
 	private void onLaunchFailed(ScreenInstance instance, Throwable throwable) {
+		instance.releaseLaunch();
 		instance.state(ScreenState.CRASHED);
 		instance.failure(String.valueOf(throwable.getMessage()));
 		instance.placeholderStale();
@@ -432,12 +463,62 @@ public final class ScreenManager {
 		ScreenInstance instance = found.get();
 
 		instances.remove(key(instance.name()));
-		audio.remove(instance.name());
-		closeBrowser(instance);
-		displays.detach(instance);
+
+		// Each teardown step is isolated, and the display goes first. They used to
+		// run in sequence with the browser first: one throw there (a JPEG reader
+		// disposed off its owning thread) skipped the despawn entirely and left
+		// map frames on every viewer's client that nothing owned any more.
+		step(instance, "âm thanh", () -> audio.remove(instance.name()));
+		step(instance, "hiển thị", () -> displays.detach(instance));
+		step(instance, "trình duyệt", () -> closeBrowser(instance));
 		persist();
 
 		return true;
+	}
+
+	private void step(ScreenInstance instance, String what, Runnable action) {
+		try {
+			action.run();
+		} catch (Throwable throwable) {
+			logger.error("Lỗi khi dọn " + what + " của '" + instance.name() + "'.", throwable);
+		}
+	}
+
+	/**
+	 * Destroys MapEngine displays that no longer belong to any screen or panel.
+	 *
+	 * These are the leftovers of a teardown that failed partway: MapEngine still
+	 * holds the display, and every viewer still has its frames, but nothing here
+	 * references it, so no code path will ever despawn it.
+	 *
+	 * @param owned a test for displays that are still in use
+	 * @return how many were destroyed
+	 */
+	public int cleanupOrphans(java.util.function.Predicate<IMapDisplay> owned) {
+		int removed = 0;
+
+		for (IMapDisplay display : java.util.List.copyOf(MapEngineApi.instance().mapDisplays())) {
+			if (owned.test(display) || byDisplay(display).isPresent()) {
+				continue;
+			}
+
+			for (Player player : Bukkit.getOnlinePlayers()) {
+				try {
+					display.despawn(player);
+				} catch (Throwable ignored) {
+					// a viewer who never saw it is not an error
+				}
+			}
+
+			try {
+				display.destroy();
+				removed++;
+			} catch (Throwable throwable) {
+				logger.warn("Không huỷ được display mồ côi: " + throwable);
+			}
+		}
+
+		return removed;
 	}
 
 	/**
@@ -500,7 +581,111 @@ public final class ScreenManager {
 			return false;
 		}
 
-		return audio.start(instance.name(), sink, at, instance.screen().volume());
+		if (!instance.screen().stereo()) {
+			return audio.start(instance.name(), sink, at, null, instance.screen().volume());
+		}
+
+		Location[] speakers = speakers(instance, at);
+
+		return audio.start(instance.name(), sink, speakers[0], speakers[1], instance.screen().volume());
+	}
+
+	/**
+	 * Where a stereo screen's two channels sound from: its left and right edges
+	 * as a viewer standing in front of it sees them.
+	 *
+	 * Left and right are the viewer's, not the world's, so the mapping depends
+	 * on which way the wall faces: somebody looking at a south-facing screen is
+	 * itself facing north, and their left hand points at -X. Getting this
+	 * backwards would swap the channels for every screen on that axis, which is
+	 * audible on anything mixed wide and invisible on anything else.
+	 *
+	 * The speakers sit slightly inside the edges: exactly on the boundary they
+	 * are as far from a centred viewer as the separation is wide, which reads
+	 * as two sources rather than one stage.
+	 *
+	 * @param instance the screen
+	 * @param center its middle, already resolved
+	 * @return two locations, left first
+	 */
+	public Location[] speakers(ScreenInstance instance, Location center) {
+		IMapDisplay display = instance.display();
+		BlockFace facing = instance.screen().facing();
+		boolean alongX = facing == BlockFace.NORTH || facing == BlockFace.SOUTH
+			|| facing == BlockFace.UP || facing == BlockFace.DOWN;
+
+		double min;
+		double max;
+
+		if (display != null) {
+			BoundingBox box = display.box();
+
+			min = alongX ? box.getMinX() : box.getMinZ();
+			max = alongX ? box.getMaxX() : box.getMaxZ();
+		} else {
+			BlockVector a = instance.screen().cornerA();
+			BlockVector b = instance.screen().cornerB();
+
+			min = alongX ? Math.min(a.getX(), b.getX()) : Math.min(a.getZ(), b.getZ());
+			max = alongX ? Math.max(a.getX(), b.getX()) : Math.max(a.getZ(), b.getZ());
+		}
+
+		double inset = (max - min) * SPEAKER_INSET;
+		double low = min + inset;
+		double high = max - inset;
+
+		// a viewer of a north- or east-facing wall has their left toward +X / +Z;
+		// on the opposite faces it is the other way round
+		boolean leftAtHigh = facing == BlockFace.NORTH || facing == BlockFace.EAST;
+		double left = leftAtHigh ? high : low;
+		double right = leftAtHigh ? low : high;
+
+		return new Location[] {
+			at(center, alongX, left),
+			at(center, alongX, right),
+		};
+	}
+
+	private static Location at(Location center, boolean alongX, double value) {
+		Location placed = center.clone();
+
+		if (alongX) {
+			placed.setX(value);
+		} else {
+			placed.setZ(value);
+		}
+
+		return placed;
+	}
+
+	/**
+	 * Turns wheel scrolling on or off for a screen.
+	 *
+	 * @param instance the screen
+	 * @param on true to let the hotbar wheel scroll the page
+	 */
+	public void scroll(ScreenInstance instance, boolean on) {
+		instance.screen().scroll(on);
+		persist();
+	}
+
+	/**
+	 * Sets whether a screen's sound is split across two positioned channels.
+	 *
+	 * The recorder is asked for one channel or two when it starts, so a change
+	 * restarts the stream; the picture is untouched.
+	 *
+	 * @param instance the screen
+	 * @param on true for stereo
+	 */
+	public void stereo(ScreenInstance instance, boolean on) {
+		instance.screen().stereo(on);
+		persist();
+
+		if (instance.screen().audio()) {
+			audio.stop(instance.name());
+			startAudio(instance, audio.prepareSink(instance.name()));
+		}
 	}
 
 	/**
@@ -600,6 +785,96 @@ public final class ScreenManager {
 		persist();
 	}
 
+	/**
+	 * The dither mode a screen renders with, as a word for a human.
+	 *
+	 * @param screen the screen
+	 * @return "theo chung (…)", "tắt", "bật (nhanh)" or "floyd (tốn CPU)"
+	 */
+	public String converterLabel(TvScreen screen) {
+		if (screen.converter().isEmpty()) {
+			return "theo chung (" + modeLabel(config.converter(), screen) + ")";
+		}
+
+		return modeLabel(screen.converter(), screen);
+	}
+
+	private String modeLabel(String mode, TvScreen screen) {
+		return switch (mode.toUpperCase(Locale.ROOT)) {
+			case "DIRECT" -> "tắt";
+			case "FLOYD_STEINBERG" -> "floyd (tốn CPU)";
+			default -> "bật (" + effectivePattern(screen) + ")";
+		};
+	}
+
+	/**
+	 * The ordered-dither pattern a screen renders with: its own, else the
+	 * config's render.ordered-pattern.
+	 *
+	 * @param screen the screen
+	 * @return bayer or a1..a4
+	 */
+	public String effectivePattern(TvScreen screen) {
+		if (screen.ditherPattern().isEmpty()) {
+			return config.orderedPattern();
+		}
+
+		return screen.ditherPattern();
+	}
+
+	/**
+	 * Sets a screen's dither mode; an empty value returns it to the config's.
+	 *
+	 * Applied live: the pipeline's converter is swapped and a full redraw is
+	 * requested, since the change means nothing until pixels are sent again.
+	 *
+	 * @param instance the screen
+	 * @param converter DIRECT, FLOYD_STEINBERG, or empty to follow the config
+	 */
+	public void converter(ScreenInstance instance, String converter) {
+		dither(instance, converter, null);
+	}
+
+	/**
+	 * Sets a screen's dither mode and, optionally, its ordered pattern.
+	 *
+	 * Applied live: the pipeline's converter is swapped, the browser's own
+	 * dither stage retuned, and a full redraw requested.
+	 *
+	 * @param instance the screen
+	 * @param converter DIRECT, ORDERED, FLOYD_STEINBERG, or empty to follow the config
+	 * @param pattern bayer or a1..a4, empty to follow the config, null to leave as is
+	 */
+	public void dither(ScreenInstance instance, String converter, String pattern) {
+		instance.screen().converter(converter);
+
+		if (pattern != null) {
+			instance.screen().ditherPattern(pattern);
+		}
+
+		displays.applyRenderSettings(instance);
+		persist();
+	}
+
+	/**
+	 * Sets a screen's picture brightness, live.
+	 *
+	 * @param instance the screen
+	 * @param brightness percentage, 50..200
+	 */
+	public void brightness(ScreenInstance instance, int brightness) {
+		instance.screen().brightness(brightness);
+
+		CdpBrowser browser = instance.browser();
+
+		if (browser != null) {
+			browser.brightness(instance.screen().brightness());
+		}
+
+		instance.requestRedraw();
+		persist();
+	}
+
 	public void scale(ScreenInstance instance, int scale) {
 		instance.screen().scale(scale);
 
@@ -658,6 +933,84 @@ public final class ScreenManager {
 
 	private List<TvScreen> screens() {
 		return instances.values().stream().map(ScreenInstance::screen).toList();
+	}
+
+	/**
+	 * Clears what a screen's browser remembers: cookies, cache and storage.
+	 *
+	 * Two depths, because they answer different questions. The quick clear goes
+	 * over CDP and keeps the browser running, so the page is back in a second;
+	 * the deep one closes Chromium, deletes its profile directory and relaunches
+	 * it, which is the only way to be rid of things no CDP domain covers
+	 * (saved passwords, certificate decisions, the media licence store).
+	 *
+	 * @param instance the screen
+	 * @param deep true to delete the profile and relaunch
+	 * @return the outcome, with a reason when nothing could be cleared
+	 */
+	public Outcome clearBrowserData(ScreenInstance instance, boolean deep) {
+		CdpBrowser browser = instance.browser();
+
+		if (!deep) {
+			if (browser == null) {
+				return Outcome.failed("Màn hình chưa bật, không có gì để xoá. Dùng --sau để xoá cả profile.");
+			}
+
+			browser.clearData(true).exceptionally(throwable -> {
+				logger.warn("Không xoá hết dữ liệu duyệt web của '" + instance.name() + "': " + throwable);
+
+				return null;
+			});
+
+			return Outcome.ok();
+		}
+
+		boolean wasPowered = instance.powered();
+
+		if (browser != null) {
+			instance.browser(null);
+			browser.close();
+		}
+
+		audio.stop(instance.name());
+
+		Path profile = profileDir(instance.name());
+
+		if (!deleteTree(profile)) {
+			return Outcome.failed("Không xoá được thư mục profile của '" + instance.name() + "'.");
+		}
+
+		if (!wasPowered) {
+			instance.state(ScreenState.OFF);
+			instance.placeholderStale();
+
+			return Outcome.ok();
+		}
+
+		launchBrowser(instance);
+
+		return Outcome.ok();
+	}
+
+	/** Removes a directory and everything under it; true when nothing is left. */
+	private boolean deleteTree(Path root) {
+		if (!Files.exists(root)) {
+			return true;
+		}
+
+		try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+			// deepest first, since a directory cannot be removed while it holds
+			// anything
+			for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+				Files.deleteIfExists(path);
+			}
+
+			return true;
+		} catch (IOException exception) {
+			logger.warn("Không xoá được '" + root + "': " + exception.getMessage());
+
+			return false;
+		}
 	}
 
 	private Path profileDir(String screenName) {

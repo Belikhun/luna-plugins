@@ -97,6 +97,11 @@ public final class TvScreenStore {
 			section.getInt("scale", 1),
 			section.getInt("fps", 0),
 			section.getInt("max-megabits", 0),
+			section.getInt("brightness", 100),
+			section.getString("converter", ""),
+			section.getString("dither-pattern", ""),
+			section.getBoolean("stereo", false),
+			section.getBoolean("scroll", true),
 			section.getString("createdBy", "?"),
 			section.getLong("createdAt", 0L));
 
@@ -144,6 +149,11 @@ public final class TvScreenStore {
 			yaml.set(base + ".scale", screen.scale());
 			yaml.set(base + ".fps", screen.fps());
 			yaml.set(base + ".max-megabits", screen.maxMegabits());
+			yaml.set(base + ".brightness", screen.brightness());
+			yaml.set(base + ".converter", screen.converter());
+			yaml.set(base + ".dither-pattern", screen.ditherPattern());
+			yaml.set(base + ".stereo", screen.stereo());
+			yaml.set(base + ".scroll", screen.scroll());
 			yaml.set(base + ".createdBy", screen.createdBy());
 			yaml.set(base + ".createdAt", screen.createdAt());
 			writeVector(yaml, base + ".cornerA", screen.cornerA());
