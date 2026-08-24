@@ -134,11 +134,11 @@ public final class LunaTvPlugin extends JavaPlugin {
 				instance.browser() == null
 					? instance.screen().pixelHeight()
 					: instance.browser().captureHeight(),
-				// the capture rate, not the stream rate: the browser is throttled
-				// to the higher of the two audiences and every frame it produces
-				// is fed in here, so declaring the lower one would tell the
-				// encoder less time had passed than really had
-				screens.captureFps(instance.screen()),
+				// the stream's own ceiling, not the capture rate: the browser may
+				// capture faster when the map path asked for more, and the
+				// encoder gates arrivals to this rate and repeats frames to fill
+				// quiet slots, so this is the one rate it ever actually runs at
+				screens.effectiveStreamFps(instance.screen()),
 				screens.effectiveStreamBitrate(instance.screen()),
 				sink))
 			.orElse(null));

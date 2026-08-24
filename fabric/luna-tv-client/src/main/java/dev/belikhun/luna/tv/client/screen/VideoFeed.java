@@ -32,6 +32,25 @@ public interface VideoFeed extends AutoCloseable {
 	/** Compressed bytes taken off the network since the feed started. */
 	long bytesReceived();
 
+	/**
+	 * Milliseconds spent blocked waiting for network bytes, cumulative.
+	 *
+	 * Near a thousand per second means the feed is starved: the server or the
+	 * link is the limiter, not this machine. Near zero means data floods in
+	 * faster than it is asked for.
+	 */
+	long readStallMillis();
+
+	/**
+	 * Milliseconds spent stuck on the decoder, cumulative.
+	 *
+	 * For H.264 this is time blocked writing into the decoder process: the
+	 * pipe only backs up when ffmpeg cannot swallow input at arrival rate, so
+	 * a sustained value here is a saturated decoder. For MJPEG it is the time
+	 * spent inside the JPEG decode itself, which answers the same question.
+	 */
+	long decodeStallMillis();
+
 	/** How this feed describes itself in a log line. */
 	String codec();
 

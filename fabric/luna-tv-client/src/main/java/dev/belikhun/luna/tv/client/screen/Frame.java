@@ -20,6 +20,15 @@ public final class Frame {
 	private final int height;
 	private final long pts;
 
+	/**
+	 * When the decode finished, on this machine's monotonic clock.
+	 *
+	 * A frame is built the moment its pixels are ready, so construction time is
+	 * decode-out time; the renderer subtracts it at upload to measure how long
+	 * finished pictures sit waiting to be drawn.
+	 */
+	private final long bornNanos = System.nanoTime();
+
 	/** What freeing means: back to the pool, or back to the allocator. */
 	private final Consumer<ByteBuffer> release;
 
@@ -50,6 +59,11 @@ public final class Frame {
 	/** When the server captured it, in microseconds on its own clock. */
 	public long pts() {
 		return pts;
+	}
+
+	/** When the decode finished, in nanoTime on this machine. */
+	public long bornNanos() {
+		return bornNanos;
 	}
 
 	/**

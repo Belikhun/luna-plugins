@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
@@ -26,6 +27,16 @@ import dev.belikhun.luna.core.api.logging.LunaLogger;
  * The child is started when the first viewer asks for H.264 and killed when the
  * last one leaves, so a screen nobody is watching over the stream costs nothing
  * beyond the browser it was already running.
+ *
+ * The frame rate handed in is a ceiling, not a promise. Capture is content
+ * driven - a page paints when it has something to paint - while the encoder's
+ * rate control allocates bits per declared frame, and feeding it fewer frames
+ * than declared leaves budget unspent (measured 44% under target on a 33fps
+ * page declared as 60). The pacer squares the two: frames above the ceiling
+ * are dropped on arrival, and every empty slot below it is filled by repeating
+ * the last frame, so the encoder always sees exactly the rate it was told.
+ * A repeated frame encodes to an all-skip P-frame of a few hundred bytes, so
+ * the budget lands on the real frames.
  */
 public final class H264Encoder {
 
@@ -63,11 +74,21 @@ public final class H264Encoder {
 	private volatile OutputStream input;
 	private volatile Thread reader;
 	private volatile Thread errors;
+	private volatile Thread pacer;
 	private volatile boolean running;
 	private volatile String failure;
 
-	/** When a frame last went in, for the idle heartbeat. */
+	/** When any frame last went in, real or repeated; the pacer's clock. */
 	private volatile long lastOfferMs;
+
+	/** When a real frame was last accepted, for the ceiling gate. */
+	private long lastRealMs;
+
+	/** The newest frame seen, kept so quiet slots can repeat it. */
+	private volatile byte[] lastJpeg;
+
+	/** Repeats since the last real frame; past the threshold the pace drops. */
+	private int repeats;
 
 	public H264Encoder(
 		LunaLogger logger,
@@ -114,6 +135,7 @@ public final class H264Encoder {
 
 			reader = thread("LunaTv-H264-" + screenName, () -> drain(started.getInputStream()));
 			errors = thread("LunaTv-H264-err-" + screenName, () -> complain(started.getErrorStream()));
+			pacer = thread("LunaTv-H264-pace-" + screenName, this::pace);
 
 			logger.info("Bộ mã hoá H.264 cho '" + screenName + "' đã chạy (pid "
 				+ started.pid() + ", " + width + "x" + height + " @" + fps + ", "
@@ -243,18 +265,55 @@ public final class H264Encoder {
 	}
 
 	/**
-	 * Hands one JPEG frame to the encoder.
+	 * Hands one real JPEG frame to the encoder.
 	 *
-	 * Called on the decode thread, and once a second by the idle heartbeat,
-	 * which is why it is synchronized: two writers interleaving bytes into one
-	 * pipe would hand the encoder half of each of two JPEGs. A write that
-	 * blocks means the encoder is behind, which on a screen is better answered
-	 * by waiting one frame than by dropping one: unlike MJPEG, every frame here
-	 * is something the next frames are described against.
+	 * The declared frame rate is a ceiling: a frame arriving sooner than
+	 * three quarters of a frame interval after the last accepted one is
+	 * dropped, because the capture may run faster than this stream's own
+	 * limit when the map path asked for more. Three quarters rather than a
+	 * full interval so ordinary jitter in a feed running exactly at the
+	 * ceiling does not beat against the gate.
+	 *
+	 * Called on the decode thread, and the pacer repeats frames on its own
+	 * thread, which is why the write path is synchronized: two writers
+	 * interleaving bytes into one pipe would hand the encoder half of each
+	 * of two JPEGs.
 	 *
 	 * @param jpeg the frame exactly as Chromium encoded it
 	 */
 	public synchronized void offer(byte[] jpeg) {
+		long now = System.currentTimeMillis();
+		long gate = 1000L * 3 / 4 / fps;
+
+		if (now - lastRealMs < gate) {
+			return;
+		}
+
+		lastRealMs = now;
+		lastJpeg = jpeg;
+		repeats = 0;
+		write(jpeg);
+	}
+
+	/**
+	 * Feeds a joiner's first picture, twice.
+	 *
+	 * Twice because ffmpeg's MJPEG parser only delivers a frame once it sees
+	 * the next one begin: one JPEG into an open pipe produces nothing, ever;
+	 * the same JPEG twice produces the keyframe at once. Bypasses the ceiling
+	 * gate, since a starting encoder has no schedule to protect yet.
+	 *
+	 * @param jpeg the screen's newest frame
+	 */
+	public synchronized void prime(byte[] jpeg) {
+		lastRealMs = System.currentTimeMillis();
+		lastJpeg = jpeg;
+		repeats = 0;
+		write(jpeg);
+		write(jpeg);
+	}
+
+	private synchronized void write(byte[] jpeg) {
 		OutputStream out = input;
 
 		if (!running || out == null) {
@@ -298,12 +357,83 @@ public final class H264Encoder {
 	}
 
 	/**
+	 * Keeps the encoder fed at exactly its declared rate.
+	 *
+	 * Wakes once per frame interval; a slot the decode thread already filled
+	 * is left alone, an empty one is filled by repeating the newest frame.
+	 * This is also what pushes the final frame of a page that stopped
+	 * painting through the MJPEG parser, which is one frame behind by
+	 * construction.
+	 *
+	 * A screen that has been quiet for half a second drops to one repeat a
+	 * second: an idle page needs no bit budget, and every repeat becomes a
+	 * frame each viewer must download and decode, so full-rate copies of a
+	 * still picture would cost the whole audience for nothing.
+	 *
+	 * The generation check ends the thread when a fallback restart replaced
+	 * it, so two pacers never feed one pipe.
+	 */
+	private void pace() {
+		long intervalNanos = 1_000_000_000L / fps;
+		long intervalMs = Math.max(1L, 1000L / fps);
+		int idleAfter = Math.max(2, fps / 2);
+
+		// Absolute slots rather than sleep-then-check: a pacer that sleeps one
+		// interval and then asks "has it been an interval yet" fills every slot
+		// late and skips some entirely, which measured as 42 of 60 slots and
+		// exactly that fraction of the bit budget. Ticking against a fixed
+		// schedule fills each slot once, on time.
+		long slot = System.nanoTime() + intervalNanos;
+
+		while (running && Thread.currentThread() == pacer) {
+			long wait = slot - System.nanoTime();
+
+			if (wait > 0) {
+				LockSupport.parkNanos(wait);
+
+				continue;
+			}
+
+			// far behind after a stall: rebase instead of bursting the backlog
+			if (wait < -4L * intervalNanos) {
+				slot = System.nanoTime() + intervalNanos;
+
+				continue;
+			}
+
+			fill(intervalMs, idleAfter);
+			slot += intervalNanos;
+		}
+	}
+
+	private synchronized void fill(long intervalMs, int idleAfter) {
+		byte[] frame = lastJpeg;
+
+		if (!running || frame == null) {
+			return;
+		}
+
+		long now = System.currentTimeMillis();
+
+		if (now - lastOfferMs < intervalMs) {
+			return;
+		}
+
+		if (repeats >= idleAfter && now - lastOfferMs < 1000L) {
+			return;
+		}
+
+		repeats++;
+		write(frame);
+	}
+
+	/**
 	 * Abandons the GPU and starts over on the CPU, once.
 	 *
 	 * One-way by construction: the device is forgotten before the restart, so
 	 * the rebuilt command takes the software branch and this method can never
-	 * run a second time. Called only from the feeding thread, which is the one
-	 * place the child's stdin is touched, so nothing else can be mid-write.
+	 * run a second time. Every writer reaches the child's stdin through the
+	 * synchronized write path, so nothing else can be mid-write here.
 	 */
 	private void fallback(String reason) {
 		if (!running || vaapiDevice == null) {
@@ -428,8 +558,15 @@ public final class H264Encoder {
 			complaining.interrupt();
 		}
 
+		Thread pacing = pacer;
+
+		if (pacing != null) {
+			pacing.interrupt();
+		}
+
 		reader = null;
 		errors = null;
+		pacer = null;
 	}
 
 	public boolean alive() {
@@ -438,14 +575,9 @@ public final class H264Encoder {
 		return running && current != null && current.isAlive();
 	}
 
-	/** Frames fed in since the encoder started. */
+	/** Frames fed in since the encoder started, repeats included. */
 	public long framesIn() {
 		return framesIn.get();
-	}
-
-	/** When a frame last went in, as epoch millis; 0 before the first. */
-	public long lastOfferMs() {
-		return lastOfferMs;
 	}
 
 	/** Compressed bytes produced since the encoder started. */

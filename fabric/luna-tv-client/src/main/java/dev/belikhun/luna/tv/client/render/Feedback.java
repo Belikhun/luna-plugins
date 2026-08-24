@@ -186,12 +186,18 @@ public final class Feedback {
 		Pulse pulse,
 		double progress
 	) {
-		double half = CLICK_FROM + (CLICK_TO - CLICK_FROM) * progress;
+		// eased out: the ripple leaps from the point and settles, the way a
+		// disturbance actually spreads; linear growth read as a mechanical zoom
+		double eased = 1.0 - (1.0 - progress) * (1.0 - progress);
+		double outer = CLICK_FROM + (CLICK_TO - CLICK_FROM) * eased;
+		double inner = Math.max(0.0, outer - CLICK_THICKNESS);
 		int rgb = pulse.kind == Kind.CLICK_RIGHT
 			? RIGHT_RGB
 			: WHITE_RGB;
 
-		ring(sink, quad, width, height, pulse.u, pulse.v, half, CLICK_THICKNESS,
+		sink.ring(quad, pulse.u, pulse.v,
+			outer / width, outer / height,
+			inner / width, inner / height,
 			fade(rgb, (1.0 - progress) * 0.8));
 	}
 
@@ -229,37 +235,23 @@ public final class Feedback {
 			return;
 		}
 
-		rect(sink, quad, width, height, at.u(), at.v(),
-			CURSOR_BACK_HALF, CURSOR_BACK_HALF, fade(BACK_RGB, 0.7));
-		rect(sink, quad, width, height, at.u(), at.v(),
-			CURSOR_BODY_HALF, CURSOR_BODY_HALF, fade(WHITE_RGB, at.strong() ? 1.0 : 0.85));
+		// a dot is a disc: a ring with no hole
+		sink.ring(quad, at.u(), at.v(),
+			CURSOR_BACK_HALF / width, CURSOR_BACK_HALF / height,
+			0.0, 0.0, fade(BACK_RGB, 0.7));
+		sink.ring(quad, at.u(), at.v(),
+			CURSOR_BODY_HALF / width, CURSOR_BODY_HALF / height,
+			0.0, 0.0, fade(WHITE_RGB, at.strong() ? 1.0 : 0.85));
 
 		// the ring appears while the player is actually steering, so hovering
 		// looks different from merely glancing at the wall
 		if (at.strong()) {
-			ring(sink, quad, width, height, at.u(), at.v(),
-				CURSOR_RING_HALF, CURSOR_RING_THICKNESS, fade(WHITE_RGB, 0.7));
+			sink.ring(quad, at.u(), at.v(),
+				CURSOR_RING_HALF / width, CURSOR_RING_HALF / height,
+				(CURSOR_RING_HALF - CURSOR_RING_THICKNESS) / width,
+				(CURSOR_RING_HALF - CURSOR_RING_THICKNESS) / height,
+				fade(WHITE_RGB, 0.7));
 		}
-	}
-
-	/** A hollow square: the sides stop short so no corner is blended twice. */
-	private static void ring(
-		ScreenSink sink,
-		ScreenQuad quad,
-		double width,
-		double height,
-		double u,
-		double v,
-		double half,
-		double thickness,
-		int argb
-	) {
-		double halfT = thickness / 2.0;
-
-		rect(sink, quad, width, height, u, v - half + halfT, half, halfT, argb);
-		rect(sink, quad, width, height, u, v + half - halfT, half, halfT, argb);
-		rect(sink, quad, width, height, u - half + halfT, v, halfT, half - thickness, argb);
-		rect(sink, quad, width, height, u + half - halfT, v, halfT, half - thickness, argb);
 	}
 
 	/**

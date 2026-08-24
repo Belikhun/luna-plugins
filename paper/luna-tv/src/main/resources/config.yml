@@ -139,9 +139,10 @@ stream:
   public-url: ""
   # Số người xem tối đa cho mỗi màn hình.
   max-viewers: 16
-  # Tốc độ khung hình cho mod client. Tách hẳn khỏi render.fps: đường bản đồ bị
-  # giới hạn bởi kết nối game, còn luồng này đi socket riêng nên chạy nhanh hơn
-  # được. Trình duyệt sẽ chụp ở mức cao nhất trong hai bên.
+  # Mức TRẦN khung hình cho mod client; tốc độ thật theo nội dung trang (video
+  # 30fps cho ra 30fps dù trần là 60). Tách hẳn khỏi render.fps: đường bản đồ
+  # bị giới hạn bởi kết nối game, còn luồng này đi socket riêng nên chạy nhanh
+  # hơn được. Trình duyệt sẽ chụp ở mức cao nhất trong hai bên.
   fps: 30
   # Trần băng thông cho MỖI người xem luồng (Mbit/s). Khác với
   # render.max-megabits, vốn chỉ áp cho đường bản đồ.

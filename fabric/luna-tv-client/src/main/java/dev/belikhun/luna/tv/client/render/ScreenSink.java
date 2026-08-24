@@ -38,4 +38,24 @@ public interface ScreenSink {
 	 * @param argb the mark's colour, alpha included
 	 */
 	void mark(ScreenQuad quad, double u0, double v0, double u1, double v1, int argb);
+
+	/**
+	 * Draws one translucent ring on a screen's surface.
+	 *
+	 * Radii are fractions of the picture, one per axis, so the caller can keep
+	 * a ring circular in the world on a wall of any shape. An inner radius of
+	 * zero makes a filled disc. Like a mark, it floats just above the picture
+	 * and blends without writing depth.
+	 *
+	 * @param quad where the screen is, in world coordinates
+	 * @param u the centre, 0 to 1 across the picture
+	 * @param v the centre, 0 to 1 down the picture
+	 * @param outerU the outer radius, as a fraction of the width
+	 * @param outerV the outer radius, as a fraction of the height
+	 * @param innerU the inner radius, as a fraction of the width
+	 * @param innerV the inner radius, as a fraction of the height
+	 * @param argb the ring's colour, alpha included
+	 */
+	void ring(ScreenQuad quad, double u, double v, double outerU, double outerV,
+		double innerU, double innerV, int argb);
 }

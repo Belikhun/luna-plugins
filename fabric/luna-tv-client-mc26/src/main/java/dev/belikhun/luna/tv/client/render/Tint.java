@@ -111,6 +111,82 @@ final class Tint {
 		point(buffer, pose, quad, u1, v0, colour, lift, normalX, normalY, normalZ);
 	}
 
+	/** Segments per ring; at cursor sizes, twenty-four already reads as round. */
+	private static final int RING_SEGMENTS = 24;
+
+	/**
+	 * Writes one overlay ring on the screen's plane.
+	 *
+	 * Radii are fractions of the picture, one per axis, so a caller working in
+	 * blocks can keep the ring circular in the world. An inner radius of zero
+	 * makes a filled disc: the inner points collapse into the centre and each
+	 * segment degenerates into a triangle, which draws fine. Every vertex is
+	 * clamped onto the picture, so a ring spilling over the wall's edge is cut
+	 * off there rather than floating in the air beside it.
+	 *
+	 * @param u the centre, 0 to 1 across the picture
+	 * @param v the centre, 0 to 1 down the picture
+	 * @param outerU the outer radius, as a fraction of the width
+	 * @param outerV the outer radius, as a fraction of the height
+	 * @param innerU the inner radius, as a fraction of the width
+	 * @param innerV the inner radius, as a fraction of the height
+	 * @param reversed the back face, wound the other way
+	 */
+	static void ring(
+		VertexConsumer buffer,
+		PoseStack.Pose pose,
+		ScreenQuad quad,
+		double u,
+		double v,
+		double outerU,
+		double outerV,
+		double innerU,
+		double innerV,
+		int colour,
+		float lift,
+		boolean reversed
+	) {
+		float normalX = (float) (reversed ? -quad.normalX() : quad.normalX());
+		float normalY = (float) (reversed ? -quad.normalY() : quad.normalY());
+		float normalZ = (float) (reversed ? -quad.normalZ() : quad.normalZ());
+
+		for (int segment = 0; segment < RING_SEGMENTS; segment++) {
+			double from = Math.PI * 2.0 * segment / RING_SEGMENTS;
+			double to = Math.PI * 2.0 * (segment + 1) / RING_SEGMENTS;
+			double cosFrom = Math.cos(from);
+			double sinFrom = Math.sin(from);
+			double cosTo = Math.cos(to);
+			double sinTo = Math.sin(to);
+
+			double outerFromU = clamp(u + cosFrom * outerU);
+			double outerFromV = clamp(v + sinFrom * outerV);
+			double outerToU = clamp(u + cosTo * outerU);
+			double outerToV = clamp(v + sinTo * outerV);
+			double innerFromU = clamp(u + cosFrom * innerU);
+			double innerFromV = clamp(v + sinFrom * innerV);
+			double innerToU = clamp(u + cosTo * innerU);
+			double innerToV = clamp(v + sinTo * innerV);
+
+			if (reversed) {
+				point(buffer, pose, quad, outerToU, outerToV, colour, lift, normalX, normalY, normalZ);
+				point(buffer, pose, quad, innerToU, innerToV, colour, lift, normalX, normalY, normalZ);
+				point(buffer, pose, quad, innerFromU, innerFromV, colour, lift, normalX, normalY, normalZ);
+				point(buffer, pose, quad, outerFromU, outerFromV, colour, lift, normalX, normalY, normalZ);
+
+				continue;
+			}
+
+			point(buffer, pose, quad, outerFromU, outerFromV, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, innerFromU, innerFromV, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, innerToU, innerToV, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, outerToU, outerToV, colour, lift, normalX, normalY, normalZ);
+		}
+	}
+
+	private static double clamp(double fraction) {
+		return Math.max(0.0, Math.min(1.0, fraction));
+	}
+
 	private static void point(
 		VertexConsumer buffer,
 		PoseStack.Pose pose,

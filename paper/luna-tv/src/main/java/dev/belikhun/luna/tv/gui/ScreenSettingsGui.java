@@ -421,8 +421,9 @@ public final class ScreenSettingsGui {
 		int streamFps = screens.effectiveStreamFps(screen);
 
 		view.setItem(29, LunaUi.item(Material.RECOVERY_COMPASS,
-			"<aqua>FPS luồng (mod): " + streamFps + "</aqua>",
+			"<aqua>FPS luồng tối đa (mod): " + streamFps + "</aqua>",
 			List.of(
+				LunaUi.mini("<gray>Là mức trần; tốc độ thật theo nội dung trang.</gray>"),
 				LunaUi.mini("<gray>Chỉ áp cho người chơi dùng mod client;</gray>"),
 				LunaUi.mini("<gray>đường bản đồ có FPS riêng ở ô bên trên.</gray>"),
 				LunaUi.mini("<gray>Đang dùng: " + (screen.streamFps() == 0

@@ -67,6 +67,11 @@ public final class StreamFeed implements VideoFeed {
 	private final AtomicLong dropped = new AtomicLong();
 	private final AtomicLong received = new AtomicLong();
 
+	// accumulated in nanoseconds and converted on read: per-chunk waits are
+	// often under a millisecond, and truncating each would report zero forever
+	private final AtomicLong readStall = new AtomicLong();
+	private final AtomicLong decodeStall = new AtomicLong();
+
 	private volatile Thread thread;
 	private volatile boolean running;
 	private volatile String failure;
@@ -113,6 +118,16 @@ public final class StreamFeed implements VideoFeed {
 	@Override
 	public long bytesReceived() {
 		return received.get();
+	}
+
+	@Override
+	public long readStallMillis() {
+		return readStall.get() / 1_000_000L;
+	}
+
+	@Override
+	public long decodeStallMillis() {
+		return decodeStall.get() / 1_000_000L;
 	}
 
 	/** Frames thrown away undecoded because a newer one had already arrived. */
@@ -233,7 +248,10 @@ public final class StreamFeed implements VideoFeed {
 		byte[] window = new byte[0];
 
 		while (running) {
+			long before = System.nanoTime();
 			int read = body.read(buffer);
+
+			readStall.addAndGet(System.nanoTime() - before);
 
 			if (read < 0) {
 				return;
@@ -329,7 +347,10 @@ public final class StreamFeed implements VideoFeed {
 
 	private void publish(byte[] data, int offset, int length, long pts) {
 		try {
+			long before = System.nanoTime();
 			BufferedImage image = decode(data, offset, length);
+
+			decodeStall.addAndGet(System.nanoTime() - before);
 
 			if (image == null) {
 				return;

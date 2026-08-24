@@ -114,7 +114,15 @@ public final class ScreenManager {
 	}
 
 	public void config(TvConfig config) {
+		TvConfig previous = this.config;
 		this.config = config;
+
+		// a screen following a default has that default moved under it, and a
+		// running encoder cannot follow: its rate and bitrate were fixed at start
+		boolean encoderDefaultsChanged = previous != null
+			&& (previous.fps() != config.fps()
+				|| previous.streamFps() != config.streamFps()
+				|| previous.streamBitrate() != config.streamBitrate());
 
 		// live browsers keep their process, but the display rate is just a number
 		// they compare against, so a reload can retune them in place
@@ -123,10 +131,36 @@ public final class ScreenManager {
 
 			if (browser != null) {
 				browser.quality(effectiveQuality(instance.screen()));
-		browser.displayRate(captureFps(instance.screen()));
+				browser.displayRate(captureFps(instance.screen()));
 			}
 
 			displays.applyRenderSettings(instance);
+
+			if (encoderDefaultsChanged) {
+				rebuildEncoder(instance);
+			}
+		}
+	}
+
+	/**
+	 * Drops a screen's running H.264 encoder so the next attach builds a fresh one.
+	 *
+	 * The encoder's size, frame rate and bitrate are fixed when its process
+	 * starts, so a setting change cannot reach one that is already running: the
+	 * browser's capture pacing follows the new value immediately while the
+	 * encoder keeps describing the old one. Feeding 60 frames a second into a
+	 * process that believes a second is 30 frames doubles the real bitrate, and
+	 * a capture size change kills the GPU filter graph outright. Dropping the
+	 * encoder also unparks its subscribers, so every viewer reconnects onto the
+	 * rebuilt one within a second.
+	 *
+	 * @param instance the screen whose encoder is stale
+	 */
+	private void rebuildEncoder(ScreenInstance instance) {
+		StreamServer endpoint = stream;
+
+		if (endpoint != null) {
+			endpoint.dropEncoder(instance.name());
 		}
 	}
 
@@ -911,9 +945,10 @@ public final class ScreenManager {
 
 		if (browser != null) {
 			browser.quality(effectiveQuality(instance.screen()));
-		browser.displayRate(captureFps(instance.screen()));
+			browser.displayRate(captureFps(instance.screen()));
 		}
 
+		rebuildEncoder(instance);
 		persist();
 	}
 
@@ -925,6 +960,7 @@ public final class ScreenManager {
 	 */
 	public void streamMegabits(ScreenInstance instance, int megabits) {
 		instance.screen().streamMegabits(megabits);
+		rebuildEncoder(instance);
 		persist();
 	}
 
@@ -963,9 +999,10 @@ public final class ScreenManager {
 
 		if (browser != null) {
 			browser.quality(effectiveQuality(instance.screen()));
-		browser.displayRate(captureFps(instance.screen()));
+			browser.displayRate(captureFps(instance.screen()));
 		}
 
+		rebuildEncoder(instance);
 		persist();
 	}
 
@@ -1080,6 +1117,10 @@ public final class ScreenManager {
 
 	public void scale(ScreenInstance instance, int scale) {
 		instance.screen().scale(scale);
+
+		// dropped before the rescale: a frame at the new size reaching the old
+		// encoder's GPU filter graph kills it with a format error instead
+		rebuildEncoder(instance);
 
 		CdpBrowser browser = instance.browser();
 

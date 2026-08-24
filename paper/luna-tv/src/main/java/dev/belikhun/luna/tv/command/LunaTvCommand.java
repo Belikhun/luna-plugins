@@ -557,10 +557,10 @@ public final class LunaTvCommand implements BasicCommand {
 		}
 
 		screens.streamFps(found.get(), value);
-		sender.sendRichMessage("<green>✔ FPS luồng của '" + MiniText.escape(found.get().name())
+		sender.sendRichMessage("<green>✔ FPS luồng tối đa của '" + MiniText.escape(found.get().name())
 			+ "' giờ là " + (value == 0
 				? "theo config (" + screens.effectiveStreamFps(found.get().screen()) + ")"
-				: String.valueOf(value)) + ".</green>");
+				: String.valueOf(value)) + ". Tốc độ thật theo nội dung trang.</green>");
 	}
 
 	/** Sets the client stream's per-viewer ceiling; 0 follows the config. */

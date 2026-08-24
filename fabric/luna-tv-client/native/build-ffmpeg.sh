@@ -8,9 +8,9 @@
 # JNI entirely.
 #
 # Everything ffmpeg can otherwise do is switched off, so the binary carries one
-# decoder, one parser, one demuxer, one muxer and the two pipe protocols. That
-# is what takes a ~70 MB general-purpose build down to a few megabytes, small
-# enough to ship inside the jar.
+# decoder, one parser, one demuxer, one muxer, the pipe protocols and loopback
+# tcp (the frame hand-back path). That is what takes a ~70 MB general-purpose
+# build down to a few megabytes, small enough to ship inside the jar.
 #
 # Windows x64 only. It is the one platform with no ffmpeg a player is likely to
 # already have on PATH, and shipping a binary per platform is what would make
@@ -62,6 +62,12 @@ COMPONENTS=(
 	--enable-muxer=rawvideo
 	--enable-protocol=pipe
 	--enable-protocol=file
+	# loopback tcp is how decoded frames go back to the mod: a socket moves
+	# half a gigabyte a second in large reads where the stdout pipe is capped
+	# at tiny kernel-buffer bites; network as a whole stays off in spirit, this
+	# is the one protocol of it
+	--enable-network
+	--enable-protocol=tcp
 	--enable-filter=scale
 	--enable-filter=format
 	--enable-filter=null
@@ -87,7 +93,6 @@ HWACCEL=(
 # binary then refuses to start on a machine that lacks it.
 TRIMMINGS=(
 	--disable-autodetect
-	--disable-network
 	--disable-avdevice
 	--disable-doc
 	--disable-htmlpages

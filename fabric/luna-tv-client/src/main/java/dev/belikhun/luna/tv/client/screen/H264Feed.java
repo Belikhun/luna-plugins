@@ -3,6 +3,9 @@ package dev.belikhun.luna.tv.client.screen;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.StandardSocketOptions;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -10,6 +13,8 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -98,6 +103,10 @@ public final class H264Feed implements VideoFeed {
 	private final AtomicLong decoded = new AtomicLong();
 	private final AtomicLong dropped = new AtomicLong();
 	private final AtomicLong received = new AtomicLong();
+	// accumulated in nanoseconds and converted on read: per-chunk waits are
+	// often under a millisecond, and truncating each would report zero forever
+	private final AtomicLong readStall = new AtomicLong();
+	private final AtomicLong decodeStall = new AtomicLong();
 
 	private volatile Thread thread;
 	private volatile boolean running;
@@ -107,6 +116,25 @@ public final class H264Feed implements VideoFeed {
 	/** Whether to keep asking for GPU decode, and how often it has come to nothing. */
 	private volatile boolean hardware = true;
 	private volatile int barren;
+
+	/**
+	 * Whether decoded frames come back over a loopback socket.
+	 *
+	 * The alternative is the child's stdout pipe, and the pipe is why a decode
+	 * chain measured 55fps at 1920x1024: a decoded frame is eight megabytes,
+	 * the JDK's stream-to-channel wrapper reads a pipe in 8KB bites through a
+	 * heap detour, and half a gigabyte a second through that is sixty thousand
+	 * copies. A SocketChannel reads straight into the frame's own buffer in a
+	 * handful of calls. The pipe stays as the fallback for an environment that
+	 * refuses a loopback listener, and for an ffmpeg built without the tcp
+	 * protocol, which dies on the spot with "Protocol not found".
+	 */
+	private volatile boolean socketFrames = true;
+
+	/** Socket-mode connections that produced nothing before the pipe takes over. */
+	private static final int SOCKET_STRIKES = 2;
+
+	private volatile int socketBarren;
 
 	public H264Feed(String name, Supplier<String> url, Path ffmpeg, int width, int height) {
 		this.name = name;
@@ -158,6 +186,16 @@ public final class H264Feed implements VideoFeed {
 	@Override
 	public long bytesReceived() {
 		return received.get();
+	}
+
+	@Override
+	public long readStallMillis() {
+		return readStall.get() / 1_000_000L;
+	}
+
+	@Override
+	public long decodeStallMillis() {
+		return decodeStall.get() / 1_000_000L;
 	}
 
 	@Override
@@ -249,7 +287,12 @@ public final class H264Feed implements VideoFeed {
 		}
 
 		long before = decoded.get();
-		Process child = new ProcessBuilder(command())
+		ServerSocketChannel listener = openListener();
+		int port = listener == null
+			? 0
+			: ((InetSocketAddress) listener.getLocalAddress()).getPort();
+
+		Process child = new ProcessBuilder(command(port))
 			.redirectErrorStream(false)
 			.start();
 
@@ -257,27 +300,59 @@ public final class H264Feed implements VideoFeed {
 		failure = null;
 		String using = hwaccel();
 
-		LOGGER.info("Luna TV h264 {} connected, decoding with pid {} ({})",
-			name, child.pid(), using.isEmpty() ? "software" : using);
+		LOGGER.info("Luna TV h264 {} connected, decoding with pid {} ({}, frames via {})",
+			name, child.pid(), using.isEmpty() ? "software" : using,
+			listener == null ? "pipe" : "socket");
 
-		Thread frames = daemon("LunaTv-H264-out-" + name, () -> collect(child.getInputStream()));
+		// The collector does its own accept: ffmpeg only dials the frame socket
+		// once it has decoded something, and it only decodes once this thread
+		// has fed it input, so accepting here first would deadlock the pair.
+		ServerSocketChannel handoff = listener;
+		Thread frames = daemon("LunaTv-H264-out-" + name, () -> {
+			if (handoff == null) {
+				collect(Channels.newChannel(child.getInputStream()));
+			} else {
+				collectFromSocket(handoff);
+			}
+		});
 		Thread noise = daemon("LunaTv-H264-err-" + name, () -> complain(child.getErrorStream()));
 
 		try (InputStream body = response.body(); OutputStream into = child.getOutputStream()) {
 			byte[] buffer = new byte[PIPE_CHUNK];
 
 			while (running) {
+				// both sides of the copy are timed, because which one blocks is
+				// the whole diagnosis: waiting on read means the server or the
+				// link is the limiter, waiting on write means the decoder is
+				long readFrom = System.nanoTime();
 				int more = body.read(buffer);
+				long between = System.nanoTime();
+
+				readStall.addAndGet(between - readFrom);
 
 				if (more < 0) {
+					LOGGER.info("Luna TV h264 {}: stream ended by the server, reconnecting", name);
+
 					break;
 				}
 
 				received.addAndGet(more);
 				into.write(buffer, 0, more);
 				into.flush();
+				decodeStall.addAndGet(System.nanoTime() - between);
 			}
 		} finally {
+			// closing the listener is what frees a collector still parked in
+			// accept: a decoder that died before dialing back would otherwise
+			// hold that thread forever
+			if (listener != null) {
+				try {
+					listener.close();
+				} catch (IOException ignored) {
+					// already closed with the connection
+				}
+			}
+
 			child.destroyForcibly();
 			frames.interrupt();
 			noise.interrupt();
@@ -286,7 +361,63 @@ public final class H264Feed implements VideoFeed {
 				decoder = null;
 			}
 
-			judge(before);
+			// A socket-mode connection that never yielded a frame is blamed on
+			// the socket first, not on the hardware decoder: an ffmpeg without
+			// the tcp protocol dies before decode is even attempted, and a
+			// hardware strike for that would burn the offload for nothing.
+			if (listener != null && decoded.get() == before) {
+				socketBarren++;
+
+				if (socketBarren >= SOCKET_STRIKES && socketFrames) {
+					socketFrames = false;
+					LOGGER.warn("Luna TV h264 {}: frame socket produced nothing twice,"
+						+ " falling back to the pipe", name);
+				}
+			} else {
+				if (listener != null) {
+					socketBarren = 0;
+				}
+
+				judge(before);
+			}
+		}
+	}
+
+	/**
+	 * Opens the loopback listener the decoder sends frames back to.
+	 *
+	 * @return the listener, or null when frames should use the stdout pipe
+	 */
+	private ServerSocketChannel openListener() {
+		if (!socketFrames) {
+			return null;
+		}
+
+		try {
+			ServerSocketChannel listener = ServerSocketChannel.open();
+
+			// sized for several whole frames, so the decoder never waits on the
+			// kernel buffer while the collector is mid-copy; set before bind so
+			// accepted sockets inherit it
+			listener.setOption(StandardSocketOptions.SO_RCVBUF, 8 * 1024 * 1024);
+			listener.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+
+			return listener;
+		} catch (IOException refused) {
+			socketFrames = false;
+			LOGGER.warn("Luna TV h264 {}: loopback listener refused ({}), frames stay on the pipe",
+				name, refused.toString());
+
+			return null;
+		}
+	}
+
+	/** Accepts the decoder's frame connection, then collects from it. */
+	private void collectFromSocket(ServerSocketChannel listener) {
+		try (SocketChannel socket = listener.accept()) {
+			collect(socket);
+		} catch (IOException ended) {
+			// the listener was closed with the connection, which is normal
 		}
 	}
 
@@ -353,7 +484,7 @@ public final class H264Feed implements VideoFeed {
 	 * fastest of the three modes. Pinning one thread was tried and is wrong the
 	 * other way; this is the setting with no downside.
 	 */
-	private List<String> command() {
+	private List<String> command(int framePort) {
 		List<String> command = new ArrayList<>();
 
 		command.add(ffmpeg.toString());
@@ -393,7 +524,15 @@ public final class H264Feed implements VideoFeed {
 		command.add("rgba");
 		command.add("-f");
 		command.add("rawvideo");
-		command.add("pipe:1");
+
+		// frames go back over loopback when a listener could be opened: a
+		// socket moves half a gigabyte a second in a few large reads where the
+		// stdout pipe needs tens of thousands of small ones
+		if (framePort > 0) {
+			command.add("tcp://127.0.0.1:" + framePort);
+		} else {
+			command.add("pipe:1");
+		}
 
 		return command;
 	}
@@ -436,12 +575,10 @@ public final class H264Feed implements VideoFeed {
 	 * frames may be discarded: doing it earlier, on the coded stream, would not
 	 * skip a picture but corrupt every one after it.
 	 */
-	private void collect(InputStream from) {
-		// straight from the pipe into the buffer the texture upload will read,
-		// with no heap array in between: at sixty frames a second the copy this
-		// avoids is a third of a gigabyte every second, for nothing
-		ReadableByteChannel channel = Channels.newChannel(from);
-
+	private void collect(ReadableByteChannel channel) {
+		// straight from the channel into the buffer the texture upload will
+		// read, with no heap array in between: at sixty frames a second the
+		// copy this avoids is a third of a gigabyte every second, for nothing
 		try {
 			while (running) {
 				ByteBuffer rgba = take();

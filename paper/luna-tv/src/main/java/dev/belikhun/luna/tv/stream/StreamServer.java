@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
@@ -128,7 +129,6 @@ public final class StreamServer {
 
 	private volatile TvConfig config;
 	private volatile HttpServer http;
-	private volatile java.util.concurrent.ScheduledExecutorService heartbeat;
 
 	public StreamServer(LunaLogger logger, TvConfig config) {
 		this.logger = logger;
@@ -230,25 +230,6 @@ public final class StreamServer {
 			http = server;
 			h264 = "h264".equals(config.streamCodec()) && probeFfmpeg();
 
-			// The idle heartbeat. The MJPEG parser inside every encoder is one
-			// frame behind by construction (a frame is only complete once the
-			// next begins), so a page that stops painting leaves its final frame
-			// stuck inside. Re-feeding the last frame once a second pushes it
-			// through; on a busy screen the check never fires, and on an idle one
-			// the duplicate encodes to an all-skip frame of a few hundred bytes.
-			java.util.concurrent.ScheduledExecutorService ticker =
-				java.util.concurrent.Executors.newSingleThreadScheduledExecutor(task -> {
-					Thread thread = new Thread(task, "LunaTv-Stream-Heartbeat");
-
-					thread.setDaemon(true);
-
-					return thread;
-				});
-
-			ticker.scheduleWithFixedDelay(this::pulse, 1_000L, 1_000L,
-				java.util.concurrent.TimeUnit.MILLISECONDS);
-			heartbeat = ticker;
-
 			if (h264 && config.vaapiDevice() != null) {
 				vaapiDevice = probeVaapi(config.vaapiDevice());
 			}
@@ -269,14 +250,6 @@ public final class StreamServer {
 
 	/** Stops serving and drops every connection. */
 	public void stop() {
-		java.util.concurrent.ScheduledExecutorService ticker = heartbeat;
-
-		heartbeat = null;
-
-		if (ticker != null) {
-			ticker.shutdownNow();
-		}
-
 		HttpServer server = http;
 
 		http = null;
@@ -625,7 +598,17 @@ public final class StreamServer {
 				body.flush();
 			}
 
+			long shedSeen = 0L;
+
 			while (!subscriber.done && http != null) {
+				long shedNow = subscriber.shed.get();
+
+				if (shedNow > shedSeen) {
+					logger.info("Người xem luồng '" + screen + "' tụt lại; đã nhảy tới"
+						+ " keyframe mới nhất (bỏ " + (shedNow - shedSeen) + " khối).");
+					shedSeen = shedNow;
+				}
+
 				Stamped chunk = subscriber.await(15_000L);
 
 				if (chunk == null) {
@@ -648,6 +631,13 @@ public final class StreamServer {
 		} catch (IOException disconnected) {
 			// the viewer closed the connection, which is the normal way this ends
 		} finally {
+			// the queue cap trips silently in offer(), and a disconnect nobody
+			// can tell apart from a viewer walking away is a fault nobody finds
+			if (subscriber.lagged) {
+				logger.warn("Người xem luồng '" + screen + "' tụt lại quá xa"
+					+ " (hàng đợi đầy); đã ngắt để họ vào lại sát thời gian thực.");
+			}
+
 			watching.remove(subscriber);
 			detach(screen);
 			exchange.close();
@@ -684,16 +674,13 @@ public final class StreamServer {
 			}
 
 			// A fresh encoder is fed nothing until the page next paints, and a
-			// page that has settled never does. Handing it the last frame gives
-			// it something to make a keyframe out of - and it is handed TWICE,
-			// because ffmpeg's MJPEG parser only delivers a frame once it sees
-			// the next one begin. Measured: one JPEG into an open pipe produces
-			// nothing, ever; the same JPEG twice produces the keyframe at once.
+			// page that has settled never does. Priming it with the last frame
+			// gives it something to make a keyframe out of, and seeds the pacer
+			// that keeps it fed from then on.
 			Stamped last = latest.get(key(screen));
 
 			if (last != null) {
-				built.offer(last.bytes());
-				built.offer(last.bytes());
+				built.prime(last.bytes());
 			}
 
 			return built;
@@ -785,37 +772,6 @@ public final class StreamServer {
 	/** The render node encoders should use, or null for software. */
 	public String vaapiDevice() {
 		return vaapiDevice;
-	}
-
-	/**
-	 * Re-feeds the last frame to any encoder whose input has gone quiet.
-	 *
-	 * Errors are contained per screen: offer() already downgrades or stops a
-	 * broken encoder itself, and a heartbeat that died with the first broken
-	 * screen would silently stop serving all the others.
-	 */
-	private void pulse() {
-		long now = System.currentTimeMillis();
-
-		for (Map.Entry<String, H264Encoder> entry : encoders.entrySet()) {
-			H264Encoder encoder = entry.getValue();
-
-			if (!encoder.alive() || now - encoder.lastOfferMs() < 900L) {
-				continue;
-			}
-
-			Stamped last = latest.get(entry.getKey());
-
-			if (last == null) {
-				continue;
-			}
-
-			try {
-				encoder.offer(last.bytes());
-			} catch (Throwable broken) {
-				logger.warn("Nhịp giữ hình của '" + entry.getKey() + "' lỗi: " + broken);
-			}
-		}
 	}
 
 	/**
@@ -1123,6 +1079,22 @@ public final class StreamServer {
 		/** Blocks allowed to back up before the oldest are dropped: ~1 second. */
 		private static final int MAX_QUEUED = 50;
 
+		/**
+		 * Queued chunks past which a coded viewer is skipped to a keyframe.
+		 *
+		 * About a second of stream at the default bitrate. A viewer whose
+		 * decoder runs a few frames short of the stream rate builds lag at the
+		 * difference, and before this existed the only remedy was the
+		 * disconnect below: a twenty-second freeze every few minutes, measured
+		 * on a machine decoding 55 of a 60fps stream. Skipping the queue to
+		 * the newest keyframe run costs them the pictures they were already
+		 * late for and nothing else.
+		 */
+		private static final int SHED_QUEUED = 12;
+
+		/** Chunks discarded to keep this viewer near live, for the log. */
+		private final AtomicLong shed = new AtomicLong();
+
 		private final java.util.concurrent.atomic.AtomicInteger depth =
 			new java.util.concurrent.atomic.AtomicInteger();
 
@@ -1140,6 +1112,9 @@ public final class StreamServer {
 		 * the ones before it.
 		 */
 		private volatile boolean lossless;
+
+		/** Set when the queue cap ended this connection, so the end is named. */
+		private volatile boolean lagged;
 
 		/** When this connection last wrote, for frame-rate pacing. */
 		private long lastWriteNanos;
@@ -1167,11 +1142,21 @@ public final class StreamServer {
 			queued.add(block);
 			depth.incrementAndGet();
 
-			// nothing to trim towards: a coded stream with a hole in it stays
-			// broken until the next keyframe, so the connection ends instead and
-			// the viewer comes back to a clean one
-			if (lossless && depth.get() > MAX_QUEUED) {
-				done = true;
+			// A coded stream cannot lose an arbitrary chunk: everything after
+			// it is broken until the next keyframe. It CAN be spliced onto a
+			// keyframe run, which is exactly how a joiner starts mid-stream, so
+			// a viewer falling behind is skipped forward to the newest one in
+			// the queue. The disconnect stays as the backstop for a queue that
+			// somehow holds no keyframe at all.
+			if (lossless) {
+				if (depth.get() > SHED_QUEUED) {
+					shedToKeyframe();
+				}
+
+				if (depth.get() > MAX_QUEUED) {
+					lagged = true;
+					done = true;
+				}
 
 				return;
 			}
@@ -1182,6 +1167,42 @@ public final class StreamServer {
 				}
 
 				depth.decrementAndGet();
+			}
+		}
+
+		/**
+		 * Drops everything queued before the newest keyframe run.
+		 *
+		 * The landing chunk is the last one carrying a parameter set: with
+		 * repeat-headers every keyframe is preceded by its SPS, so decoding
+		 * resumes cleanly there, and any partial access unit at the front of
+		 * that chunk is skipped by the decoder's own start-code scan. Racing
+		 * the consumer is harmless: both ends only ever remove from the head.
+		 */
+		private void shedToKeyframe() {
+			Stamped landing = null;
+
+			for (Stamped chunk : queued) {
+				if (Gop.carriesParameterSet(chunk.bytes())) {
+					landing = chunk;
+				}
+			}
+
+			if (landing == null || queued.peek() == landing) {
+				return;
+			}
+
+			while (true) {
+				Stamped head = queued.peek();
+
+				if (head == null || head == landing) {
+					break;
+				}
+
+				if (queued.poll() != null) {
+					depth.decrementAndGet();
+					shed.incrementAndGet();
+				}
 			}
 		}
 

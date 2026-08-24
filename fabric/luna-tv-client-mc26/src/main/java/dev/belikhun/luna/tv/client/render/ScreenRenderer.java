@@ -109,4 +109,36 @@ public final class ScreenRenderer implements ScreenSink {
 
 		matrices.popPose();
 	}
+
+	/**
+	 * Draws one interaction ring on a screen's surface.
+	 *
+	 * @param quad where the screen is, in world coordinates
+	 * @param u the centre, 0 to 1 across the picture
+	 * @param v the centre, 0 to 1 down the picture
+	 * @param outerU the outer radius, as a fraction of the width
+	 * @param outerV the outer radius, as a fraction of the height
+	 * @param innerU the inner radius, as a fraction of the width
+	 * @param innerV the inner radius, as a fraction of the height
+	 * @param argb the ring's colour, alpha included
+	 */
+	@Override
+	public void ring(ScreenQuad quad, double u, double v, double outerU, double outerV,
+		double innerU, double innerV, int argb) {
+		// true is the beacon's "render through": translucent, colour-write
+		// only, so overlapping marks blend in draw order instead of z-fighting
+		RenderType type = RenderTypes.beaconBeam(ScreenTexture.white(), true);
+
+		matrices.pushPose();
+		matrices.translate(-cameraX, -cameraY, -cameraZ);
+
+		collector.submitCustomGeometry(matrices, type, (pose, buffer) -> {
+			Tint.ring(buffer, pose, quad, u, v, outerU, outerV, innerU, innerV,
+				argb, MARK_OFFSET, false);
+			Tint.ring(buffer, pose, quad, u, v, outerU, outerV, innerU, innerV,
+				argb, MARK_OFFSET, true);
+		});
+
+		matrices.popPose();
+	}
 }

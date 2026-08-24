@@ -351,6 +351,15 @@ public final class LunaTvClient implements ClientModInitializer {
 	 * dropped is time the picture sat waiting, and a dropped column that grows
 	 * says the decoder is outrunning the renderer, which is the number that
 	 * tells slow-decode apart from slow-draw.
+	 *
+	 * The wait columns say where this second was spent, and together they are
+	 * the slowdown diagnosis. "net" is time blocked waiting for bytes: near a
+	 * thousand means the server or the link is the limiter, near zero means
+	 * data floods in. "dec" is time stuck on the decoder: sustained values mean
+	 * it cannot swallow the stream at arrival rate, which is what builds the
+	 * lag that ends in a server-side resync. "age" is how long a finished frame
+	 * waited before the renderer drew it: high values with low "dec" mean the
+	 * render path, not the decode, is behind.
 	 */
 	private void report() {
 		for (Live live : screens.values()) {
@@ -363,25 +372,40 @@ public final class LunaTvClient implements ClientModInitializer {
 			long decoded = feed.framesDecoded();
 			long dropped = feed.framesDropped();
 			long bytes = feed.bytesReceived();
+			long netWait = feed.readStallMillis();
+			long decodeWait = feed.decodeStallMillis();
 			long shown = live.shown;
 
 			long decodedNow = decoded - live.lastDecoded;
 			long droppedNow = dropped - live.lastDropped;
 			long shownNow = shown - live.lastShown;
+			long netWaitNow = netWait - live.lastNetWait;
+			long decodeWaitNow = decodeWait - live.lastDecodeWait;
 			double megabits = (bytes - live.lastBytes) * 8.0 / 1_000_000.0;
+
+			long ageCount = live.ageCount;
+			long ageMs = ageCount > 0
+				? live.ageSumNanos / ageCount / 1_000_000L
+				: 0L;
 
 			live.lastDecoded = decoded;
 			live.lastDropped = dropped;
 			live.lastBytes = bytes;
 			live.lastShown = shown;
+			live.lastNetWait = netWait;
+			live.lastDecodeWait = decodeWait;
+			live.ageSumNanos = 0L;
+			live.ageCount = 0L;
 
 			String sound = live.sound == null
 				? "no sound"
 				: "audio q=" + live.sound.buffered();
 
-			LOGGER.info("Luna TV {}: {} {} fps decoded, {} drawn, {} dropped, {} Mbit/s, {}",
+			LOGGER.info("Luna TV {}: {} {} fps decoded, {} drawn, {} dropped, {} Mbit/s,"
+				+ " net {}ms, dec {}ms, age {}ms, {}",
 				live.screen.name(), feed.codec(), decodedNow, shownNow, droppedNow,
-				String.format(java.util.Locale.ROOT, "%.1f", megabits), sound);
+				String.format(java.util.Locale.ROOT, "%.1f", megabits),
+				netWaitNow, decodeWaitNow, ageMs, sound);
 		}
 	}
 
@@ -580,6 +604,11 @@ public final class LunaTvClient implements ClientModInitializer {
 				live.texture.upload(frame.rgba(), frame.width(), frame.height());
 				live.lastPts = frame.pts();
 				live.shown++;
+
+				// how long the finished picture waited for this draw; summed
+				// here and averaged into the per-second report line
+				live.ageSumNanos += System.nanoTime() - frame.bornNanos();
+				live.ageCount++;
 				frame.free();
 
 				if (!live.announced) {
@@ -614,6 +643,13 @@ public final class LunaTvClient implements ClientModInitializer {
 		private long lastDropped;
 		private long lastBytes;
 		private long lastShown;
+		private long lastNetWait;
+		private long lastDecodeWait;
+
+		/** Decode-to-draw delay, summed on the render thread per report window. */
+		private long ageSumNanos;
+		private long ageCount;
+
 		private boolean announced;
 		private boolean warnedDimension;
 
