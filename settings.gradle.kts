@@ -117,7 +117,9 @@ include("luna-vault-backend-mc26-fabric")
 include("luna-shop-fabric")
 include("luna-shop-mc26-fabric")
 include("luna-hat-fabric")
+include("luna-tv-client-fabric")
 include("luna-hat-mc26-fabric")
+include("luna-tv-client-mc26-fabric")
 
 // Each module lives under its platform's folder, but its gradle project name stays
 // flat and unchanged. That is deliberate: the project name drives `archiveBaseName`

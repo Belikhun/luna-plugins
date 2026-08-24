@@ -95,6 +95,12 @@ public final class ChromiumProcess {
 		// even "--mute-audio=false" silences the browser
 		command.add(url);
 
+		// A live leftover is worse than a stale lock: a browser from a previous
+		// server process still holding this profile makes the new one defer to
+		// it and exit, and the ghost then wins the launch. Whoever holds this
+		// directory dies first; the plugin owns every browser that ever opens it.
+		killHolders(profileDir, null);
+
 		// a force-killed browser leaves Singleton* symlinks behind; a fresh
 		// chromium that trusts them hands its command line to a ghost and exits
 		// without ever opening the CDP port. We own this profile's lifecycle, so
@@ -318,6 +324,70 @@ public final class ChromiumProcess {
 	}
 
 	/** Environment probe used by the diagnostics command. */
+	/**
+	 * Kills every Chromium still attached to a profile under the given path.
+	 *
+	 * A browser outlives a kill -9 of the server: nothing it holds breaks when
+	 * its parent dies (CDP is a socket, not a pipe), so it reparents to init and
+	 * idles there with half a gigabyte of pages - measured at two days before
+	 * anybody noticed. The profile path is the marker that makes the sweep safe:
+	 * every browser this plugin ever starts names its profile on the command
+	 * line, the path belongs to this plugin alone, and at enable time the plugin
+	 * has started none, so every match is a leftover.
+	 *
+	 * The match is boundary-checked rather than a plain contains, because
+	 * "profiles/c1" is a prefix of "profiles/c10" and a sweep that kills a
+	 * neighbouring screen's live browser is a worse bug than the one it fixes.
+	 *
+	 * @param under the profile directory, or the root of all of them
+	 * @param logger where to report what was killed, or null to stay quiet
+	 * @return how many processes were killed
+	 */
+	public static int killHolders(Path under, dev.belikhun.luna.core.api.logging.LunaLogger logger) {
+		String marker = "--user-data-dir=" + under.toAbsolutePath();
+		java.util.List<ProcessHandle> holders = ProcessHandle.allProcesses()
+			.filter(handle -> handle.info().commandLine()
+				.map(line -> holdsProfile(line, marker))
+				.orElse(false))
+			.toList();
+
+		int killed = 0;
+
+		for (ProcessHandle holder : holders) {
+			// children first: a renderer whose browser process just vanished can
+			// linger, and it does not carry the marker itself
+			for (ProcessHandle child : holder.descendants().toList()) {
+				child.destroyForcibly();
+			}
+
+			if (holder.destroyForcibly()) {
+				killed++;
+
+				if (logger != null) {
+					logger.warn("Dọn Chromium mồ côi pid " + holder.pid() + " ("
+						+ holder.info().startInstant().map(Object::toString).orElse("?") + ").");
+				}
+			}
+		}
+
+		return killed;
+	}
+
+	/** Whether a command line names this profile path exactly, not a longer one. */
+	private static boolean holdsProfile(String commandLine, String marker) {
+		int at = commandLine.indexOf(marker);
+
+		if (at < 0) {
+			return false;
+		}
+
+		int after = at + marker.length();
+
+		return after >= commandLine.length()
+			|| commandLine.charAt(after) == ' '
+			|| commandLine.charAt(after) == '/';
+	}
+
 	public static boolean executableUsable(TvConfig config) {
 		Path path = Path.of(config.executable());
 

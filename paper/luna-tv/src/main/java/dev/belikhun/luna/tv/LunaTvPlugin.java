@@ -25,6 +25,8 @@ import dev.belikhun.luna.core.api.gui.GuiManager;
 
 import dev.belikhun.luna.tv.gui.ScreenSettingsGui;
 import dev.belikhun.luna.tv.input.ScrollListener;
+import dev.belikhun.luna.tv.net.ClientLink;
+import dev.belikhun.luna.tv.stream.StreamServer;
 import dev.belikhun.luna.tv.input.MapClickListener;
 import dev.belikhun.luna.tv.input.RedstoneListener;
 import dev.belikhun.luna.tv.input.WandTool;
@@ -55,6 +57,8 @@ public final class LunaTvPlugin extends JavaPlugin {
 	private ViewerTracker viewers;
 	private MapClickListener clicks;
 	private ScrollListener scrolls;
+	private StreamServer stream;
+	private ClientLink clientLink;
 	private WandTool wand;
 	private RedstoneListener redstone;
 	private TouchPanelService panels;
@@ -89,12 +93,57 @@ public final class LunaTvPlugin extends JavaPlugin {
 				+ "'. Màn hình sẽ báo lỗi cho tới khi sửa browser.executable trong config.yml.");
 		}
 
+		// Before any browser of ours exists: whatever holds a luna-tv profile now
+		// survived a previous server process, and each one sits on half a
+		// gigabyte for as long as nobody looks.
+		int strays = ChromiumProcess.killHolders(
+			getDataFolder().toPath().resolve("profiles"), logger);
+
+		if (strays > 0) {
+			logger.audit("Đã dọn " + strays + " Chromium mồ côi từ lần chạy trước.");
+		}
+
 		displays = new DisplayService(logger, config);
 		audio = new AudioService(this, logger, config);
 		screens = new ScreenManager(this, logger, config, displays, audio,
 			new TvScreenStore(this, logger));
 		render = new RenderPump(logger, config, () -> screens.instances());
 		viewers = new ViewerTracker(this, screens, displays, audio);
+
+		stream = new StreamServer(logger.scope("Stream"), config);
+		screens.stream(stream);
+		stream.start();
+
+		stream.limits(
+			name -> screens.find(name).map(i -> screens.effectiveStreamFps(i.screen())).orElse(0),
+			name -> screens.find(name).map(i -> screens.effectiveStreamMegabits(i.screen())).orElse(0));
+		stream.audioTap(name -> audio.pcmSink(name, pcm -> stream.publishAudio(name, pcm)));
+
+		// the stream server is the register of who is hearing a screen directly,
+		// so voice chat asks it before sending the same sound a second time
+		audio.streamingTo(stream::hearing);
+		stream.encoderFactory((name, sink) -> screens.find(name)
+			.map(instance -> new dev.belikhun.luna.tv.stream.H264Encoder(
+				logger.scope("H264"),
+				name,
+				config.ffmpegPath(),
+				stream.vaapiDevice(),
+				instance.browser() == null
+					? instance.screen().pixelWidth()
+					: instance.browser().captureWidth(),
+				instance.browser() == null
+					? instance.screen().pixelHeight()
+					: instance.browser().captureHeight(),
+				// the capture rate, not the stream rate: the browser is throttled
+				// to the higher of the two audiences and every frame it produces
+				// is fed in here, so declaring the lower one would tell the
+				// encoder less time had passed than really had
+				screens.captureFps(instance.screen()),
+				screens.effectiveStreamBitrate(instance.screen()),
+				sink))
+			.orElse(null));
+		clientLink = new ClientLink(this, logger.scope("Client"), screens, stream, config);
+		clientLink.start();
 
 		audio.enable(this::onVoiceChatReady);
 		screens.loadAll();
@@ -123,6 +172,8 @@ public final class LunaTvPlugin extends JavaPlugin {
 
 		// after every listener exists: the index reads what loadAll stored, and
 		// the panels attach their displays
+		viewers.link(clientLink);
+		screens.onChange(() -> clientLink.broadcastScreens());
 		redstone.refresh();
 		panels.start();
 		wand.start();
@@ -138,8 +189,21 @@ public final class LunaTvPlugin extends JavaPlugin {
 		logger.success("LunaTv đã sẵn sàng.");
 	}
 
+	/** The streaming endpoint, for the command that prints its address. */
+	public StreamServer stream() {
+		return stream;
+	}
+
 	@Override
 	public void onDisable() {
+		if (clientLink != null) {
+			clientLink.stop();
+		}
+
+		if (stream != null) {
+			stream.stop();
+		}
+
 		if (panels != null) {
 			panels.shutdown();
 		}
@@ -199,6 +263,8 @@ public final class LunaTvPlugin extends JavaPlugin {
 		render.config(config);
 		clicks.config(config);
 		scrolls.config(config);
+		stream.config(config);
+		clientLink.config(config);
 		TvDebug.enabled(config.debug());
 		panels.config(config);
 	}

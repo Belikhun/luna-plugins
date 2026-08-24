@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"id": "lunatvclient",
+	"version": "${version}",
+	"name": "Luna TV",
+	"description": "Draws Luna TV screens from the server's video stream instead of map items: full colour, full frame rate, and none of it on the game connection. One build serves Minecraft 1.21.10 and 1.21.11.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.belikhun.luna.tv.client.LunaTvClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.17.2",
+		"fabric-api": ">=0.136.0",
+		"minecraft": ">=1.21.10 <26",
+		"java": ">=21"
+	}
+}

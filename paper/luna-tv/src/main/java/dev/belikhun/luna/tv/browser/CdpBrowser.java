@@ -392,8 +392,21 @@ public final class CdpBrowser implements AutoCloseable {
 		new java.util.concurrent.atomic.AtomicInteger();
 
 	private volatile Consumer<Throwable> onDeath;
+
+	/** Receives every frame exactly as Chromium encoded it, or null. */
+	private volatile Consumer<byte[]> jpegSink;
+
+	/**
+	 * Whether anything still needs decoded pixels.
+	 *
+	 * False when the wall has no MapEngine viewer, which is the whole saving of
+	 * the client-mod path: the JPEG is forwarded untouched and the decode, the
+	 * scale, the tone curve and the dither are all skipped.
+	 */
+	private volatile boolean pixelsWanted = true;
 	private volatile boolean closed;
 	private volatile String currentUrl;
+	private volatile int quality;
 	private volatile long minFrameIntervalNanos;
 	private volatile long nextAckAt;
 	private final java.util.concurrent.atomic.AtomicLong dropped = new java.util.concurrent.atomic.AtomicLong();
@@ -434,6 +447,7 @@ public final class CdpBrowser implements AutoCloseable {
 			return thread;
 		});
 		this.currentUrl = url;
+		this.quality = config.quality();
 		this.minFrameIntervalNanos = 1_000_000_000L / Math.max(1, config.fps());
 		this.watchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
 			Thread thread = new Thread(runnable, "LunaTv-Watchdog-" + process.port());
@@ -840,10 +854,36 @@ public final class CdpBrowser implements AutoCloseable {
 		}
 	}
 
+	/**
+	 * Re-encodes at a different JPEG quality from now on.
+	 *
+	 * Chromium only reads the quality when a screencast starts, so this stops and
+	 * starts one. That is not a relaunch: the page keeps playing and keeps its
+	 * state, and the gap is a frame or two.
+	 *
+	 * @param value 1..100
+	 */
+	public void quality(int value) {
+		int wanted = Math.max(1, Math.min(100, value));
+
+		if (wanted == quality || closed) {
+			return;
+		}
+
+		quality = wanted;
+		cdp.send("Page.stopScreencast", Map.of());
+		startScreencast();
+	}
+
+	/** The JPEG quality this browser is encoding at. */
+	public int quality() {
+		return quality;
+	}
+
 	private void startScreencast() {
 		cdp.call("Page.startScreencast", Map.of(
 			"format", "jpeg",
-			"quality", config.quality(),
+			"quality", quality,
 			"maxWidth", captureWidth,
 			"maxHeight", captureHeight,
 			"everyNthFrame", 1
@@ -893,6 +933,24 @@ public final class CdpBrowser implements AutoCloseable {
 		}
 	}
 
+	/**
+	 * Sets the sink that receives raw frames, for the streaming endpoint.
+	 *
+	 * @param sink called on the decode thread with the JPEG bytes, or null
+	 */
+	public void jpegSink(Consumer<byte[]> sink) {
+		this.jpegSink = sink;
+	}
+
+	/**
+	 * Says whether decoded pixels are still needed.
+	 *
+	 * @param wanted false while nothing renders this screen through MapEngine
+	 */
+	public void pixelsWanted(boolean wanted) {
+		this.pixelsWanted = wanted;
+	}
+
 	private void drainPending() {
 		String data = pending.getAndSet(null);
 
@@ -901,7 +959,20 @@ public final class CdpBrowser implements AutoCloseable {
 		}
 
 		try {
-			BufferedImage image = decodeJpeg(Base64.getDecoder().decode(data));
+			byte[] jpeg = Base64.getDecoder().decode(data);
+			Consumer<byte[]> sink = jpegSink;
+
+			if (sink != null) {
+				sink.accept(jpeg);
+			}
+
+			// the expensive half of this method, and pointless when the only
+			// audience is a client mod that wants the JPEG itself
+			if (!pixelsWanted) {
+				return;
+			}
+
+			BufferedImage image = decodeJpeg(jpeg);
 
 			if (image != null) {
 				publish(image);
@@ -1288,6 +1359,72 @@ public final class CdpBrowser implements AutoCloseable {
 	}
 
 	/**
+	 * Presses a mouse button at a point.
+	 *
+	 * Separate from {@link #click} because a client mod knows the real button
+	 * state: it can hold, drag and release exactly as a desktop would, with no
+	 * need to infer a release from activity stopping.
+	 *
+	 * @param x horizontal pixel, wall space
+	 * @param y vertical pixel, wall space
+	 * @param right whether it is the secondary button
+	 */
+	public void pointerDown(int x, int y, boolean right) {
+		String button = right ? "right" : "left";
+
+		cdp.send("Input.dispatchMouseEvent", Map.of(
+			"type", "mouseMoved", "x", pageX(x), "y", pageY(y), "button", "none", "buttons", 0));
+		cdp.send("Input.dispatchMouseEvent", Map.of(
+			"type", "mousePressed", "x", pageX(x), "y", pageY(y),
+			"button", button, "buttons", right ? 2 : 1, "clickCount", 1));
+	}
+
+	/**
+	 * Releases a mouse button at a point.
+	 *
+	 * @param x horizontal pixel, wall space
+	 * @param y vertical pixel, wall space
+	 * @param right whether it is the secondary button
+	 */
+	public void pointerUp(int x, int y, boolean right) {
+		cdp.send("Input.dispatchMouseEvent", Map.of(
+			"type", "mouseReleased", "x", pageX(x), "y", pageY(y),
+			"button", right ? "right" : "left", "buttons", 0, "clickCount", 1));
+	}
+
+	/**
+	 * Moves the pointer, with whatever buttons are held.
+	 *
+	 * @param x horizontal pixel, wall space
+	 * @param y vertical pixel, wall space
+	 * @param buttons CDP's held-button mask: 0 none, 1 left, 2 right
+	 */
+	public void pointerMove(int x, int y, int buttons) {
+		cdp.send("Input.dispatchMouseEvent", Map.of(
+			"type", "mouseMoved", "x", pageX(x), "y", pageY(y),
+			"button", buttons == 2 ? "right" : buttons == 1 ? "left" : "none",
+			"buttons", buttons));
+	}
+
+	/** Width Chromium is asked to capture at; equals the wall width at scale 1. */
+	public int captureWidth() {
+		return captureWidth;
+	}
+
+	/** Height Chromium is asked to capture at. */
+	public int captureHeight() {
+		return captureHeight;
+	}
+
+	private int pageX(int x) {
+		return x * captureWidth / width;
+	}
+
+	private int pageY(int y) {
+		return y * captureHeight / height;
+	}
+
+	/**
 	 * Scrolls at a point.
 	 *
 	 * @param x horizontal pixel, browser space
@@ -1314,20 +1451,68 @@ public final class CdpBrowser implements AutoCloseable {
 	 *
 	 * @param key one of enter, backspace, tab, escape
 	 */
+	/**
+	 * Whether the page has a text field focused right now.
+	 *
+	 * Asked of the page rather than inferred from what was clicked: a site can
+	 * move focus itself, and a click on a label or an icon often lands the caret
+	 * somewhere the click coordinates say nothing about.
+	 *
+	 * @return a future for the answer; false on anything unexpected
+	 */
+	public java.util.concurrent.CompletableFuture<Boolean> editableFocused() {
+		String script = "(function(){var e=document.activeElement;if(!e)return false;"
+			+ "var t=(e.tagName||'').toLowerCase();"
+			+ "if(e.isContentEditable===true)return true;"
+			+ "if(t==='textarea')return true;"
+			+ "if(t!=='input')return false;"
+			+ "var k=(e.type||'text').toLowerCase();"
+			+ "return ['button','checkbox','radio','submit','reset','file','image','range','color']"
+			+ ".indexOf(k)<0;})()";
+
+		return cdp.call("Runtime.evaluate", Map.of(
+				"expression", script, "returnByValue", true))
+			.thenApply(reply -> {
+				JsonObject result = reply.getAsJsonObject("result");
+
+				return result != null && result.has("value")
+					&& result.get("value").getAsBoolean();
+			})
+			.exceptionally(error -> false);
+	}
+
 	public void key(String key) {
+		key(key, 0);
+	}
+
+	/**
+	 * Presses and releases a key, with modifiers held.
+	 *
+	 * @param key a named key, or a single letter or digit
+	 * @param modifiers CDP's own mask: 1 alt, 2 ctrl, 4 meta, 8 shift
+	 */
+	public void key(String key, int modifiers) {
 		KeySpec spec = KeySpec.of(key);
 
 		if (spec == null) {
 			return;
 		}
 
+		// A chord is not typing. Chromium inserts the "text" of a key event
+		// verbatim, so leaving it filled in on ctrl+a puts a letter "a" in the box
+		// and then selects it, which is not what the chord means.
+		boolean chord = (modifiers & (MODIFIER_ALT | MODIFIER_CTRL | MODIFIER_META)) != 0;
+		String text = chord ? "" : spec.text();
+
 		cdp.send("Input.dispatchKeyEvent", Map.of(
-			"type", "keyDown", "key", spec.key(), "code", spec.code(),
+			"type", text.isEmpty() ? "rawKeyDown" : "keyDown",
+			"key", spec.key(), "code", spec.code(),
 			"windowsVirtualKeyCode", spec.code0(), "nativeVirtualKeyCode", spec.code0(),
-			"text", spec.text()));
+			"modifiers", modifiers, "text", text));
 		cdp.send("Input.dispatchKeyEvent", Map.of(
 			"type", "keyUp", "key", spec.key(), "code", spec.code(),
-			"windowsVirtualKeyCode", spec.code0(), "nativeVirtualKeyCode", spec.code0()));
+			"windowsVirtualKeyCode", spec.code0(), "nativeVirtualKeyCode", spec.code0(),
+			"modifiers", modifiers));
 	}
 
 	/**
@@ -1509,12 +1694,47 @@ public final class CdpBrowser implements AutoCloseable {
 	}
 
 	/** The keys the controllers offer, in CDP's own vocabulary. */
+	/** CDP's modifier mask. */
+	private static final int MODIFIER_ALT = 1;
+	private static final int MODIFIER_CTRL = 2;
+	private static final int MODIFIER_META = 4;
+
 	private record KeySpec(String key, String code, int code0, String text) {
+
+		/**
+		 * A letter or a digit, which the named table does not carry.
+		 *
+		 * Needed for chords rather than for typing: an "a" on its own arrives as
+		 * text through the char event, but ctrl+a produces no character at all and
+		 * has to be dispatched as a key.
+		 */
+		static KeySpec single(String name) {
+			if (name.length() != 1) {
+				return null;
+			}
+
+			char letter = Character.toLowerCase(name.charAt(0));
+
+			if (letter >= 'a' && letter <= 'z') {
+				char upper = Character.toUpperCase(letter);
+
+				return new KeySpec(String.valueOf(letter), "Key" + upper, upper,
+					String.valueOf(letter));
+			}
+
+			if (letter >= '0' && letter <= '9') {
+				return new KeySpec(String.valueOf(letter), "Digit" + letter, letter,
+					String.valueOf(letter));
+			}
+
+			return null;
+		}
 
 		static KeySpec of(String name) {
 			return switch (name.toLowerCase(java.util.Locale.ROOT)) {
 				case "enter" -> new KeySpec("Enter", "Enter", 13, "\r");
 				case "backspace" -> new KeySpec("Backspace", "Backspace", 8, "");
+				case "delete" -> new KeySpec("Delete", "Delete", 46, "");
 				case "tab" -> new KeySpec("Tab", "Tab", 9, "\t");
 				case "escape", "esc" -> new KeySpec("Escape", "Escape", 27, "");
 				case "up", "arrowup" -> new KeySpec("ArrowUp", "ArrowUp", 38, "");
@@ -1526,7 +1746,7 @@ public final class CdpBrowser implements AutoCloseable {
 				case "end" -> new KeySpec("End", "End", 35, "");
 				case "pageup" -> new KeySpec("PageUp", "PageUp", 33, "");
 				case "pagedown" -> new KeySpec("PageDown", "PageDown", 34, "");
-				default -> null;
+				default -> single(name);
 			};
 		}
 	}

@@ -1,7 +1,9 @@
 package dev.belikhun.luna.tv.display;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -15,6 +17,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import dev.belikhun.luna.tv.audio.AudioService;
 import dev.belikhun.luna.tv.screen.ScreenInstance;
+import dev.belikhun.luna.tv.net.ClientLink;
 import dev.belikhun.luna.tv.screen.ScreenManager;
 
 /**
@@ -33,11 +36,28 @@ public final class ViewerTracker implements Listener, Runnable {
 
 	private static final long INTERVAL_TICKS = 20L;
 
+	/**
+	 * How long a player must stand in front of a sounding screen before being
+	 * told they cannot hear it.
+	 *
+	 * The mod announces itself a moment after the player joins, and this task
+	 * runs every second, so somebody who logs in facing a screen is not yet known
+	 * to have the mod on the first tick. Speaking then is how a player who can
+	 * hear the screen perfectly well gets told they cannot, once, permanently.
+	 */
+	private static final long NOTICE_GRACE_MS = 5_000L;
+
 	private final JavaPlugin plugin;
 	private final ScreenManager screens;
 	private final DisplayService displays;
 	private final AudioService audio;
+
+	/** Set once the client link exists; null before then. */
+	private volatile ClientLink link;
 	private final Set<UUID> toldAboutVoiceChat = new HashSet<>();
+
+	/** When each player was first seen near a screen with sound and no way to hear it. */
+	private final Map<UUID, Long> silentSince = new HashMap<>();
 
 	private int taskId = -1;
 
@@ -54,6 +74,11 @@ public final class ViewerTracker implements Listener, Runnable {
 	}
 
 	/** Starts the proximity task. */
+	/** Gives the tracker the link that knows who has the mod. */
+	public void link(ClientLink link) {
+		this.link = link;
+	}
+
 	public void start() {
 		taskId = plugin.getServer().getScheduler()
 			.scheduleSyncRepeatingTask(plugin, this, INTERVAL_TICKS, INTERVAL_TICKS);
@@ -85,6 +110,15 @@ public final class ViewerTracker implements Listener, Runnable {
 		Set<UUID> wanted = new HashSet<>();
 
 		for (Player player : near) {
+			ClientLink client = link;
+
+			// the mod renders this screen from the stream, so the maps would be a
+			// second copy of the same wall drawn on top of it - and the sound
+			// arrives on that stream too, so there is nothing to warn them about
+			if (client != null && client.handled(player.getUniqueId())) {
+				continue;
+			}
+
 			wanted.add(player.getUniqueId());
 
 			if (!instance.viewers().contains(player.getUniqueId())) {
@@ -114,13 +148,32 @@ public final class ViewerTracker implements Listener, Runnable {
 	}
 
 	private void maybeMentionVoiceChat(Player player) {
-		if (audio.canHear(player) || toldAboutVoiceChat.contains(player.getUniqueId())) {
+		UUID id = player.getUniqueId();
+
+		if (toldAboutVoiceChat.contains(id)) {
 			return;
 		}
 
-		toldAboutVoiceChat.add(player.getUniqueId());
-		player.sendRichMessage("<gray>ℹ Màn hình này có tiếng, nhưng bạn cần mod "
-			+ "<white>Simple Voice Chat</white> để nghe được.</gray>");
+		ClientLink client = link;
+
+		// belt and braces: the caller already skips players the mod renders for,
+		// but this is the one thing here that cannot be taken back once said
+		if (audio.canHear(player) || (client != null && client.handled(id))) {
+			silentSince.remove(id);
+
+			return;
+		}
+
+		long first = silentSince.computeIfAbsent(id, unused -> System.currentTimeMillis());
+
+		if (System.currentTimeMillis() - first < NOTICE_GRACE_MS) {
+			return;
+		}
+
+		toldAboutVoiceChat.add(id);
+		silentSince.remove(id);
+		player.sendRichMessage("<gray>ℹ Màn hình này có tiếng. Cần mod "
+			+ "<white>Luna TV</white> hoặc <white>Simple Voice Chat</white> để nghe được.</gray>");
 	}
 
 	@EventHandler
@@ -128,6 +181,13 @@ public final class ViewerTracker implements Listener, Runnable {
 		UUID id = event.getPlayer().getUniqueId();
 
 		toldAboutVoiceChat.remove(id);
+		silentSince.remove(id);
+
+		ClientLink client = link;
+
+		if (client != null) {
+			client.forget(id);
+		}
 
 		// a full hide, not just the viewer set: the receiver set holds the Player
 		// object itself, and one left behind here is a dead connection that still

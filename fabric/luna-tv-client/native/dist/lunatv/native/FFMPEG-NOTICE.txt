@@ -1,0 +1,18 @@
+This mod ships a copy of FFmpeg, used only to decode the H.264 video stream a
+Luna TV screen sends. It is spawned as a separate process; nothing in the mod
+links against it.
+
+  Version:  8.1.2
+  Licence:  LGPL version 2.1 or later (built with --disable-gpl, so no GPL
+            components are present)
+  Source:   https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+            sha256 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+
+The build is unmodified upstream source configured down to a single decoder,
+plus the Direct3D 11 and DirectX 9 hardware decode paths, which are Windows
+system APIs and pull in no vendor libraries.
+The exact configure line is in the mod's repository at
+fabric/luna-tv-client/native/build-ffmpeg.sh, and re-running that script on the
+same source reproduces the shipped binary.
+
+The full licence text is beside this file, in FFMPEG-COPYING.LGPLv2.1.txt.

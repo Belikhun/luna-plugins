@@ -89,9 +89,9 @@ public final class ScreenSettingsGui {
 		}
 
 		TvScreen screen = instance.screen();
-		GuiView view = new GuiView(27, LunaUi.guiTitleBreadcrumb("Luna TV", screen.name()));
+		GuiView view = new GuiView(54, LunaUi.guiTitleBreadcrumb("Luna TV", screen.name()));
 
-		view.setItem(4, LunaUi.item(Material.FILLED_MAP,
+		view.setItem(0, LunaUi.item(Material.FILLED_MAP,
 			"<white><b>" + MiniText.escape(screen.name()) + "</b></white>",
 			List.of(
 				LunaUi.mini("<gray>Kích thước: " + screen.mapsWide() + "×" + screen.mapsHigh()
@@ -101,7 +101,7 @@ public final class ScreenSettingsGui {
 
 		boolean powered = instance.powered();
 
-		view.setItem(3, LunaUi.item(powered ? Material.REDSTONE_TORCH : Material.LEVER,
+		view.setItem(4, LunaUi.item(powered ? Material.REDSTONE_TORCH : Material.LEVER,
 			powered ? "<green>Nguồn: đang bật</green>" : "<red>Nguồn: đã tắt</red>",
 			List.of(LunaUi.mini(powered
 				? "<gray>Bấm để tắt: đóng trình duyệt, màn hình đen</gray>"
@@ -135,7 +135,7 @@ public final class ScreenSettingsGui {
 
 		boolean audioOn = screen.audio();
 
-		view.setItem(12, LunaUi.item(audioOn ? Material.NOTE_BLOCK : Material.BARRIER,
+		view.setItem(37, LunaUi.item(audioOn ? Material.NOTE_BLOCK : Material.BARRIER,
 			audioOn ? "<green>Âm thanh: đang phát</green>" : "<red>Âm thanh: tắt</red>",
 			List.of(LunaUi.mini("<gray>Bấm để " + (audioOn ? "tắt" : "bật")
 				+ " phát tiếng vào voice chat</gray>"))),
@@ -151,7 +151,7 @@ public final class ScreenSettingsGui {
 
 		boolean stereoOn = screen.stereo();
 
-		view.setItem(17, LunaUi.item(stereoOn ? Material.JUKEBOX : Material.NOTE_BLOCK,
+		view.setItem(39, LunaUi.item(stereoOn ? Material.JUKEBOX : Material.NOTE_BLOCK,
 			stereoOn ? "<green>Âm thanh: stereo</green>" : "<gray>Âm thanh: mono</gray>",
 			List.of(
 				LunaUi.mini("<gray>Stereo dùng hai kênh đặt ở hai mép màn hình,</gray>"),
@@ -164,7 +164,7 @@ public final class ScreenSettingsGui {
 
 		boolean scrollOn = screen.scroll();
 
-		view.setItem(26, LunaUi.item(scrollOn ? Material.LEAD : Material.STRING,
+		view.setItem(41, LunaUi.item(scrollOn ? Material.LEAD : Material.STRING,
 			scrollOn ? "<green>Shift + lăn: cuộn trang</green>" : "<gray>Lăn chuột: đổi ô đồ</gray>",
 			List.of(
 				LunaUi.mini("<gray>Bật: giữ Shift, nhìn vào màn hình rồi lăn chuột</gray>"),
@@ -177,7 +177,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(18, LunaUi.item(Material.BUCKET,
+		view.setItem(12, LunaUi.item(Material.BUCKET,
 			"<aqua>Xoá dữ liệu duyệt web</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Bấm trái: xoá cookie, cache và bộ nhớ trang.</gray>"),
@@ -197,7 +197,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(13, LunaUi.item(Material.REPEATER,
+		view.setItem(38, LunaUi.item(Material.REPEATER,
 			"<aqua>Âm lượng: " + screen.volume() + "%</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Bấm trái: +10 · bấm phải: −10</gray>"))),
@@ -208,9 +208,33 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
+		int range = screens.effectiveAudioRange(screen);
+
+		view.setItem(40, LunaUi.item(Material.BELL,
+			"<aqua>Bán kính nghe: " + range + " block"
+				+ (screen.audioRange() == 0 ? " (chung)" : "") + "</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Đứng ngoài bán kính này thì không nghe thấy gì.</gray>"),
+				LunaUi.mini("<gray>Áp cho cả voice chat lẫn mod client, nên tiếng</gray>"),
+				LunaUi.mini("<gray>tắt hẳn ở cùng một khoảng cách với mọi người.</gray>"),
+				LunaUi.mini("<yellow>Bấm trái: +8 · bấm phải: −8 · Shift+phải: theo config</yellow>"))),
+			(clicker, click, view0) -> {
+				if (click.isRightClick() && click.isShiftClick()) {
+					screens.audioRange(instance, 0);
+					open(clicker, instance);
+
+					return;
+				}
+
+				int step = click.isRightClick() ? -8 : 8;
+
+				screens.audioRange(instance, Math.max(8, Math.min(256, range + step)));
+				open(clicker, instance);
+			});
+
 		boolean locked = screen.locked();
 
-		view.setItem(14, LunaUi.item(locked ? Material.IRON_DOOR : Material.OAK_DOOR,
+		view.setItem(42, LunaUi.item(locked ? Material.IRON_DOOR : Material.OAK_DOOR,
 			locked ? "<red>Đang khoá</red>" : "<green>Đang mở</green>",
 			List.of(LunaUi.mini("<gray>Khoá thì chỉ người có quyền mới bấm được màn hình</gray>"))),
 			(clicker, click, view0) -> {
@@ -218,7 +242,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(15, LunaUi.item(Material.SPYGLASS,
+		view.setItem(19, LunaUi.item(Material.SPYGLASS,
 			"<aqua>Độ phân giải: 1/" + screen.scale() + "</aqua>",
 			List.of(
 				LunaUi.mini("<gray>1 = nét nhất, 2-4 = nhẹ máy hơn</gray>"),
@@ -233,7 +257,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(16, LunaUi.item(Material.ENDER_EYE,
+		view.setItem(14, LunaUi.item(Material.ENDER_EYE,
 			"<aqua>Gửi lại hình</aqua>",
 			List.of(LunaUi.mini("<gray>Vẽ lại màn hình cho mọi người xem</gray>"))),
 			(clicker, click, view0) -> {
@@ -246,7 +270,7 @@ public final class ScreenSettingsGui {
 			? "theo chung (" + screens.effectiveFps(screen) + ")"
 			: ownFps + " fps";
 
-		view.setItem(19, LunaUi.item(Material.COMPARATOR,
+		view.setItem(23, LunaUi.item(Material.COMPARATOR,
 			"<aqua>FPS: " + fpsLabel + "</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Cao hơn = mượt hơn, tốn CPU và mạng hơn</gray>"),
@@ -270,7 +294,7 @@ public final class ScreenSettingsGui {
 			? "theo chung (" + screens.effectiveMegabits(screen) + " Mbit)"
 			: ownMegabits + " Mbit";
 
-		view.setItem(20, LunaUi.item(Material.HOPPER,
+		view.setItem(24, LunaUi.item(Material.HOPPER,
 			"<aqua>Băng thông: " + bandwidthLabel + "</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Trần dữ liệu hình gửi tới mỗi người xem</gray>"),
@@ -290,7 +314,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(23, LunaUi.item(Material.GLOWSTONE_DUST,
+		view.setItem(20, LunaUi.item(Material.GLOWSTONE_DUST,
 			"<aqua>Độ sáng: " + screen.brightness() + "%</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Bảng màu bản đồ rất hẹp, cảnh tối mất hết chi tiết;</gray>"),
@@ -303,6 +327,42 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
+		view.setItem(22, LunaUi.item(Material.GLOW_INK_SAC,
+			"<aqua>Phát sáng: " + (screen.glow() == 0 ? "tắt" : screen.glow() + "%") + "</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Chỉ người chơi dùng mod client thấy được.</gray>"),
+				LunaUi.mini("<gray>Bù lại quầng sáng mà tường bản đồ có sẵn,</gray>"),
+				LunaUi.mini("<gray>vì luồng hình không đi qua bộ vẽ của Minecraft.</gray>"),
+				LunaUi.mini("<yellow>Bấm trái: +20% · bấm phải: −20%</yellow>"))),
+			(clicker, click, view0) -> {
+				int step = click.isRightClick() ? -20 : 20;
+
+				screens.glow(instance, screen.glow() + step);
+				open(clicker, instance);
+			});
+
+		view.setItem(32, LunaUi.item(Material.SPYGLASS,
+			"<aqua>Chất lượng JPEG: " + screens.effectiveQuality(screen) + "%"
+				+ (screen.quality() == 0 ? " (chung)" : "") + "</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Mod client xem thẳng khung JPEG này, nên ở đó</gray>"),
+				LunaUi.mini("<gray>thấy rõ; tường bản đồ thì gần như không đổi.</gray>"),
+				LunaUi.mini("<gray>Càng cao càng tốn băng thông cho người xem luồng.</gray>"),
+				LunaUi.mini("<yellow>Bấm trái: +5% · bấm phải: −5% · Shift+phải: theo chung</yellow>"))),
+			(clicker, click, view0) -> {
+				if (click.isRightClick() && click.isShiftClick()) {
+					screens.quality(instance, 0);
+					open(clicker, instance);
+
+					return;
+				}
+
+				int base = screens.effectiveQuality(screen);
+
+				screens.quality(instance, base + (click.isRightClick() ? -5 : 5));
+				open(clicker, instance);
+			});
+
 		String dither = screen.converter();
 		Material ditherIcon = switch (dither) {
 			case "" -> Material.GRAY_DYE;
@@ -311,7 +371,7 @@ public final class ScreenSettingsGui {
 			default -> Material.CYAN_DYE;
 		};
 
-		view.setItem(24, LunaUi.item(ditherIcon,
+		view.setItem(21, LunaUi.item(ditherIcon,
 			"<aqua>Tán màu: " + screens.converterLabel(screen) + "</aqua>",
 			List.of(
 				LunaUi.mini("<gray>Tắt: lấy màu gần nhất, chữ và mảng phẳng sạch.</gray>"),
@@ -348,7 +408,7 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
-		view.setItem(21, LunaUi.item(Material.ENDER_PEARL,
+		view.setItem(16, LunaUi.item(Material.ENDER_PEARL,
 			"<aqua>Dịch chuyển tới màn hình</aqua>", List.of()),
 			(clicker, click, view0) -> {
 				Location center = screens.center(instance);
@@ -358,11 +418,62 @@ public final class ScreenSettingsGui {
 				}
 			});
 
-		view.setItem(22, LunaUi.item(Material.ARROW,
+		int streamFps = screens.effectiveStreamFps(screen);
+
+		view.setItem(29, LunaUi.item(Material.RECOVERY_COMPASS,
+			"<aqua>FPS luồng (mod): " + streamFps + "</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Chỉ áp cho người chơi dùng mod client;</gray>"),
+				LunaUi.mini("<gray>đường bản đồ có FPS riêng ở ô bên trên.</gray>"),
+				LunaUi.mini("<gray>Đang dùng: " + (screen.streamFps() == 0
+					? "theo config" : "riêng màn hình này") + "</gray>"),
+				LunaUi.mini("<yellow>Bấm trái: +5 · bấm phải: −5 · Shift: theo config</yellow>"))),
+			(clicker, click, view0) -> {
+				int next = click.isShiftClick()
+					? 0
+					: Math.max(5, Math.min(60, streamFps + (click.isRightClick() ? -5 : 5)));
+
+				screens.streamFps(instance, next);
+				open(clicker, instance);
+			});
+
+		int streamLimit = screens.effectiveStreamMegabits(screen);
+
+		view.setItem(30, LunaUi.item(Material.IRON_BARS,
+			"<aqua>Băng thông luồng: " + (streamLimit == 0
+				? "không giới hạn" : streamLimit + " Mbit/s") + "</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Trần cho MỖI người xem qua mod client.</gray>"),
+				LunaUi.mini("<gray>Khung hình vượt trần bị bỏ, không xếp hàng,</gray>"),
+				LunaUi.mini("<gray>nên một người mạng yếu không làm chậm người khác.</gray>"),
+				LunaUi.mini("<yellow>Bấm trái: +5 · bấm phải: −5 · Shift: bỏ giới hạn</yellow>"))),
+			(clicker, click, view0) -> {
+				int next = click.isShiftClick()
+					? 0
+					: Math.max(0, Math.min(1000, streamLimit + (click.isRightClick() ? -5 : 5)));
+
+				screens.streamMegabits(instance, next);
+				open(clicker, instance);
+			});
+
+		view.setItem(31, LunaUi.item(Material.ITEM_FRAME,
+			"<aqua>Độ phân giải luồng</aqua>",
+			List.of(
+				LunaUi.mini("<gray>Lưới bản đồ: <white>" + screen.pixelWidth()
+					+ "×" + screen.pixelHeight() + "</white></gray>"),
+				LunaUi.mini(instance.browser() == null
+					? "<gray>Chưa có trình duyệt</gray>"
+					: (instance.browser().captureWidth() == screen.pixelWidth()
+						&& instance.browser().captureHeight() == screen.pixelHeight()
+						? "<green>Khung hình đúng 1:1 với lưới bản đồ</green>"
+						: "<yellow>Khung hình " + instance.browser().captureWidth() + "×"
+							+ instance.browser().captureHeight() + ", client sẽ phóng to</yellow>")))));
+
+		view.setItem(45, LunaUi.item(Material.ARROW,
 			"<gray>Về danh sách</gray>", List.of()),
 			(clicker, click, view0) -> openList(clicker));
 
-		view.setItem(25, LunaUi.item(Material.TNT,
+		view.setItem(53, LunaUi.item(Material.TNT,
 			"<red>Xoá màn hình</red>",
 			List.of(LunaUi.mini("<gray>Giữ Shift và bấm để xác nhận</gray>"))),
 			(clicker, click, view0) -> {

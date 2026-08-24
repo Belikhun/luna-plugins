@@ -34,6 +34,17 @@ public final class TvConfig {
 	private final String orderedPattern;
 	private final int audioBitrate;
 	private final int scrollStep;
+	private final boolean streamEnabled;
+	private final String streamHost;
+	private final int streamPort;
+	private final String streamPublicUrl;
+	private final int streamMaxViewers;
+	private final int streamFps;
+	private final int streamMegabits;
+	private final String streamCodec;
+	private final int streamBitrate;
+	private final String ffmpegPath;
+	private final String vaapiDevice;
 	private final boolean invertScroll;
 	private final double spawnDistance;
 	private final double interactDistance;
@@ -59,7 +70,7 @@ public final class TvConfig {
 		this.bundling = store.get("render.bundling").asBoolean(false);
 		this.captureScale = clamp(store.get("render.capture-scale").asInt(1), 1, 4);
 		this.brightness = clamp(store.get("render.brightness").asInt(100), 50, 200);
-		this.quality = clamp(store.get("render.quality").asInt(60), 1, 100);
+		this.quality = clamp(store.get("render.quality").asInt(85), 1, 100);
 		this.converter = store.get("render.converter").asString("ORDERED");
 		this.orderedPattern = normalizePattern(store.get("render.ordered-pattern").asString("a4"));
 		this.audioBitrate = Math.max(0, Math.min(HighQualityEncoder.MAX_BITRATE,
@@ -67,6 +78,28 @@ public final class TvConfig {
 		this.scrollStep = Math.max(20, Math.min(1_000,
 			store.get("input.scroll-step").asInt(120)));
 		this.invertScroll = store.get("input.invert-scroll").asBoolean(false);
+		this.streamEnabled = store.get("stream.enabled").asBoolean(true);
+		this.streamHost = store.get("stream.host").asString("0.0.0.0");
+		this.streamPort = Math.max(1, Math.min(65535, store.get("stream.port").asInt(8340)));
+		this.streamPublicUrl = store.get("stream.public-url").asString("");
+		this.streamMaxViewers = Math.max(1, Math.min(128, store.get("stream.max-viewers").asInt(16)));
+		this.streamFps = Math.max(1, Math.min(60, store.get("stream.fps").asInt(30)));
+		this.streamMegabits = Math.max(0, Math.min(1000, store.get("stream.max-megabits").asInt(25)));
+		this.streamCodec = "mjpeg".equalsIgnoreCase(store.get("stream.codec").asString("h264"))
+			? "mjpeg"
+			: "h264";
+		this.streamBitrate = Math.max(200, Math.min(60_000, store.get("stream.bitrate").asInt(6000)));
+		this.ffmpegPath = store.get("stream.ffmpeg").asString("ffmpeg");
+
+		String vaapi = store.get("stream.vaapi").asString("auto").trim();
+
+		if (vaapi.equalsIgnoreCase("off")) {
+			this.vaapiDevice = null;
+		} else if (vaapi.isEmpty() || vaapi.equalsIgnoreCase("auto")) {
+			this.vaapiDevice = "/dev/dri/renderD128";
+		} else {
+			this.vaapiDevice = vaapi;
+		}
 		this.spawnDistance = store.get("render.spawn-distance").asDouble(48.0);
 		this.interactDistance = store.get("render.interact-distance").asDouble(6.0);
 
@@ -202,6 +235,82 @@ public final class TvConfig {
 	 */
 	public int scrollStep() {
 		return scrollStep;
+	}
+
+	/** Whether the client-mod streaming endpoint is served at all. */
+	public boolean streamEnabled() {
+		return streamEnabled;
+	}
+
+	public String streamHost() {
+		return streamHost;
+	}
+
+	public int streamPort() {
+		return streamPort;
+	}
+
+	/**
+	 * The address clients are told to fetch from.
+	 *
+	 * Separate from the bind address because the two are rarely the same: the
+	 * server binds a LAN interface, players reach it through a hostname, and
+	 * usually through a reverse proxy that terminates TLS.
+	 */
+	public String streamPublicUrl() {
+		return streamPublicUrl;
+	}
+
+	public int streamMaxViewers() {
+		return streamMaxViewers;
+	}
+
+	/**
+	 * Frame rate for the client-mod stream, independent of the map path.
+	 *
+	 * The two audiences have nothing in common: a map wall is limited by how
+	 * much palette data fits down a game connection, while a stream is limited
+	 * by an ordinary HTTP socket, so tying them to one number would drag the
+	 * good path down to the constrained one.
+	 */
+	public int streamFps() {
+		return streamFps;
+	}
+
+	/** Ceiling for one stream viewer in megabits per second; 0 is unlimited. */
+	/**
+	 * Which codec the client stream carries: "h264" or "mjpeg".
+	 *
+	 * H.264 unless a server has no ffmpeg, because MJPEG sends a whole picture
+	 * every frame and that is what a viewer's link cannot carry.
+	 */
+	public String streamCodec() {
+		return streamCodec;
+	}
+
+	/** H.264 bitrate ceiling in kbit/s; a screen's own stream-megabits wins. */
+	public int streamBitrate() {
+		return streamBitrate;
+	}
+
+	/** The ffmpeg the encoder is spawned from. */
+	public String ffmpegPath() {
+		return ffmpegPath;
+	}
+
+	/**
+	 * The GPU render node the encoder may use, or null when turned off.
+	 *
+	 * The device being named does not mean it works: the server probes it with
+	 * a real encode at startup and falls back to software when the probe fails,
+	 * so a machine without the silicon just pays one failed process at boot.
+	 */
+	public String vaapiDevice() {
+		return vaapiDevice;
+	}
+
+	public int streamMegabits() {
+		return streamMegabits;
 	}
 
 	/** Flips wheel direction, for a client whose wheel is set up the other way. */

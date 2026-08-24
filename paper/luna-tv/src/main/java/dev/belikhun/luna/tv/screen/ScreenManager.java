@@ -28,6 +28,8 @@ import dev.belikhun.luna.tv.TvConfig;
 import dev.belikhun.luna.tv.audio.AudioService;
 import dev.belikhun.luna.tv.browser.CdpBrowser;
 import dev.belikhun.luna.tv.display.DisplayService;
+import dev.belikhun.luna.tv.display.LightHalo;
+import dev.belikhun.luna.tv.stream.StreamServer;
 
 /**
  * The screens, and everything that has to happen in step across them.
@@ -63,11 +65,31 @@ public final class ScreenManager {
 	private final JavaPlugin plugin;
 	private final LunaLogger logger;
 	private final DisplayService displays;
+	private final LightHalo lights;
 	private final AudioService audio;
 	private final TvScreenStore store;
 	private final Map<String, ScreenInstance> instances = new LinkedHashMap<>();
 
+	/**
+	 * The screen list as other threads see it.
+	 *
+	 * The map itself is only ever touched from the main thread, but the render
+	 * thread and MapEngine's network threads read the list constantly, and a
+	 * plain HashMap read across threads has no visibility guarantee at all.
+	 * Screens loaded at boot happened to work anyway - Thread.start() publishes
+	 * everything written before it - so only screens created *later* were
+	 * invisible, which is why a new screen showed blank maps forever while the
+	 * ones restored on startup were fine.
+	 *
+	 * Republished on every change instead of locking: reads are constant and
+	 * lock-free, writes are rare and on one thread, and insertion order (which
+	 * a ConcurrentHashMap would lose) still decides what the list shows.
+	 */
+	private volatile List<ScreenInstance> snapshot = List.of();
+
 	private volatile TvConfig config;
+	private volatile StreamServer stream;
+	private volatile Runnable onChange;
 
 	public ScreenManager(
 		JavaPlugin plugin,
@@ -81,8 +103,14 @@ public final class ScreenManager {
 		this.logger = logger;
 		this.config = config;
 		this.displays = displays;
+		this.lights = new LightHalo(plugin, logger);
 		this.audio = audio;
 		this.store = store;
+	}
+
+	/** Gives the manager the endpoint that new browsers should feed. */
+	public void stream(StreamServer stream) {
+		this.stream = stream;
 	}
 
 	public void config(TvConfig config) {
@@ -94,16 +122,24 @@ public final class ScreenManager {
 			CdpBrowser browser = instance.browser();
 
 			if (browser != null) {
-				browser.displayRate(effectiveFps(instance.screen()));
+				browser.quality(effectiveQuality(instance.screen()));
+		browser.displayRate(captureFps(instance.screen()));
 			}
 
 			displays.applyRenderSettings(instance);
 		}
 	}
 
-	/** Live view of the screens, read by the render thread. */
+	/**
+	 * Rebuilds the cross-thread view. Must follow every change to the map.
+	 */
+	private void republish() {
+		snapshot = List.copyOf(instances.values());
+	}
+
+	/** Live view of the screens, safe to read from any thread. */
 	public Collection<ScreenInstance> instances() {
-		return new ArrayList<>(instances.values());
+		return snapshot;
 	}
 
 	/**
@@ -113,7 +149,7 @@ public final class ScreenManager {
 	 * @return the instance, or empty
 	 */
 	public Optional<ScreenInstance> find(String name) {
-		for (ScreenInstance instance : instances.values()) {
+		for (ScreenInstance instance : snapshot) {
 			if (instance.name().equalsIgnoreCase(name)) {
 				return Optional.of(instance);
 			}
@@ -129,7 +165,8 @@ public final class ScreenManager {
 	 * @return the instance, or empty when the display is not ours
 	 */
 	public Optional<ScreenInstance> byDisplay(IMapDisplay display) {
-		for (ScreenInstance instance : instances.values()) {
+		// MapEngine delivers its click event on a network thread
+		for (ScreenInstance instance : snapshot) {
 			if (instance.display() == display) {
 				return Optional.of(instance);
 			}
@@ -138,9 +175,26 @@ public final class ScreenManager {
 		return Optional.empty();
 	}
 
+	/**
+	 * Takes every screen's maps back from one player.
+	 *
+	 * Used when a player turns out to have the client mod: they render the
+	 * screens themselves from the stream, and leaving the map display spawned
+	 * would draw the same wall twice.
+	 *
+	 * @param player the player to despawn from
+	 */
+	public void hideFrom(Player player) {
+		for (ScreenInstance instance : snapshot) {
+			if (instance.viewers().remove(player.getUniqueId()) && instance.display() != null) {
+				displays.hide(instance, player);
+			}
+		}
+	}
+
 	/** Names of every screen, for tab completion. */
 	public List<String> names() {
-		return instances.values().stream().map(ScreenInstance::name).toList();
+		return snapshot.stream().map(ScreenInstance::name).toList();
 	}
 
 	/** Brings every remembered screen up. Called once, after enable. */
@@ -149,6 +203,7 @@ public final class ScreenManager {
 			ScreenInstance instance = new ScreenInstance(screen);
 
 			instances.put(key(screen.name()), instance);
+			republish();
 			bring(instance);
 		}
 
@@ -195,8 +250,8 @@ public final class ScreenManager {
 		}
 
 		TvScreen screen = new TvScreen(name, world.getName(), cornerA, cornerB, facing,
-			url, 100, false, false, config.captureScale(), 0, 0, config.brightness(), "", "", true, true,
-			creator, System.currentTimeMillis());
+			url, 100, false, false, config.captureScale(), 0, 0, config.brightness(), 60, 0, "", "", true, true, 0, 0,
+			0, creator, System.currentTimeMillis());
 
 		int maps = screen.mapsWide() * screen.mapsHigh();
 
@@ -218,9 +273,11 @@ public final class ScreenManager {
 		// leaves screens off
 		instance.powered(true);
 		instances.put(key(name), instance);
+		republish();
 
 		if (!bring(instance)) {
 			instances.remove(key(name));
+			republish();
 
 			return Outcome.failed("Không tạo được màn hình trên thế giới '" + world.getName() + "'.");
 		}
@@ -238,14 +295,14 @@ public final class ScreenManager {
 	 */
 	private boolean bring(ScreenInstance instance) {
 		if (!displays.attach(instance)) {
-			instance.state(ScreenState.SUSPENDED);
+			state(instance, ScreenState.SUSPENDED);
 
 			return false;
 		}
 
 		// an unpowered screen gets its maps and a black wall, nothing else
 		if (!instance.powered()) {
-			instance.state(ScreenState.OFF);
+			state(instance, ScreenState.OFF);
 			instance.placeholderStale();
 
 			return true;
@@ -288,7 +345,7 @@ public final class ScreenManager {
 
 		audio.stop(instance.name());
 		closeBrowser(instance);
-		instance.state(ScreenState.OFF);
+		state(instance, ScreenState.OFF);
 		instance.placeholderStale();
 		instance.requestRedraw();
 
@@ -314,7 +371,7 @@ public final class ScreenManager {
 			return;
 		}
 
-		instance.state(ScreenState.STARTING);
+		state(instance, ScreenState.STARTING);
 		instance.placeholderStale();
 
 		String url = screen.url() == null || screen.url().isBlank() ? config.homepage() : screen.url();
@@ -361,7 +418,7 @@ public final class ScreenManager {
 		// powered off while Chromium was still starting: the browser is not wanted
 		if (!instance.powered()) {
 			browser.close();
-			instance.state(ScreenState.OFF);
+			state(instance, ScreenState.OFF);
 			instance.placeholderStale();
 
 			return;
@@ -374,8 +431,16 @@ public final class ScreenManager {
 			return;
 		}
 
+		StreamServer endpoint = stream;
+
+		if (endpoint != null) {
+			String name = instance.name();
+
+			browser.jpegSink(jpeg -> endpoint.publish(name, jpeg));
+		}
+
 		instance.browser(browser);
-		instance.state(ScreenState.RUNNING);
+		state(instance, ScreenState.RUNNING);
 		instance.failure(null);
 		instance.relaunchSettled();
 
@@ -383,14 +448,15 @@ public final class ScreenManager {
 			startAudio(instance, sink);
 		}
 
-		browser.displayRate(effectiveFps(instance.screen()));
+		browser.quality(effectiveQuality(instance.screen()));
+		browser.displayRate(captureFps(instance.screen()));
 		logger.info("Màn hình '" + instance.name() + "' đã chạy (pid " + browser.pid()
 			+ ", cổng " + browser.debugPort() + ").");
 	}
 
 	private void onLaunchFailed(ScreenInstance instance, Throwable throwable) {
 		instance.releaseLaunch();
-		instance.state(ScreenState.CRASHED);
+		state(instance, ScreenState.CRASHED);
 		instance.failure(String.valueOf(throwable.getMessage()));
 		instance.placeholderStale();
 
@@ -414,7 +480,7 @@ public final class ScreenManager {
 		closeBrowser(instance);
 		audio.stop(instance.name());
 
-		instance.state(ScreenState.CRASHED);
+		state(instance, ScreenState.CRASHED);
 		instance.failure(String.valueOf(throwable.getMessage()));
 		instance.placeholderStale();
 
@@ -463,11 +529,13 @@ public final class ScreenManager {
 		ScreenInstance instance = found.get();
 
 		instances.remove(key(instance.name()));
+		republish();
 
 		// Each teardown step is isolated, and the display goes first. They used to
 		// run in sequence with the browser first: one throw there (a JPEG reader
 		// disposed off its owning thread) skipped the despawn entirely and left
 		// map frames on every viewer's client that nothing owned any more.
+		step(instance, "đèn", () -> lights.clear(instance));
 		step(instance, "âm thanh", () -> audio.remove(instance.name()));
 		step(instance, "hiển thị", () -> displays.detach(instance));
 		step(instance, "trình duyệt", () -> closeBrowser(instance));
@@ -528,6 +596,9 @@ public final class ScreenManager {
 	 * @param url the address to open
 	 */
 	public void navigate(ScreenInstance instance, String url) {
+		// whatever the old page had focused is gone with it
+		keyboardFocus(instance, false);
+
 		instance.screen().url(url);
 		persist();
 
@@ -554,7 +625,7 @@ public final class ScreenManager {
 			return Outcome.ok();
 		}
 
-		String reason = audio.unavailableReason();
+		String reason = audio.captureUnavailableReason();
 
 		if (reason != null) {
 			return Outcome.failed(reason);
@@ -581,13 +652,44 @@ public final class ScreenManager {
 			return false;
 		}
 
+		int range = effectiveAudioRange(instance.screen());
+
 		if (!instance.screen().stereo()) {
-			return audio.start(instance.name(), sink, at, null, instance.screen().volume());
+			return audio.start(instance.name(), sink, at, null, instance.screen().volume(), range);
 		}
 
 		Location[] speakers = speakers(instance, at);
 
-		return audio.start(instance.name(), sink, speakers[0], speakers[1], instance.screen().volume());
+		return audio.start(instance.name(), sink,
+			speakers[0], speakers[1], instance.screen().volume(), range);
+	}
+
+	/**
+	 * How far a screen can be heard from.
+	 *
+	 * @param screen the screen
+	 * @return its own radius when set, else audio.distance
+	 */
+	public int effectiveAudioRange(TvScreen screen) {
+		return screen.audioRange() > 0
+			? screen.audioRange()
+			: Math.round(config.audioDistance());
+	}
+
+	/**
+	 * Changes how far a screen can be heard from, live.
+	 *
+	 * Both audiences move together: the voice-chat channels are re-ranged in
+	 * place, and persist() hands the new radius to every mod client, which fades
+	 * its own sources over exactly the same number.
+	 *
+	 * @param instance the screen
+	 * @param blocks the radius in blocks, 0 to follow audio.distance
+	 */
+	public void audioRange(ScreenInstance instance, int blocks) {
+		instance.screen().audioRange(blocks);
+		audio.distance(instance.name(), effectiveAudioRange(instance.screen()));
+		persist();
 	}
 
 	/**
@@ -745,6 +847,87 @@ public final class ScreenManager {
 	 * @param scale the divisor, clamped to 1..4
 	 */
 	/** The rate a screen actually runs at: its own fps, or the global default. */
+	/**
+	 * How fast Chromium is asked to produce frames for a screen.
+	 *
+	 * The higher of the two audiences' rates: the map wall and the client
+	 * stream are paced separately downstream, but the browser is shared, so
+	 * capturing at the lower of the two would cap the faster path.
+	 *
+	 * @param screen the screen
+	 * @return frames per second to capture at
+	 */
+	public int captureFps(TvScreen screen) {
+		return Math.max(effectiveFps(screen), effectiveStreamFps(screen));
+	}
+
+	/**
+	 * The frame rate a screen's client stream runs at.
+	 *
+	 * @param screen the screen
+	 * @return its own rate when set, else stream.fps
+	 */
+	public int effectiveStreamFps(TvScreen screen) {
+		return screen.streamFps() > 0 ? screen.streamFps() : config.streamFps();
+	}
+
+	/**
+	 * The per-viewer ceiling a screen's client stream runs under.
+	 *
+	 * @param screen the screen
+	 * @return its own limit when set, else stream.max-megabits
+	 */
+	public int effectiveStreamMegabits(TvScreen screen) {
+		return screen.streamMegabits() > 0 ? screen.streamMegabits() : config.streamMegabits();
+	}
+
+	/**
+	 * The bitrate a screen's H.264 encoder is held to, in kbit/s.
+	 *
+	 * The same per-screen knob as the MJPEG ceiling, because to an operator it
+	 * is the same question - how much of a viewer's link may this screen use -
+	 * even though the two answer it differently: MJPEG drops frames that do not
+	 * fit, H.264 encodes to fit in the first place.
+	 *
+	 * @param screen the screen
+	 * @return kilobits per second
+	 */
+	public int effectiveStreamBitrate(TvScreen screen) {
+		return screen.streamMegabits() > 0
+			? screen.streamMegabits() * 1000
+			: config.streamBitrate();
+	}
+
+	/**
+	 * Sets a screen's stream frame rate, live.
+	 *
+	 * @param instance the screen
+	 * @param fps frames per second, 0 to follow the config
+	 */
+	public void streamFps(ScreenInstance instance, int fps) {
+		instance.screen().streamFps(fps);
+
+		CdpBrowser browser = instance.browser();
+
+		if (browser != null) {
+			browser.quality(effectiveQuality(instance.screen()));
+		browser.displayRate(captureFps(instance.screen()));
+		}
+
+		persist();
+	}
+
+	/**
+	 * Sets a screen's per-viewer stream ceiling.
+	 *
+	 * @param instance the screen
+	 * @param megabits megabits per second, 0 to follow the config
+	 */
+	public void streamMegabits(ScreenInstance instance, int megabits) {
+		instance.screen().streamMegabits(megabits);
+		persist();
+	}
+
 	public int effectiveFps(TvScreen screen) {
 		return screen.fps() > 0 ? screen.fps() : config.fps();
 	}
@@ -779,7 +962,8 @@ public final class ScreenManager {
 		CdpBrowser browser = instance.browser();
 
 		if (browser != null) {
-			browser.displayRate(effectiveFps(instance.screen()));
+			browser.quality(effectiveQuality(instance.screen()));
+		browser.displayRate(captureFps(instance.screen()));
 		}
 
 		persist();
@@ -857,6 +1041,25 @@ public final class ScreenManager {
 	}
 
 	/**
+	 * Sets how strongly a screen blooms for mod clients.
+	 *
+	 * Nothing is redrawn: the glow lives entirely in the client's shader, so the
+	 * only thing to do is tell the clients about the new value.
+	 *
+	 * @param instance the screen
+	 * @param glow percentage, 0 being off
+	 */
+	public void glow(ScreenInstance instance, int glow) {
+		instance.screen().glow(glow);
+
+		if (instance.state() == ScreenState.RUNNING) {
+			lights.apply(instance);
+		}
+
+		persist();
+	}
+
+	/**
 	 * Sets a screen's picture brightness, live.
 	 *
 	 * @param instance the screen
@@ -907,6 +1110,10 @@ public final class ScreenManager {
 
 	/** Shuts every screen down, for plugin disable. */
 	public void shutdown() {
+		// the light blocks are real world blocks, so leaving them behind would
+		// leave a lit room with nothing lighting it until somebody noticed
+		lights.clearAll();
+
 		for (ScreenInstance instance : instances.values()) {
 			closeBrowser(instance);
 			displays.detach(instance);
@@ -914,12 +1121,22 @@ public final class ScreenManager {
 
 		store.save(screens(), false);
 		instances.clear();
+		republish();
 	}
 
 	private void closeBrowser(ScreenInstance instance) {
 		CdpBrowser browser = instance.browser();
 
 		instance.browser(null);
+
+		// the encoder is fed by this browser and nothing else, so it goes with it
+		// rather than sitting attached to a pipe that will never carry another
+		// frame; a viewer still connected sees the stream end and comes back
+		StreamServer endpoint = stream;
+
+		if (endpoint != null) {
+			endpoint.dropEncoder(instance.name());
+		}
 
 		if (browser != null) {
 			browser.close();
@@ -929,6 +1146,99 @@ public final class ScreenManager {
 	/** Writes the current screens to disk, off the main thread. */
 	public void persist() {
 		store.save(screens(), true);
+
+		// every mutation lands here, so this is the one place that guarantees a
+		// mod client's picture of the screens never goes stale
+		Runnable notify = onChange;
+
+		if (notify != null) {
+			notify.run();
+		}
+	}
+
+	/**
+	 * Moves a screen to a new state and tells the mod clients.
+	 *
+	 * State is not written to disk, so it never went through persist() and mod
+	 * clients were never told about it. That is what left a screen switched on
+	 * after somebody joined stuck on the description they were given at the
+	 * handshake: STARTING, and so never fetched.
+	 *
+	 * @param instance the screen
+	 * @param next what it is now
+	 */
+	private void state(ScreenInstance instance, ScreenState next) {
+		if (instance.state() == next) {
+			return;
+		}
+
+		instance.state(next);
+
+		// a screen only lights the room while it is actually showing something
+		if (next == ScreenState.RUNNING) {
+			lights.apply(instance);
+		} else {
+			lights.clear(instance);
+		}
+
+		announce();
+	}
+
+	/** The JPEG quality a screen actually encodes at. */
+	public int effectiveQuality(TvScreen screen) {
+		return screen.quality() > 0 ? screen.quality() : config.quality();
+	}
+
+	/**
+	 * Sets a screen's JPEG quality, live.
+	 *
+	 * @param instance the screen
+	 * @param quality 1..100, or 0 to follow render.quality
+	 */
+	public void quality(ScreenInstance instance, int quality) {
+		instance.screen().quality(quality);
+
+		CdpBrowser browser = instance.browser();
+
+		if (browser != null) {
+			browser.quality(effectiveQuality(instance.screen()));
+		}
+
+		persist();
+	}
+
+	/** Takes every screen's light blocks back out of the world. */
+	public void clearLights() {
+		lights.clearAll();
+	}
+
+	/**
+	 * Records whether a screen's page has a text field focused.
+	 *
+	 * @param instance the screen
+	 * @param focused what the page said
+	 */
+	public void keyboardFocus(ScreenInstance instance, boolean focused) {
+		if (instance.keyboardFocus() == focused) {
+			return;
+		}
+
+		instance.keyboardFocus(focused);
+		announce();
+	}
+
+	/** Re-tells mod clients the registry, writing nothing. */
+	private void announce() {
+		Runnable notify = onChange;
+
+		if (notify != null) {
+			notify.run();
+		}
+	}
+
+	/** Called after any change, so clients can be re-told the registry. */
+	public void onChange(Runnable onChange) {
+		this.onChange = onChange;
 	}
 
 	private List<TvScreen> screens() {
@@ -981,7 +1291,7 @@ public final class ScreenManager {
 		}
 
 		if (!wasPowered) {
-			instance.state(ScreenState.OFF);
+			state(instance, ScreenState.OFF);
 			instance.placeholderStale();
 
 			return Outcome.ok();

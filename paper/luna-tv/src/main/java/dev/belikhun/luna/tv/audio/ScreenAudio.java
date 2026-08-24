@@ -1,6 +1,7 @@
 package dev.belikhun.luna.tv.audio;
 
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import org.bukkit.Location;
 
@@ -37,6 +38,10 @@ public final class ScreenAudio {
 	private final String sink;
 	private final ParecCapture capture;
 	private final boolean stereo;
+
+	/** Listeners already taking this screen's sound off the dedicated stream. */
+	private final Predicate<UUID> streaming;
+
 	private final short[] scratch = new short[ParecCapture.FRAME_SAMPLES];
 
 	/** Interleaved frame taken from the ring, stereo only. */
@@ -62,13 +67,23 @@ public final class ScreenAudio {
 	private volatile LocationalAudioChannel rightChannel;
 	private volatile AudioPlayer rightPlayer;
 	private volatile int volume = 100;
+	private volatile float distance;
 
-	public ScreenAudio(LunaLogger logger, TvConfig config, String screenName, String sink, boolean stereo) {
+	public ScreenAudio(
+		LunaLogger logger,
+		TvConfig config,
+		String screenName,
+		String sink,
+		boolean stereo,
+		Predicate<UUID> streaming
+	) {
 		this.logger = logger;
 		this.config = config;
 		this.screenName = screenName;
 		this.sink = sink;
 		this.stereo = stereo;
+		this.streaming = streaming;
+		this.distance = config.audioDistance();
 		this.capture = new ParecCapture(logger, config, screenName, sink, stereo);
 		this.stereoScratch = stereo ? new short[ParecCapture.FRAME_SAMPLES * 2] : null;
 		this.rightBuffers = stereo
@@ -97,17 +112,37 @@ public final class ScreenAudio {
 	 *
 	 * @param api the live voice-chat server API
 	 * @param at where the sound comes from
+	 * @param rightAt where the right channel sounds from, null for mono
 	 * @param volumePercent starting volume, 0 to 100
+	 * @param range how far the channel carries, in blocks
 	 * @return true when a channel was opened
 	 */
-	public boolean start(VoicechatServerApi api, Location at, Location rightAt, int volumePercent) {
+	public boolean start(
+		VoicechatServerApi api,
+		Location at,
+		Location rightAt,
+		int volumePercent,
+		int range
+	) {
+		this.volume = Math.max(0, Math.min(100, volumePercent));
+		this.distance = range > 0 ? range : config.audioDistance();
+
+		// The recorder comes first and is the part that always runs: it is what
+		// the client stream reads, so a screen has sound for everybody running
+		// the mod whether or not voice chat is here to carry it to anybody else.
+		capture.start();
+
+		if (api == null) {
+			return true;
+		}
+
 		if (player != null) {
+			distance(range);
 			updateLocation(at, rightAt);
 
 			return true;
 		}
 
-		this.volume = Math.max(0, Math.min(100, volumePercent));
 		this.api = api;
 
 		LocationalAudioChannel opened = open(api, at);
@@ -127,8 +162,6 @@ public final class ScreenAudio {
 				logger.warn("Không mở được kênh phải cho '" + screenName + "', chạy một kênh.");
 			}
 		}
-
-		capture.start();
 
 		channel = opened;
 		player = play(api, opened, this::nextFrame);
@@ -151,10 +184,38 @@ public final class ScreenAudio {
 			return null;
 		}
 
-		opened.setDistance(config.audioDistance());
+		opened.setDistance(distance);
 		opened.setCategory(LunaTvVoicechatPlugin.CATEGORY_ID);
 
+		// Anybody on the dedicated audio stream is dropped here rather than muted
+		// at the far end: voice chat is what decides who a locational channel
+		// reaches, and a client cannot refuse a packet it has already decoded.
+		opened.setFilter(listener -> !streaming.test(listener.getUuid()));
+
 		return opened;
+	}
+
+	/**
+	 * Re-ranges both channels in place.
+	 *
+	 * @param range how far the sound carries, in blocks; 0 follows audio.distance
+	 */
+	public void distance(int range) {
+		float blocks = range > 0 ? range : config.audioDistance();
+
+		this.distance = blocks;
+
+		LocationalAudioChannel left = channel;
+
+		if (left != null) {
+			left.setDistance(blocks);
+		}
+
+		LocationalAudioChannel right = rightChannel;
+
+		if (right != null) {
+			right.setDistance(blocks);
+		}
 	}
 
 	private AudioPlayer play(
@@ -299,6 +360,34 @@ public final class ScreenAudio {
 		this.volume = Math.max(0, Math.min(100, volumePercent));
 	}
 
+	/**
+	 * Closes the voice-chat channels but keeps recording.
+	 *
+	 * What the voice server going down means: nobody on that path can hear the
+	 * screen any more, and everybody on the client stream still can. Stopping the
+	 * recorder here would take them down with it for no reason.
+	 */
+	public void detachVoice() {
+		AudioPlayer current = player;
+		AudioPlayer right = rightPlayer;
+
+		api = null;
+		player = null;
+		channel = null;
+		rightPlayer = null;
+		rightChannel = null;
+
+		if (current != null) {
+			current.stopPlaying();
+		}
+
+		if (right != null) {
+			right.stopPlaying();
+		}
+
+		rightFrame.set(null);
+	}
+
 	/** Stops streaming and closes the channels, leaving the sink in place. */
 	public void stop() {
 		AudioPlayer current = player;
@@ -325,6 +414,11 @@ public final class ScreenAudio {
 		AudioPlayer current = player;
 
 		return current != null && current.isPlaying();
+	}
+
+	/** The recorder, so the streaming endpoint can tap its PCM. */
+	public ParecCapture capture() {
+		return capture;
 	}
 
 	/** Why the recorder is unhappy, or null. */

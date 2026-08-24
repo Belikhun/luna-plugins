@@ -1,7 +1,9 @@
 package dev.belikhun.luna.tv.audio;
 
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
 
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -28,6 +30,12 @@ public final class AudioService {
 	private final PulseAudioManager pulse;
 	private final Map<String, ScreenAudio> streams = new ConcurrentHashMap<>();
 
+	/**
+	 * Answers whether a player is already taking a screen's sound off the
+	 * dedicated stream, and so must not also be sent it over voice chat.
+	 */
+	private volatile BiPredicate<String, UUID> streaming = (screen, player) -> false;
+
 	private volatile TvConfig config;
 	private volatile LunaTvVoicechatPlugin bridge;
 	private volatile VoicechatServerApi api;
@@ -44,6 +52,22 @@ public final class AudioService {
 		this.config = config;
 		this.pulse.config(config);
 		streams.values().forEach(stream -> stream.config(config));
+	}
+
+	/**
+	 * Supplies the test that keeps the two audio paths from doubling up.
+	 *
+	 * A player running the client mod fetches a screen's sound over its own
+	 * socket, uncompressed and in step with the picture on the same socket.
+	 * Voice chat would deliver the same audio again, Opus-encoded and a
+	 * different amount late, and two copies of one soundtrack a few tens of
+	 * milliseconds apart is not quieter or louder, it is unlistenable. So the
+	 * channel filter drops exactly the listeners who already have it.
+	 *
+	 * @param test true when that player is on that screen's audio stream
+	 */
+	public void streamingTo(BiPredicate<String, UUID> test) {
+		this.streaming = test;
 	}
 
 	/**
@@ -79,7 +103,7 @@ public final class AudioService {
 			plugin.getServer().getScheduler().runTask(plugin, onApiReady);
 		}, () -> {
 			api = null;
-			streams.values().forEach(ScreenAudio::stop);
+			streams.values().forEach(ScreenAudio::detachVoice);
 		});
 
 		service.registerPlugin(bridge);
@@ -103,23 +127,50 @@ public final class AudioService {
 		}
 	}
 
-	/** Whether audio could be started at all right now. */
-	public boolean available() {
-		return config.audioEnabled() && pulseReady && api != null;
+	/** Whether a screen's sound can be captured at all right now. */
+	public boolean captureReady() {
+		return config.audioEnabled() && pulseReady;
 	}
 
 	/**
-	 * Why audio is unavailable, phrased for an operator.
+	 * Why a screen's sound cannot be captured, phrased for an operator.
 	 *
-	 * @return the reason, or null when audio is available
+	 * Voice chat is deliberately not part of this. Capturing is what both
+	 * audiences are built on: voice chat encodes the recording, and a client mod
+	 * fetches the same recording over its own socket, so a server with no voice
+	 * chat at all can still have sound for everybody running the mod. Refusing
+	 * to record because one of the two consumers is missing would take the other
+	 * down with it.
+	 *
+	 * @return the reason, or null when a screen can be recorded
 	 */
-	public String unavailableReason() {
+	public String captureUnavailableReason() {
 		if (!config.audioEnabled()) {
 			return "audio.enabled = false trong config.yml";
 		}
 
 		if (!pulseReady) {
 			return "PulseAudio: " + pulse.unavailableReason();
+		}
+
+		return null;
+	}
+
+	/** Whether audio could reach a voice-chat listener right now. */
+	public boolean available() {
+		return captureReady() && api != null;
+	}
+
+	/**
+	 * Why the voice-chat half of audio is unavailable, phrased for an operator.
+	 *
+	 * @return the reason, or null when voice chat can carry a screen
+	 */
+	public String unavailableReason() {
+		String capture = captureUnavailableReason();
+
+		if (capture != null) {
+			return capture;
 		}
 
 		if (api == null) {
@@ -154,10 +205,18 @@ public final class AudioService {
 	 * @param at where the sound should come from (the left edge, in stereo)
 	 * @param rightAt where the right channel sounds from, null for mono
 	 * @param volume starting volume, 0 to 100
+	 * @param range how far the channel carries, in blocks
 	 * @return true when the stream started
 	 */
-	public boolean start(String screenName, String sink, Location at, Location rightAt, int volume) {
-		if (!available() || sink == null) {
+	public boolean start(
+		String screenName,
+		String sink,
+		Location at,
+		Location rightAt,
+		int volume,
+		int range
+	) {
+		if (!captureReady() || sink == null) {
 			return false;
 		}
 
@@ -175,9 +234,24 @@ public final class AudioService {
 		ScreenAudio stream = existing != null
 			? existing
 			: streams.computeIfAbsent(screenName,
-				name -> new ScreenAudio(logger, config, name, sink, stereo));
+				name -> new ScreenAudio(logger, config, name, sink, stereo,
+					player -> streaming.test(name, player)));
 
-		return stream.start(api, at, rightAt, volume);
+		return stream.start(api, at, rightAt, volume, range);
+	}
+
+	/**
+	 * Re-ranges a screen's channels without interrupting them.
+	 *
+	 * @param screenName the screen's name
+	 * @param blocks how far the sound should carry
+	 */
+	public void distance(String screenName, int blocks) {
+		ScreenAudio stream = streams.get(screenName);
+
+		if (stream != null) {
+			stream.distance(blocks);
+		}
 	}
 
 	/**
@@ -206,6 +280,37 @@ public final class AudioService {
 		}
 
 		pulse.removeSink(screenName);
+	}
+
+	/**
+	 * Points a screen's captured PCM at a sink, for the streaming endpoint.
+	 *
+	 * @param screenName the screen
+	 * @param sink receives raw 48kHz s16le frames, or null to stop
+	 * @return true when the screen has a live capture to tap
+	 */
+	public boolean pcmSink(String screenName, java.util.function.Consumer<byte[]> sink) {
+		ScreenAudio stream = streams.get(screenName);
+
+		if (stream == null) {
+			return false;
+		}
+
+		stream.capture().pcmSink(sink);
+
+		return true;
+	}
+
+	/**
+	 * Whether a screen's capture is interleaved stereo.
+	 *
+	 * @param screenName the screen
+	 * @return true for stereo, false for mono or no capture
+	 */
+	public boolean pcmStereo(String screenName) {
+		ScreenAudio stream = streams.get(screenName);
+
+		return stream != null && stream.capture().stereo();
 	}
 
 	/**

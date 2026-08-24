@@ -28,6 +28,28 @@ strings:
     grouping: true
     format: '<#FFDFD4><b>{amount}</b></#FFDFD4> {symbol}'
 
+network:
+  # How long a player may leave a keepalive unanswered before the server drops them
+  # with "Timed out".
+  #
+  # Minecraft 1.20.1 compiles this deadline in at 15 seconds and exposes no key for
+  # it; -Dfml.readTimeout covers the netty read timeout, which is a separate and much
+  # longer one, and velocity's own read-timeout is a third. Fifteen seconds is easily
+  # overrun on a heavy modpack by a client that freezes building chunks or pauses for
+  # a long GC, and that player is disconnected while still perfectly connected.
+  # LunaCore holds the deadline open this long instead, then lets vanilla drop the
+  # connection.
+  #
+  # 15 or lower leaves vanilla to it and LunaCore does nothing. The default matches
+  # the -Dpaper.playerconnection.keepalive=300 the Paper backends run with, so a
+  # player gets the same tolerance wherever they are on the cluster.
+  #
+  # Raising it past 300 needs -Dfml.readTimeout raised to match (it is 300 on luna's
+  # forge-modern profile): that timeout counts any inbound traffic at all, is measured
+  # separately, and a stalled client sends nothing - so it, not this key, is what
+  # decides the moment anything above its value would have mattered.
+  keepaliveTimeoutSeconds: 300
+
 # The economy and the shop keep their own tables, so a backend running either one
 # needs a database. Only mariadb ships with this mod: a mod jar has no way to
 # fetch a driver at boot the way a paper plugin does, and shipping every driver

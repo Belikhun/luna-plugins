@@ -33,6 +33,7 @@ import dev.belikhun.luna.tv.browser.CdpBrowser;
 import dev.belikhun.luna.tv.browser.ChromiumProcess;
 import dev.belikhun.luna.tv.screen.ScreenInstance;
 import dev.belikhun.luna.tv.screen.ScreenManager;
+import dev.belikhun.luna.tv.stream.StreamServer;
 import dev.belikhun.luna.tv.screen.ScreenState;
 
 /**
@@ -49,8 +50,8 @@ public final class LunaTvCommand implements BasicCommand {
 
 	private static final List<String> SUBCOMMANDS = List.of(
 		"audio", "back", "clear", "control", "create", "debug", "forward", "gui", "info",
-		"bandwidth", "brightness", "cleanup", "dither", "fps", "key", "list", "lock", "panel", "power", "redstone", "refresh", "reload", "remove", "resend", "scale",
-		"scroll", "status", "stereo", "teleport", "type", "url", "volume", "wand");
+		"bandwidth", "brightness", "cleanup", "dither", "fps", "glow", "quality", "key", "list", "lock", "panel", "power", "range", "redstone", "refresh", "reload", "remove", "resend", "scale",
+		"scroll", "status", "stereo", "stream", "streamfps", "streamlimit", "teleport", "type", "url", "volume", "wand");
 
 	private static final List<String> KEYS = List.of("enter", "backspace", "tab", "escape",
 		"up", "down", "left", "right", "space", "home", "end", "pageup", "pagedown");
@@ -122,9 +123,15 @@ public final class LunaTvCommand implements BasicCommand {
 			case "scale" -> scale(sender, args);
 			case "fps" -> fps(sender, args);
 			case "brightness" -> brightness(sender, args);
+			case "glow" -> glow(sender, args);
+			case "range" -> range(sender, args);
+			case "quality" -> quality(sender, args);
 			case "dither" -> dither(sender, args);
 			case "stereo" -> stereo(sender, args);
 			case "scroll" -> scroll(sender, args);
+			case "stream" -> stream(sender, args);
+			case "streamfps" -> streamFps(sender, args);
+			case "streamlimit" -> streamLimit(sender, args);
 			case "clear" -> clearData(sender, args);
 			case "bandwidth" -> bandwidth(sender, args);
 			case "debug" -> debug(sender, args);
@@ -305,9 +312,7 @@ public final class LunaTvCommand implements BasicCommand {
 			+ instance.screen().mapsHigh() + "</white> bản đồ ("
 			+ instance.screen().pixelWidth() + "×" + instance.screen().pixelHeight() + "px)</gray>");
 		sender.sendRichMessage("<gray>Người xem: <white>" + instance.viewers().size()
-			+ "</white> · âm thanh <white>" + (instance.screen().audio() ? "bật" : "tắt")
-			+ "</white> · âm lượng <white>" + instance.screen().volume()
-			+ "%</white> · " + (instance.screen().locked() ? "đã khoá" : "mở") + "</gray>");
+			+ "</white> · " + (instance.screen().locked() ? "đã khoá" : "mở") + "</gray>");
 
 		if (browser != null) {
 			sender.sendRichMessage("<gray>Trình duyệt: pid <white>" + browser.pid()
@@ -317,6 +322,22 @@ public final class LunaTvCommand implements BasicCommand {
 				+ "</white> · bỏ qua <white>" + browser.framesDropped()
 				+ "</white> · thiếu băng thông <white>" + instance.budgetSkips()
 				+ "</white></gray>");
+
+			CdpBrowser feed = instance.browser();
+
+			if (feed != null) {
+				boolean native1to1 = feed.captureWidth() == instance.screen().pixelWidth()
+					&& feed.captureHeight() == instance.screen().pixelHeight();
+
+				sender.sendRichMessage("<gray>Độ phân giải luồng: <white>"
+					+ feed.captureWidth() + "×" + feed.captureHeight() + "</white> "
+					+ (native1to1
+						? "<green>(đúng bằng lưới bản đồ)</green>"
+						: "<yellow>(nhỏ hơn lưới bản đồ "
+							+ instance.screen().pixelWidth() + "×" + instance.screen().pixelHeight()
+							+ ", client sẽ phóng to — đặt /lunatv scale " + instance.name()
+							+ " 1 để nét 1:1)</yellow>") + "</gray>");
+			}
 
 			long fullFrame = (long) instance.screen().mapsWide() * instance.screen().mapsHigh() * 128 * 128;
 			int megabits = screens.effectiveMegabits(instance.screen());
@@ -331,6 +352,14 @@ public final class LunaTvCommand implements BasicCommand {
 			sender.sendRichMessage("<color:" + LunaPalette.DANGER_500 + ">Lỗi: "
 				+ MiniText.escape(instance.failure()) + "</color>");
 		}
+
+		sender.sendRichMessage("<gray>Âm thanh: <white>"
+			+ (instance.screen().audio() ? "bật" : "tắt") + "</white> · "
+			+ (instance.screen().stereo() ? "stereo" : "mono")
+			+ " · âm lượng <white>" + instance.screen().volume() + "%</white>"
+			+ " · bán kính <white>" + screens.effectiveAudioRange(instance.screen())
+			+ "</white> block" + (instance.screen().audioRange() == 0 ? " (theo config)" : "")
+			+ "</gray>");
 
 		String audioFailure = audio.failure(instance.name());
 
@@ -465,6 +494,101 @@ public final class LunaTvCommand implements BasicCommand {
 		if (on) {
 			sender.sendRichMessage("<gray>Đứng trước màn hình mới nghe rõ hai bên.</gray>");
 		}
+	}
+
+	/**
+	 * Prints the stream address for a screen and mints a token for the caller.
+	 *
+	 * The console gets one too, because a plain browser pointed at the same URL
+	 * is how the endpoint is checked without a game client.
+	 */
+	private void stream(CommandSender sender, String[] args) {
+		StreamServer endpoint = plugin.stream();
+
+		if (endpoint == null || !endpoint.running()) {
+			sender.sendRichMessage("<red>❌ Luồng hình chưa bật (stream.enabled trong config.yml).</red>");
+
+			return;
+		}
+
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		java.util.UUID who = sender instanceof Player player
+			? player.getUniqueId()
+			: new java.util.UUID(0L, 0L);
+
+		String token = endpoint.issueToken(who);
+		String base = plugin.config().streamPublicUrl();
+
+		if (base.isBlank()) {
+			base = "http://" + plugin.config().streamHost()
+				+ ":" + plugin.config().streamPort();
+		}
+
+		String url = base + "/tv/" + found.get().name() + "?t=" + token;
+
+		sender.sendRichMessage("<gray>Luồng hình của '<white>"
+			+ MiniText.escape(found.get().name()) + "</white>':</gray>");
+		sender.sendRichMessage("<yellow>" + MiniText.escape(url) + "</yellow>");
+		sender.sendRichMessage("<gray>Token hết hạn sau một giờ.</gray>");
+	}
+
+	/** Sets the client stream's frame rate for one screen; 0 follows the config. */
+	private void streamFps(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 0 || value > 60) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv streamfps <tên> <0-60> (0 = theo config)"));
+			sender.sendRichMessage("<gray>Chỉ áp cho mod client. Đường bản đồ dùng"
+				+ " <white>/lunatv fps</white>.</gray>");
+
+			return;
+		}
+
+		screens.streamFps(found.get(), value);
+		sender.sendRichMessage("<green>✔ FPS luồng của '" + MiniText.escape(found.get().name())
+			+ "' giờ là " + (value == 0
+				? "theo config (" + screens.effectiveStreamFps(found.get().screen()) + ")"
+				: String.valueOf(value)) + ".</green>");
+	}
+
+	/** Sets the client stream's per-viewer ceiling; 0 follows the config. */
+	private void streamLimit(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 0 || value > 1000) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv streamlimit <tên> <0-1000> (Mbit/s mỗi người xem, 0 = theo config)"));
+			sender.sendRichMessage("<gray>Chỉ áp cho mod client. Đường bản đồ dùng"
+				+ " <white>/lunatv bandwidth</white>.</gray>");
+
+			return;
+		}
+
+		screens.streamMegabits(found.get(), value);
+
+		int effective = screens.effectiveStreamMegabits(found.get().screen());
+
+		sender.sendRichMessage("<green>✔ Băng thông luồng của '"
+			+ MiniText.escape(found.get().name()) + "' giờ là "
+			+ (effective == 0 ? "không giới hạn" : effective + " Mbit/s mỗi người xem") + ".</green>");
 	}
 
 	/** Turns wheel scrolling on or off for one screen. */
@@ -659,8 +783,13 @@ public final class LunaTvCommand implements BasicCommand {
 		line(sender, "Chromium", ChromiumProcess.executableUsable(config), config.executable(),
 			"không chạy được " + config.executable());
 
-		String audioReason = audio.unavailableReason();
-		line(sender, "Âm thanh", audioReason == null, "sẵn sàng", audioReason == null ? "" : audioReason);
+		String captureReason = audio.captureUnavailableReason();
+		line(sender, "Thu tiếng", captureReason == null, "sẵn sàng",
+			captureReason == null ? "" : captureReason);
+
+		String voiceReason = audio.unavailableReason();
+		line(sender, "Voice chat", voiceReason == null, "sẵn sàng",
+			voiceReason == null ? "" : voiceReason + " (mod client vẫn nghe được)");
 
 		sender.sendRichMessage("<gray>Số màn hình: <white>" + screens.instances().size()
 			+ "/" + config.maxScreens() + "</white> · fps <white>" + config.fps()
@@ -769,6 +898,80 @@ public final class LunaTvCommand implements BasicCommand {
 		screens.brightness(found.get(), value);
 		sender.sendRichMessage("<green>✔ Độ sáng của '" + MiniText.escape(found.get().name())
 			+ "' giờ là " + found.get().screen().brightness() + "%.</green>");
+	}
+
+	/** Sets one screen's JPEG quality; 0 follows the global render.quality. */
+	private void quality(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 0 || value > 100) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv quality <tên> <0-100> (0 = theo cấu hình chung)"));
+
+			return;
+		}
+
+		screens.quality(found.get(), value);
+
+		int effective = screens.effectiveQuality(found.get().screen());
+		String own = found.get().screen().quality() == 0 ? " (theo cấu hình chung)" : "";
+
+		sender.sendRichMessage("<green>✔ Chất lượng JPEG của '" + MiniText.escape(found.get().name())
+			+ "' giờ là " + effective + "%" + own + ".</green>");
+	}
+
+	/** Sets how strongly the picture blooms for players running the client mod. */
+	private void glow(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 0 || value > 200) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv glow <tên> <0-200> (0 = tắt, chỉ áp dụng cho mod client)"));
+
+			return;
+		}
+
+		screens.glow(found.get(), value);
+		sender.sendRichMessage("<green>✔ Độ phát sáng của '" + MiniText.escape(found.get().name())
+			+ "' giờ là " + found.get().screen().glow() + "%.</green>");
+	}
+
+	/** Sets how far a screen can be heard from; 0 follows audio.distance. */
+	private void range(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		Integer value = args.length > 2 ? parseInt(args[2]) : null;
+
+		if (value == null || value < 0 || value > 256) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv range <tên> <0-256> (block, 0 = theo config)"));
+
+			return;
+		}
+
+		screens.audioRange(found.get(), value);
+
+		int effective = screens.effectiveAudioRange(found.get().screen());
+		String own = found.get().screen().audioRange() == 0 ? " (theo config)" : "";
+
+		sender.sendRichMessage("<green>✔ Nghe được '" + MiniText.escape(found.get().name())
+			+ "' trong bán kính " + effective + " block" + own + ".</green>");
 	}
 
 	/** Sets a screen's bandwidth budget; 0 follows the global render.max-megabits. */
@@ -1014,7 +1217,7 @@ public final class LunaTvCommand implements BasicCommand {
 	}
 
 	private void panel(CommandSender sender, ScreenInstance instance) {
-		ControlPanel.send(sender, instance, plugin.config(), audio.unavailableReason() == null);
+		ControlPanel.send(sender, instance, plugin.config(), audio.captureUnavailableReason() == null);
 	}
 
 	private Optional<ScreenInstance> require(CommandSender sender, String[] args) {
@@ -1171,8 +1374,33 @@ public final class LunaTvCommand implements BasicCommand {
 				: args.length == 2
 					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
 					: List.of();
+			case "streamfps" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("0", "15", "20", "30", "60"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
+			case "streamlimit" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("0", "5", "10", "25", "50"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
 			case "brightness" -> args.length == 3
 				? CommandCompletions.filterPrefix(List.of("100", "120", "140", "160", "180"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
+			case "quality" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("0", "50", "70", "85", "95", "100"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
+			case "glow" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("0", "40", "60", "80", "120", "160"), args[2])
+				: args.length == 2
+					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
+					: List.of();
+			case "range" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("0", "16", "24", "32", "48", "64", "96"), args[2])
 				: args.length == 2
 					? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
 					: List.of();

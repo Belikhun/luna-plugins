@@ -146,6 +146,14 @@ public final class RenderPump implements Runnable {
 
 	private void pass() {
 		for (ScreenInstance instance : screens.get()) {
+			CdpBrowser feed = instance.browser();
+
+			// a wall nobody is looking at through MapEngine needs no pixels; the
+			// stream forwards the JPEG untouched, so the decode can be skipped
+			if (feed != null) {
+				feed.pixelsWanted(!instance.viewers().isEmpty());
+			}
+
 			if (!instance.drawable() || instance.viewers().isEmpty()) {
 				TvDebug.sampled("idle:" + instance.name(), 200,
 					"skip screen=" + instance.name()

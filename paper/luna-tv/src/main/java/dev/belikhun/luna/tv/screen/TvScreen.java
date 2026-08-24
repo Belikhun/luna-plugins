@@ -31,7 +31,12 @@ public final class TvScreen {
 	private String ditherPattern;
 	private boolean stereo;
 	private boolean scroll;
+	private int streamFps;
+	private int streamMegabits;
+	private int audioRange;
 	private int maxMegabits;
+	private int glow;
+	private int quality;
 	private String redstoneWorld;
 	private BlockVector redstone;
 
@@ -49,10 +54,15 @@ public final class TvScreen {
 		int fps,
 		int maxMegabits,
 		int brightness,
+		int glow,
+		int quality,
 		String converter,
 		String ditherPattern,
 		boolean stereo,
 		boolean scroll,
+		int streamFps,
+		int streamMegabits,
+		int audioRange,
 		String createdBy,
 		long createdAt
 	) {
@@ -69,10 +79,15 @@ public final class TvScreen {
 		this.fps = clampFps(fps);
 		this.maxMegabits = clampMegabits(maxMegabits);
 		this.brightness = clampBrightness(brightness);
+		this.glow = clampGlow(glow);
+		this.quality = clampQuality(quality);
 		this.converter = normalizeConverter(converter);
 		this.ditherPattern = normalizePattern(ditherPattern);
 		this.stereo = stereo;
 		this.scroll = scroll;
+		this.streamFps = clampStreamFps(streamFps);
+		this.streamMegabits = clampMegabits(streamMegabits);
+		this.audioRange = clampAudioRange(audioRange);
 		this.createdBy = createdBy;
 		this.createdAt = createdAt;
 	}
@@ -162,6 +177,21 @@ public final class TvScreen {
 
 	public static int clampBrightness(int value) {
 		return Math.max(50, Math.min(200, value == 0 ? 100 : value));
+	}
+
+	/**
+	 * Clamps a glow strength; 0 is off, 100 a strong halo.
+	 *
+	 * Unlike brightness, 0 is a real value here rather than "unset", because a
+	 * screen with no glow is a perfectly ordinary thing to want.
+	 */
+	public static int clampGlow(int value) {
+		return Math.max(0, Math.min(200, value));
+	}
+
+	/** Clamps a JPEG quality; 0 means follow render.quality. */
+	public static int clampQuality(int value) {
+		return value <= 0 ? 0 : Math.min(100, value);
 	}
 
 	public static int clampMegabits(int value) {
@@ -259,6 +289,37 @@ public final class TvScreen {
 	}
 
 	/**
+	 * How strongly the picture blooms into its surroundings, as a percentage.
+	 *
+	 * Faked, and deliberately so: a MapEngine wall is drawn by Minecraft's own
+	 * map renderer, so it picks up the emissive treatment a shader pack gives
+	 * map art. A streamed screen is drawn straight to the framebuffer and gets
+	 * none of that, so the halo is reproduced in the client's own shader.
+	 */
+	public int glow() {
+		return glow;
+	}
+
+	public void glow(int glow) {
+		this.glow = clampGlow(glow);
+	}
+
+	/**
+	 * This screen's own JPEG quality, or 0 to follow render.quality.
+	 *
+	 * Per screen because the cost is per screen: each screen has its own Chromium
+	 * encoding its own frames, and a small wall in a corner does not deserve the
+	 * same bitrate as a cinema-sized one.
+	 */
+	public int quality() {
+		return quality;
+	}
+
+	public void quality(int quality) {
+		this.quality = clampQuality(quality);
+	}
+
+	/**
 	 * Per-screen dither mode; empty follows render.converter.
 	 *
 	 * DIRECT takes the nearest palette colour, which keeps flat areas and text
@@ -314,6 +375,64 @@ public final class TvScreen {
 
 	public void scroll(boolean scroll) {
 		this.scroll = scroll;
+	}
+
+	/** Clamps a stream frame rate; 0 means "follow stream.fps". */
+	public static int clampStreamFps(int value) {
+		return Math.max(0, Math.min(60, value));
+	}
+
+	/**
+	 * Per-screen frame rate for the client stream; 0 follows stream.fps.
+	 *
+	 * Separate from {@link #fps()}, which paces the map wall: the two audiences
+	 * are limited by completely different things.
+	 */
+	public int streamFps() {
+		return streamFps;
+	}
+
+	public void streamFps(int streamFps) {
+		this.streamFps = clampStreamFps(streamFps);
+	}
+
+	/** Per-viewer stream ceiling in megabits; 0 follows stream.max-megabits. */
+	public int streamMegabits() {
+		return streamMegabits;
+	}
+
+	public void streamMegabits(int streamMegabits) {
+		this.streamMegabits = clampMegabits(streamMegabits);
+	}
+
+	/**
+	 * Clamps a hearing radius; 0 means "follow audio.distance".
+	 *
+	 * The ceiling is generous on purpose. A cinema wall is built to be watched
+	 * from a long way back, and a radius that stops short of where the picture
+	 * is still legible is the one thing an operator cannot work around.
+	 *
+	 * @param value the requested radius in blocks
+	 * @return the value, held to 0..256
+	 */
+	public static int clampAudioRange(int value) {
+		return Math.max(0, Math.min(256, value));
+	}
+
+	/**
+	 * How far this screen can be heard from, in blocks; 0 follows audio.distance.
+	 *
+	 * One number for both audiences. Voice chat gets it as the channel's own
+	 * distance, and the client mod gets it in the registry and fades its own
+	 * sources over it, so walking away from a screen sounds the same whether or
+	 * not the listener is running the mod.
+	 */
+	public int audioRange() {
+		return audioRange;
+	}
+
+	public void audioRange(int audioRange) {
+		this.audioRange = clampAudioRange(audioRange);
 	}
 
 	/** Per-screen bandwidth budget in megabits; 0 follows the global default. */

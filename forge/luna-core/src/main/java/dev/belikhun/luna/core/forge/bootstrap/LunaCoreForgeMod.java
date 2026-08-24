@@ -14,6 +14,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.profile.PermissionService;
+import dev.belikhun.luna.core.forge.network.KeepaliveExtender;
 import dev.belikhun.luna.core.mc.LunaCore;
 import dev.belikhun.luna.core.mc.LunaCoreServices;
 import dev.belikhun.luna.core.mc.heartbeat.ServerProbe;
@@ -62,6 +63,18 @@ public final class LunaCoreForgeMod {
 
 	private static final String LUCKPERMS_MOD_ID = "luckperms";
 	private static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve(MOD_ID).resolve("config.yml");
+
+	/**
+	 * The keepalive deadline 1.20.1 compiles in. A configured timeout at or below it
+	 * asks for nothing vanilla is not already doing.
+	 */
+	private static final int VANILLA_KEEPALIVE_TIMEOUT_SECONDS = 15;
+
+	/**
+	 * Matches `network.keepaliveTimeoutSeconds` in the shipped config, which in turn
+	 * matches the `-Dpaper.playerconnection.keepalive` the Paper backends run with.
+	 */
+	private static final int DEFAULT_KEEPALIVE_TIMEOUT_SECONDS = 300;
 
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
@@ -147,7 +160,30 @@ public final class LunaCoreForgeMod {
 
 		heartbeatPublisher.start();
 		serverSelectorController.start(heartbeatPublisher);
+		startKeepaliveExtender(server, config);
 		logger.success("LunaCore Forge đã khởi động bootstrap với LuckPerms permission service và heartbeat publisher.");
+	}
+
+	/**
+	 * Raise the keepalive deadline, when the operator asked for more than vanilla's.
+	 *
+	 * Read off the raw config rather than {@link BackendCoreRuntimeConfig}: the other
+	 * platforms take this from their server software (Paper from
+	 * `-Dpaper.playerconnection.keepalive`) and have nothing to do with the key, so
+	 * putting it in the shared schema would publish a setting three of them ignore.
+	 */
+	private void startKeepaliveExtender(MinecraftServer server, YamlConfigFile config) {
+		int timeoutSeconds = config.getInt("network.keepaliveTimeoutSeconds", DEFAULT_KEEPALIVE_TIMEOUT_SECONDS);
+
+		if (timeoutSeconds <= VANILLA_KEEPALIVE_TIMEOUT_SECONDS) {
+			logger.info("Timeout keepalive giữ nguyên mặc định 15 giây của 1.20.1.");
+
+			return;
+		}
+
+		MinecraftForge.EVENT_BUS.register(new KeepaliveExtender(server, logger, timeoutSeconds * 1000L));
+
+		logger.info("Timeout keepalive nâng lên " + timeoutSeconds + " giây.");
 	}
 
 	// paired, so the heartbeat reports what a tick cost rather than how far apart

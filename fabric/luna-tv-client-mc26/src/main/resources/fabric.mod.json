@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "lunatvclient",
+	"version": "${version}",
+	"name": "Luna TV",
+	"description": "Draws Luna TV screens from the server's video stream instead of map items: full colour, full frame rate, and none of it on the game connection. This build serves Minecraft 26.1 and 26.2, which have no world render events and are hooked with a mixin instead.",
+	"authors": ["Belikhun"],
+	"license": "All Rights Reserved",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["dev.belikhun.luna.tv.client.LunaTvClient"]
+	},
+	"mixins": [
+		"lunatvclient.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"fabric-api": ">=0.155.0",
+		"minecraft": ">=26",
+		"java": ">=21"
+	}
+}

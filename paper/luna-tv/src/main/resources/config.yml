@@ -11,8 +11,12 @@ render:
   # hình vẫn liền mạch nhưng ít khung hình hơn. Đặt theo đường truyền người xem.
   max-megabits: 36
   # Chất lượng JPEG Chromium dùng khi gửi khung hình (1-100). Bản đồ chỉ có 143 màu
-  # nên trên 70 gần như không thấy khác biệt.
-  quality: 60
+  # nên với tường bản đồ, trên 70 gần như không thấy khác biệt; nhưng mod client
+  # xem thẳng chính khung JPEG này, nên ở đó chất lượng thấy rõ. Đổi lại là băng
+  # thông: ở 1664x896, chất lượng 60 cho khung ~150 KB, tăng lên 85 thì khung
+  # khoảng gấp đôi. Nếu người xem ở xa, hãy hạ stream.fps hoặc đặt
+  # stream.max-megabits thay vì hạ chất lượng.
+  quality: 85
   # Độ sáng ảnh mặc định cho màn hình mới, tính theo phần trăm (100 = nguyên bản).
   # Bảng màu bản đồ chỉ có 143 màu và dải rất hẹp, nên cảnh tối bị mất chi tiết
   # sau khi đổi màu; kéo sáng trước khi đổi sẽ giữ lại được. Áp dụng bằng đường
@@ -24,6 +28,10 @@ render:
   # 2-4 = trang chạy ở 1/2-1/4 kích thước rồi phóng to lại, nhẹ máy hơn nhiều
   # (video tự chọn chất lượng thấp hơn, mã hoá JPEG rẻ hơn theo bình phương).
   capture-scale: 1
+  # Lưu ý cho mod phía client: scale 1 nghĩa là khung hình đúng bằng lưới bản đồ
+  # (số bản đồ ngang x 128), tức là nét 1:1 trên tường. Đặt lớn hơn 1 sẽ tiết
+  # kiệm băng thông nhưng client phải phóng to nên hình mờ hơn; đường luồng
+  # không giải mã khung hình nên scale không còn giúp giảm CPU như trước.
   # Gói toàn bộ khung hình vào một packet bundle để tránh xé hình giữa các bản
   # đồ. Mặc định tắt: qua Velocity của cluster này, dữ liệu bản đồ trong bundle
   # không bao giờ tới client (đã kiểm chứng 2026-08-21) - màn hình trắng trơn.
@@ -100,13 +108,64 @@ input:
   # Đảo chiều lăn, nếu thấy cuộn ngược với mong đợi.
   invert-scroll: false
 
+# Luồng hình cho mod phía client (không đi qua kết nối Minecraft, nên không
+# ảnh hưởng ping). Khung hình JPEG của Chromium được chuyển thẳng, không giải mã
+# lại, nên gần như không tốn CPU.
+stream:
+  enabled: true
+  # Kiểu nén cho mod client: h264 hoặc mjpeg.
+  #
+  # h264 (mặc định) cần ffmpeg trên máy chủ; không có thì tự quay về mjpeg và
+  # ghi một dòng cảnh báo lúc khởi động. Khác biệt không nhỏ: mjpeg gửi trọn
+  # một tấm ảnh mỗi khung, ở 1664x896 chất lượng 85 là khoảng 1 MB, nên 30 khung
+  # một giây đòi 240 Mbit/s cho MỖI người xem. h264 mô tả phần thay đổi so với
+  # khung trước nên cùng kích thước đó chỉ tốn vài Mbit/s.
+  codec: h264
+  # Trần bitrate cho h264 (kbit/s). Đây là trần thật, do bộ mã hoá tự ép vào,
+  # chứ không phải bỏ khung như bên mjpeg. Mỗi màn hình đặt riêng được bằng
+  # /lunatv streamlimit (Mbit/s) hoặc GUI.
+  bitrate: 6000
+  # Lệnh ffmpeg dùng để mã hoá. Để nguyên nếu ffmpeg đã có trong PATH.
+  ffmpeg: "ffmpeg"
+  # Mã hoá bằng iGPU qua VA-API: auto (thử /dev/dri/renderD128 lúc khởi động,
+  # hỏng thì tự về CPU), off, hoặc đường dẫn render node cụ thể. Trên máy này
+  # cần gói intel-media-va-driver-non-free; đo được rẻ hơn CPU khoảng 7 lần.
+  vaapi: auto
+  # Địa chỉ lắng nghe trên máy chủ.
+  host: 0.0.0.0
+  port: 8340
+  # Địa chỉ mà người chơi kết nối tới (thường qua tên miền/reverse proxy).
+  # Để trống thì dùng host:port ở trên.
+  public-url: ""
+  # Số người xem tối đa cho mỗi màn hình.
+  max-viewers: 16
+  # Tốc độ khung hình cho mod client. Tách hẳn khỏi render.fps: đường bản đồ bị
+  # giới hạn bởi kết nối game, còn luồng này đi socket riêng nên chạy nhanh hơn
+  # được. Trình duyệt sẽ chụp ở mức cao nhất trong hai bên.
+  fps: 30
+  # Trần băng thông cho MỖI người xem luồng (Mbit/s). Khác với
+  # render.max-megabits, vốn chỉ áp cho đường bản đồ.
+  #
+  # Đừng đặt 0 (không giới hạn) trừ khi mọi người xem đều ở trong LAN. Mỗi khung
+  # hình là một ảnh JPEG trọn vẹn: ở 1664x896 chất lượng 85 là khoảng 1 MB, nên
+  # stream.fps 30 đòi tới 240 Mbit/s cho MỖI người. Đường truyền không tải nổi
+  # thì máy chủ không bỏ khung mà nằm chờ ghi xong khung đang gửi, đệm socket
+  # đầy lên, và người xem thấy hình đứng hẳn chứ không phải chậm đi. Có trần thì
+  # khung vượt ngân sách bị bỏ TRƯỚC khi ghi, hình ít khung hơn nhưng luôn chạy.
+  #
+  # Muốn nét hơn ở cùng một trần: hạ render.quality hoặc tăng render.capture-scale
+  # để khung hình nhẹ đi, chứ không phải nâng trần.
+  max-megabits: 25
+
 audio:
   enabled: true
   # Tiền tố tên null-sink PulseAudio; mỗi màn hình có một sink riêng.
   sink-prefix: "lunatv"
   pactl-path: "pactl"
   parec-path: "parec"
-  # Bán kính nghe được tiếng của màn hình (block).
+  # Bán kính nghe được tiếng của màn hình (block). Đây là mức mặc định; mỗi màn
+  # hình đặt riêng được bằng /lunatv range hoặc GUI, và số đó áp cho cả voice
+  # chat lẫn mod client nên tiếng tắt hẳn ở cùng một khoảng cách với mọi người.
   distance: 24.0
   # Bitrate Opus (bit/s). Simple Voice Chat tự dựng bộ mã hoá ở mức mặc định
   # của Opus (khoảng 51 kbps mono) kèm FEC cho micro, quá thấp cho nhạc. Đặt 0

@@ -33,6 +33,7 @@ public final class ScreenInstance {
 	private int drawingCursor;
 	private volatile CdpBrowser browser;
 	private volatile String failure;
+	private volatile boolean keyboardFocus;
 	private volatile int relaunchAttempt;
 	private volatile long relaunchAt;
 	private volatile long lastPlaceholderAt;
@@ -63,6 +64,21 @@ public final class ScreenInstance {
 
 	public ScreenState state() {
 		return state;
+	}
+
+	/**
+	 * Whether the page currently has a text field focused.
+	 *
+	 * Told to mod clients so their keyboard can follow the caret: typing into a
+	 * search box should not need a mode key, and WASD should not need one either
+	 * the moment the box loses focus.
+	 */
+	public boolean keyboardFocus() {
+		return keyboardFocus;
+	}
+
+	public void keyboardFocus(boolean keyboardFocus) {
+		this.keyboardFocus = keyboardFocus;
 	}
 
 	public void state(ScreenState state) {

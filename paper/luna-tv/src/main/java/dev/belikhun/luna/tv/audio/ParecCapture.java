@@ -43,6 +43,9 @@ public final class ParecCapture {
 	private volatile boolean running;
 	private volatile String failure;
 
+	/** Receives every captured frame as raw PCM, for the stream endpoint. */
+	private volatile java.util.function.Consumer<byte[]> pcmSink;
+
 	public ParecCapture(LunaLogger logger, TvConfig config, String screenName, String sink, boolean stereo) {
 		this.logger = logger;
 		this.config = config;
@@ -105,6 +108,19 @@ public final class ParecCapture {
 		return ring.poll(into);
 	}
 
+
+	/**
+	 * Sets the sink that receives raw PCM, for streaming to client mods.
+	 *
+	 * The bytes are exactly what parec produced: 48kHz signed 16-bit little
+	 * endian, interleaved when the screen is in stereo. Nothing is re-encoded,
+	 * so a client can hand them straight to OpenAL.
+	 *
+	 * @param sink called on the capture thread, or null to stop
+	 */
+	public void pcmSink(java.util.function.Consumer<byte[]> sink) {
+		this.pcmSink = sink;
+	}
 
 	/** The last capture failure worth reporting, or null. */
 	public String failure() {
@@ -173,6 +189,12 @@ public final class ParecCapture {
 			while (running) {
 				if (!readFully(stream, bytes)) {
 					break;
+				}
+
+				java.util.function.Consumer<byte[]> sink = pcmSink;
+
+				if (sink != null) {
+					sink.accept(bytes.clone());
 				}
 
 				toShorts(bytes, frame);
