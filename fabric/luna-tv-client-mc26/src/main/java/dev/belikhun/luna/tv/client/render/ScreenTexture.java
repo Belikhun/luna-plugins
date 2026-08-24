@@ -23,6 +23,9 @@ import net.minecraft.resources.Identifier;
  */
 public final class ScreenTexture implements AutoCloseable {
 
+	/** The overlay marks' single white pixel, made once and kept for the session. */
+	private static Identifier white;
+
 	private final Identifier location;
 
 	private DynamicTexture texture;
@@ -37,6 +40,36 @@ public final class ScreenTexture implements AutoCloseable {
 	/** Where Minecraft knows this texture by. */
 	public Identifier location() {
 		return location;
+	}
+
+	/**
+	 * A one-pixel white texture, for drawing untextured overlay marks.
+	 *
+	 * The render types this mod can reach all sample a texture, so a plain
+	 * coloured rectangle is this pixel under a vertex colour. Lazily made on
+	 * first use, which is always on the render thread, and never released: it
+	 * is four bytes.
+	 *
+	 * @return the white pixel's location
+	 */
+	public static Identifier white() {
+		if (white == null) {
+			Identifier location = Identifier.fromNamespaceAndPath(
+				"lunatvclient", "overlay/white");
+			DynamicTexture texture = new DynamicTexture(location::toString, 1, 1, false);
+			NativeImage image = texture.getPixels();
+
+			if (image == null) {
+				return location;
+			}
+
+			MemoryUtil.memSet(image.getPointer(), 0xFF, 4L);
+			texture.upload();
+			Minecraft.getInstance().getTextureManager().register(location, texture);
+			white = location;
+		}
+
+		return white;
 	}
 
 	public boolean ready() {

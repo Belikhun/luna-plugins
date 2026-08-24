@@ -67,6 +67,75 @@ final class Tint {
 		corner(buffer, pose, quad, 1, 1.0f, 0.0f, colour, lift, normalX, normalY, normalZ);
 	}
 
+	/**
+	 * Writes one overlay rectangle on the screen's plane.
+	 *
+	 * The corners come from the quad's own interpolation, so the rectangle
+	 * follows whichever way the wall faces, and the colour carries the alpha:
+	 * the caller pairs this with the translucent render type.
+	 *
+	 * @param u0 the left edge, 0 to 1 across the picture
+	 * @param v0 the top edge, 0 to 1 down the picture
+	 * @param u1 the right edge
+	 * @param v1 the bottom edge
+	 * @param reversed the back face, wound the other way
+	 */
+	static void mark(
+		VertexConsumer buffer,
+		PoseStack.Pose pose,
+		ScreenQuad quad,
+		double u0,
+		double v0,
+		double u1,
+		double v1,
+		int colour,
+		float lift,
+		boolean reversed
+	) {
+		float normalX = (float) (reversed ? -quad.normalX() : quad.normalX());
+		float normalY = (float) (reversed ? -quad.normalY() : quad.normalY());
+		float normalZ = (float) (reversed ? -quad.normalZ() : quad.normalZ());
+
+		if (reversed) {
+			point(buffer, pose, quad, u1, v0, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, u1, v1, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, u0, v1, colour, lift, normalX, normalY, normalZ);
+			point(buffer, pose, quad, u0, v0, colour, lift, normalX, normalY, normalZ);
+
+			return;
+		}
+
+		point(buffer, pose, quad, u0, v0, colour, lift, normalX, normalY, normalZ);
+		point(buffer, pose, quad, u0, v1, colour, lift, normalX, normalY, normalZ);
+		point(buffer, pose, quad, u1, v1, colour, lift, normalX, normalY, normalZ);
+		point(buffer, pose, quad, u1, v0, colour, lift, normalX, normalY, normalZ);
+	}
+
+	private static void point(
+		VertexConsumer buffer,
+		PoseStack.Pose pose,
+		ScreenQuad quad,
+		double u,
+		double v,
+		int colour,
+		float lift,
+		float normalX,
+		float normalY,
+		float normalZ
+	) {
+		float x = (float) (quad.at(u, v, 0) + quad.normalX() * lift);
+		float y = (float) (quad.at(u, v, 1) + quad.normalY() * lift);
+		float z = (float) (quad.at(u, v, 2) + quad.normalZ() * lift);
+
+		// the texture is a single white pixel, so any coordinate samples it;
+		// the picture's own fractions keep the numbers meaningful in a capture
+		buffer.addVertex(pose, x, y, z)
+			.setColor(colour)
+			.setUv((float) u, (float) v)
+			.setLight(FULL_BRIGHT)
+			.setNormal(pose, normalX, normalY, normalZ);
+	}
+
 	private static void corner(
 		VertexConsumer buffer,
 		PoseStack.Pose pose,

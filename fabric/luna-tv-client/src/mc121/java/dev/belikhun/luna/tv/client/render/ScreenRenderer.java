@@ -24,6 +24,9 @@ public final class ScreenRenderer implements ScreenSink {
 	 */
 	private static final float SURFACE_OFFSET = 0.01f;
 
+	/** Marks float a little higher still, so they always sit above the picture. */
+	private static final float MARK_OFFSET = 0.02f;
+
 	private final PoseStack matrices;
 	private final MultiBufferSource consumers;
 	private final double cameraX;
@@ -76,6 +79,36 @@ public final class ScreenRenderer implements ScreenSink {
 		// wall's corners came out is not worth being a bug.
 		Tint.quad(buffer, pose, quad, colour, SURFACE_OFFSET, false);
 		Tint.quad(buffer, pose, quad, colour, SURFACE_OFFSET, true);
+
+		matrices.popPose();
+	}
+
+	/**
+	 * Draws one interaction mark on a screen's surface.
+	 *
+	 * @param quad where the screen is, in world coordinates
+	 * @param u0 the left edge, 0 to 1 across the picture
+	 * @param v0 the top edge, 0 to 1 down the picture
+	 * @param u1 the right edge
+	 * @param v1 the bottom edge
+	 * @param argb the mark's colour, alpha included
+	 */
+	@Override
+	public void mark(ScreenQuad quad, double u0, double v0, double u1, double v1, int argb) {
+		RenderType type = RenderTypeCompat.translucent(ScreenTexture.white());
+
+		if (type == null) {
+			return;
+		}
+
+		matrices.pushPose();
+		matrices.translate(-cameraX, -cameraY, -cameraZ);
+
+		VertexConsumer buffer = consumers.getBuffer(type);
+		PoseStack.Pose pose = matrices.last();
+
+		Tint.mark(buffer, pose, quad, u0, v0, u1, v1, argb, MARK_OFFSET, false);
+		Tint.mark(buffer, pose, quad, u0, v0, u1, v1, argb, MARK_OFFSET, true);
 
 		matrices.popPose();
 	}

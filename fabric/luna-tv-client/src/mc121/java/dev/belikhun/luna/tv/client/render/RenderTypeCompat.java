@@ -73,6 +73,33 @@ public final class RenderTypeCompat {
 		}
 	}
 
+	/**
+	 * The same unlit type, blending instead of covering.
+	 *
+	 * The factory's boolean is the beacon's "render through": true is the outer
+	 * beam, translucent and colour-write only. That is exactly what an overlay
+	 * mark wants - it fades by alpha, and two overlapping marks blend in draw
+	 * order instead of z-fighting, because neither writes depth.
+	 *
+	 * @param texture the texture to draw with
+	 * @return the render type, or null when this version has neither factory
+	 */
+	public static RenderType translucent(ResourceLocation texture) {
+		Method found = resolve();
+
+		if (found == null) {
+			return null;
+		}
+
+		try {
+			return (RenderType) found.invoke(null, texture, Boolean.TRUE);
+		} catch (ReflectiveOperationException failed) {
+			LOGGER.error("Luna TV could not build a render type", failed);
+
+			return null;
+		}
+	}
+
 	private static Method resolve() {
 		if (looked) {
 			return factory;

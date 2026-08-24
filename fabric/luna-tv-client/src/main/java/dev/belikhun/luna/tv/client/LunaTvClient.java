@@ -23,6 +23,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
 
 import dev.belikhun.luna.tv.client.input.ScreenInput;
+import dev.belikhun.luna.tv.client.render.Feedback;
 import dev.belikhun.luna.tv.client.render.ScreenQuad;
 import dev.belikhun.luna.tv.client.render.ScreenSink;
 import dev.belikhun.luna.tv.client.render.ScreenTexture;
@@ -276,6 +277,7 @@ public final class LunaTvClient implements ClientModInitializer {
 	}
 
 	private void clear() {
+		Feedback.reset();
 		sounds.stop();
 
 		for (Live live : screens.values()) {
@@ -588,6 +590,10 @@ public final class LunaTvClient implements ClientModInitializer {
 			}
 
 			sink.draw(live.texture, live.quad, live.screen.brightness(), live.screen.glow());
+
+			// the pointer and the click ripples, on top of the picture they
+			// belong to
+			Feedback.draw(sink, live.screen.name(), live.quad);
 		}
 	}
 

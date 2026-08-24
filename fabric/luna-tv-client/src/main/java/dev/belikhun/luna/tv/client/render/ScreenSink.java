@@ -21,4 +21,21 @@ public interface ScreenSink {
 	 * @param glow the operator's glow percentage
 	 */
 	void draw(ScreenTexture texture, ScreenQuad quad, int brightness, int glow);
+
+	/**
+	 * Draws one translucent rectangle on a screen's surface.
+	 *
+	 * Coordinates are the picture's own: 0,0 the top left corner and 1,1 the
+	 * bottom right. The rectangle floats just above the picture, so it reads as
+	 * a mark on the page rather than part of it, and it blends rather than
+	 * writing depth, so overlapping marks never fight.
+	 *
+	 * @param quad where the screen is, in world coordinates
+	 * @param u0 the left edge, 0 to 1 across the picture
+	 * @param v0 the top edge, 0 to 1 down the picture
+	 * @param u1 the right edge
+	 * @param v1 the bottom edge
+	 * @param argb the mark's colour, alpha included
+	 */
+	void mark(ScreenQuad quad, double u0, double v0, double u1, double v1, int argb);
 }

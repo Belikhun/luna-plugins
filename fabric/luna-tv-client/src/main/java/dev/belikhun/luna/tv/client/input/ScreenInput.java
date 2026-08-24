@@ -21,6 +21,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import dev.belikhun.luna.tv.client.net.TvPayload;
+import dev.belikhun.luna.tv.client.render.Feedback;
 import dev.belikhun.luna.tv.client.render.ScreenQuad;
 
 /**
@@ -127,6 +128,10 @@ public final class ScreenInput {
 	public static void install(Screens screens) {
 		ScreenInput input = new ScreenInput(screens);
 
+		// the wall draws the pointer itself; asked at draw time rather than fed
+		// per tick, so it moves at frame rate instead of twenty steps a second
+		Feedback.pointer(input::pointerNow);
+
 		// Not now: Minecraft installs its own GLFW callbacks while it is starting,
 		// and whichever of us goes last wins. Waiting for a tick puts this after
 		// all of them, so the chain runs through us and on into the game.
@@ -227,6 +232,7 @@ public final class ScreenInput {
 
 			held |= mask;
 			dragging = aim.name;
+			Feedback.click(aim.name, aim.u, aim.v, mask == BUTTON_RIGHT);
 			send(aim.name, POINTER_DOWN, out -> {
 				out.writeInt(aim.x);
 				out.writeInt(aim.y);
@@ -283,6 +289,7 @@ public final class ScreenInput {
 		// GLFW counts a notch up as positive; a page scrolls down on positive
 		int delta = (int) Math.round(-yoffset * WHEEL_PIXELS);
 
+		Feedback.scroll(aim.name, aim.u, aim.v, delta > 0 ? 1 : -1);
 		send(aim.name, SCROLL, out -> {
 			out.writeInt(aim.x);
 			out.writeInt(aim.y);
@@ -438,6 +445,24 @@ public final class ScreenInput {
 		return onScreen;
 	}
 
+	/**
+	 * The pointer as it stands this frame, for the marks drawn on the wall.
+	 *
+	 * Strong while the player is steering: crouched into hover mode, or holding
+	 * a button through a drag.
+	 *
+	 * @return the pointer, or null while the crosshair is off every screen
+	 */
+	private Feedback.Pointer pointerNow() {
+		Aim aim = aim();
+
+		if (aim == null) {
+			return null;
+		}
+
+		return new Feedback.Pointer(aim.name, aim.u, aim.v, crouching() || held != 0);
+	}
+
 	private static boolean crouching() {
 		Minecraft client = Minecraft.getInstance();
 
@@ -508,6 +533,7 @@ public final class ScreenInput {
 			nearest = hit[0];
 			best = new Aim(target.name(),
 				pixel(hit[1], target.pixelWidth()), pixel(hit[2], target.pixelHeight()),
+				clamp(hit[1]), clamp(hit[2]),
 				target.keyboard());
 		}
 
@@ -529,6 +555,10 @@ public final class ScreenInput {
 
 	private static int pixel(double fraction, int size) {
 		return Math.max(0, Math.min(size - 1, (int) Math.floor(fraction * size)));
+	}
+
+	private static double clamp(double fraction) {
+		return Math.max(0.0, Math.min(1.0, fraction));
 	}
 
 	private void send(String screen, byte kind, Body body) {
@@ -553,6 +583,7 @@ public final class ScreenInput {
 		void write(DataOutputStream out) throws IOException;
 	}
 
-	private record Aim(String name, int x, int y, boolean keyboard) {
+	/** The fractions ride along for the wall's own marks, clamped onto the picture. */
+	private record Aim(String name, int x, int y, double u, double v, boolean keyboard) {
 	}
 }
