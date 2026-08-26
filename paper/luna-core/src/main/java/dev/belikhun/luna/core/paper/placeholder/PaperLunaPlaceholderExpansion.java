@@ -15,6 +15,7 @@ import me.clip.placeholderapi.expansion.PlaceholderExpansion;
 import me.lucko.spark.api.Spark;
 import me.lucko.spark.api.SparkProvider;
 import me.lucko.spark.api.statistic.StatisticWindow.CpuUsage;
+import me.lucko.spark.api.statistic.StatisticWindow.MillisPerTick;
 import me.lucko.spark.api.statistic.StatisticWindow.TicksPerSecond;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
@@ -106,6 +107,7 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			case "online" -> Integer.toString(Bukkit.getOnlinePlayers().size());
 			case "max" -> Integer.toString(Bukkit.getMaxPlayers());
 			case "tps" -> String.format(Locale.US, "%.2f", currentTps());
+			case "tick_duration" -> String.format(Locale.US, "%.2f", currentTickDurationMillis());
 			case "player_ping" -> Long.toString(playerPing(player));
 			case "latency" -> Long.toString(currentLatencyMillis());
 			case "uptime" -> Formatters.compactDuration(Duration.ofMillis(currentUptimeMillis()));
@@ -361,6 +363,24 @@ public final class PaperLunaPlaceholderExpansion extends PlaceholderExpansion {
 			if (values.length > 0) {
 				return Math.max(0D, values[0]);
 			}
+		} catch (Throwable ignored) {
+		}
+
+		return 0D;
+	}
+
+	private double currentTickDurationMillis() {
+		try {
+			Spark spark = SparkProvider.get();
+			double sparkMspt = spark.mspt().poll(MillisPerTick.SECONDS_10).mean();
+			if (sparkMspt > 0D) {
+				return sparkMspt;
+			}
+		} catch (Throwable ignored) {
+		}
+
+		try {
+			return Math.max(0D, Bukkit.getAverageTickTime());
 		} catch (Throwable ignored) {
 		}
 

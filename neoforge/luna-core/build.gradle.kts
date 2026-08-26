@@ -22,6 +22,7 @@ sourceSets.named("main") {
 	java.srcDir(lunaCoreMc.dir("decor-components/java"))
 	java.srcDir(lunaCoreMc.dir("itemio-codec/java"))
 	java.srcDir(lunaCoreMc.dir("text-codec/java"))
+	java.srcDir(lunaCoreMc.dir("metrics-smoothedtick/java"))
 	java.srcDir(lunaCoreMc.dir("services/java"))
 }
 

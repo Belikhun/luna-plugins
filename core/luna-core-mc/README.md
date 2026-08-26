@@ -31,11 +31,21 @@ trunk never learns to branch:
 | `src/itemio-save/java` | the same, via `save`/`ItemStack.of` | 1.19 - 1.20.4 |
 | `src/text-codec/java` | `ComponentJson` (chat json to a component) via `ComponentSerialization` | 1.20.3 - 26.x |
 | `src/text-serializer/java` | the same, via the static `Component.Serializer` | 1.19 - 1.20.2 |
+| `src/metrics-averagetick/java` | `ServerMetrics` (tick duration, ping) via `getAverageTickTime` + `ServerPlayer.latency` | 1.19 - 1.20.4 |
+| `src/metrics-smoothedtick/java` | the same, via `getCurrentSmoothedTickTime` + `connection.latency()` | 1.20.5 - 1.21.x |
 
 A set is kept as small as the change is. `ItemDecor` is three writes rather than
 the whole of `LunaItems`, and `ItemIo` is two calls rather than the whole of
 `LunaItemCodec`, so the MiniMessage rendering, the barrier fallback, the gzip and
 base64 envelope and the size cap are all written once.
+
+`ServerMetrics` exists because these two readings are the ones a reflective
+lookup cannot reach. Forge and neoforge reobfuscate the jar to SRG and a method
+name written as a string is not remapped with it, so `invokeNoArg(server,
+"getAverageTickTime")` misses and the caller silently falls back - tick duration
+to `1000 / tps` (a flat 50.0 ms) and ping to 0. Anything reading `net.minecraft`
+on those loaders has to be a real call, which is what makes this a compat set
+rather than a list of candidate names.
 
 Splitting by concern rather than by game line is deliberate. A line-shaped layout
 (`src/mc20`, `src/mc21`, …) would hold a copy of `LunaChestMenu` in each of the

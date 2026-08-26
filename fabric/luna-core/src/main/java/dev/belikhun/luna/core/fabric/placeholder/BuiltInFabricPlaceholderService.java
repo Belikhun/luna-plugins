@@ -5,6 +5,7 @@ import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import com.sun.management.OperatingSystemMXBean;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
+import dev.belikhun.luna.core.api.heartbeat.TickDurationFormat;
 import dev.belikhun.luna.core.api.heartbeat.SparkMetrics;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
@@ -613,6 +614,10 @@ public final class BuiltInFabricPlaceholderService implements PlaceholderService
 		return String.format(Locale.US, "%.2f", Math.max(0D, value));
 	}
 
+	String formatMillis(double value) {
+		return String.format(Locale.US, "%.2f", Math.max(0D, value));
+	}
+
 	String formatSparkTickDuration(PlaceholderSnapshot snapshot) {
 		String sparkValue = safe(snapshot.sparkTickDuration10Sec());
 
@@ -621,9 +626,9 @@ public final class BuiltInFabricPlaceholderService implements PlaceholderService
 		}
 
 		// spark reports four windows; without it every window is the same reading
-		String fallback = formatOneDecimal(snapshot.currentTickDurationMillis());
+		double fallback = snapshot.currentTickDurationMillis();
 
-		return fallback + "/" + fallback + "/" + fallback + "/" + fallback;
+		return TickDurationFormat.spread(fallback, fallback, fallback, fallback);
 	}
 
 	String formatDecimal(double value) {

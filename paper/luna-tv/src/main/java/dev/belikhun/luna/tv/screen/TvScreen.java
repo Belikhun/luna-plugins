@@ -95,11 +95,16 @@ public final class TvScreen {
 	/**
 	 * Clamps a volume percentage into range.
 	 *
+	 * Up to 200 rather than 100, because the web is not mastered evenly: a
+	 * quiet video on a screen already at full volume used to have no remedy.
+	 * Past 100 the audio paths amplify and hard-clip where a sample leaves
+	 * range, which is what an amplifier does.
+	 *
 	 * @param value the requested percentage
-	 * @return the value, held to 0..100
+	 * @return the value, held to 0..200
 	 */
 	public static int clampVolume(int value) {
-		return Math.max(0, Math.min(100, value));
+		return Math.max(0, Math.min(200, value));
 	}
 
 	/**

@@ -204,7 +204,7 @@ public final class AudioService {
 	 * @param sink the sink its browser plays into
 	 * @param at where the sound should come from (the left edge, in stereo)
 	 * @param rightAt where the right channel sounds from, null for mono
-	 * @param volume starting volume, 0 to 100
+	 * @param volume starting volume, 0 to 200
 	 * @param range how far the channel carries, in blocks
 	 * @return true when the stream started
 	 */
@@ -317,7 +317,7 @@ public final class AudioService {
 	 * Sets a screen's volume.
 	 *
 	 * @param screenName the screen's name
-	 * @param volume 0 to 100
+	 * @param volume 0 to 200
 	 */
 	public void volume(String screenName, int volume) {
 		ScreenAudio stream = streams.get(screenName);

@@ -28,6 +28,7 @@ final class BuiltinPlaceholderProvider implements ServerPlaceholderProvider {
 		support.putCore(values, "online", Integer.toString(support.server().getPlayerCount()));
 		support.putCore(values, "max", Integer.toString(support.server().getMaxPlayers()));
 		support.putCore(values, "tps", support.formatTps(snapshot.currentTps()));
+		support.putCore(values, "tick_duration", support.formatMillis(snapshot.currentTickDurationMillis()));
 		support.putCore(values, "player_ping", Integer.toString(playerPingMillis));
 		support.putCore(values, "latency", "0");
 		support.putCore(values, "uptime", Formatters.compactDuration(Duration.ofMillis(snapshot.uptimeMillis())));
@@ -98,6 +99,7 @@ final class BuiltinPlaceholderProvider implements ServerPlaceholderProvider {
 			case "online" -> Integer.toString(support.server().getPlayerCount());
 			case "max" -> Integer.toString(support.server().getMaxPlayers());
 			case "tps" -> support.formatTps(snapshot.currentTps());
+			case "tick_duration" -> support.formatMillis(snapshot.currentTickDurationMillis());
 			case "player_ping" -> Integer.toString(snapshot.playerPingMillis());
 			case "latency" -> "0";
 			case "uptime" -> Formatters.compactDuration(Duration.ofMillis(snapshot.uptimeMillis()));

@@ -113,7 +113,7 @@ public final class ScreenAudio {
 	 * @param api the live voice-chat server API
 	 * @param at where the sound comes from
 	 * @param rightAt where the right channel sounds from, null for mono
-	 * @param volumePercent starting volume, 0 to 100
+	 * @param volumePercent starting volume, 0 to 200
 	 * @param range how far the channel carries, in blocks
 	 * @return true when a channel was opened
 	 */
@@ -124,7 +124,7 @@ public final class ScreenAudio {
 		int volumePercent,
 		int range
 	) {
-		this.volume = Math.max(0, Math.min(100, volumePercent));
+		this.volume = Math.max(0, Math.min(200, volumePercent));
 		this.distance = range > 0 ? range : config.audioDistance();
 
 		// The recorder comes first and is the part that always runs: it is what
@@ -308,7 +308,7 @@ public final class ScreenAudio {
 	private short[] scaled(short[] frame) {
 		int level = volume;
 
-		if (level >= 100) {
+		if (level == 100) {
 			return frame;
 		}
 
@@ -317,7 +317,18 @@ public final class ScreenAudio {
 		}
 
 		for (int index = 0; index < frame.length; index++) {
-			frame[index] = (short) (frame[index] * level / 100);
+			int amplified = frame[index] * level / 100;
+
+			// past 100% a loud sample can leave short range, and letting it
+			// wrap is not distortion but noise; hard clipping is what an
+			// overdriven amplifier does, and is what a listener expects
+			if (amplified > Short.MAX_VALUE) {
+				amplified = Short.MAX_VALUE;
+			} else if (amplified < Short.MIN_VALUE) {
+				amplified = Short.MIN_VALUE;
+			}
+
+			frame[index] = (short) amplified;
 		}
 
 		return frame;
@@ -354,10 +365,10 @@ public final class ScreenAudio {
 	/**
 	 * Sets playback volume.
 	 *
-	 * @param volumePercent 0 to 100
+	 * @param volumePercent 0 to 200
 	 */
 	public void volume(int volumePercent) {
-		this.volume = Math.max(0, Math.min(100, volumePercent));
+		this.volume = Math.max(0, Math.min(200, volumePercent));
 	}
 
 	/**

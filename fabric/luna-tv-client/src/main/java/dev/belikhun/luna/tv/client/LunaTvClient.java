@@ -89,6 +89,18 @@ public final class LunaTvClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		// Bounds the stream sockets' receive buffer, read by java.net.http when
+		// a client is built. Left to autotune, Windows grows it into megabytes,
+		// and that is where video quietly pools when the decoder falls behind:
+		// measured, a GPU-starved decoder (the game rendering uncapped shares
+		// the silicon) hid a backlog of many seconds there, and the wall ran
+		// that far behind the sound. The server can skip a lagging viewer to a
+		// fresh keyframe, but only when the lag reaches its own queue - a small
+		// buffer here is what pushes it back there within a fraction of a
+		// second. 256KB still holds several times the link's bandwidth-delay
+		// product, so throughput loses nothing.
+		System.setProperty("jdk.httpclient.receiveBufferSize", "262144");
+
 		Compat.registerPayloads();
 
 		ClientPlayNetworking.registerGlobalReceiver(TvPayload.SCREENS,

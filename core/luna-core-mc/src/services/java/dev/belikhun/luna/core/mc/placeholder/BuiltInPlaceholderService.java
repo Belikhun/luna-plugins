@@ -3,6 +3,7 @@ package dev.belikhun.luna.core.mc.placeholder;
 import com.sun.management.OperatingSystemMXBean;
 import dev.belikhun.luna.core.api.heartbeat.BackendIdentity;
 import dev.belikhun.luna.core.api.heartbeat.BackendMetadata;
+import dev.belikhun.luna.core.api.heartbeat.TickDurationFormat;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.placeholder.LunaImportedPlaceholderSupport.WorldKind;
 import dev.belikhun.luna.core.api.placeholder.PlaceholderEscaping;
@@ -19,6 +20,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.ServerLevelData;
 
 import java.lang.management.ManagementFactory;
 import java.lang.reflect.Field;
@@ -348,10 +350,11 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 				}
 			}
 
-			Object levelData = invokeNoArg(level, "getLevelData");
-			String levelName = invokeString(levelData, "getLevelName");
-			if (levelName != null && normalized.equals(levelName.trim().toLowerCase(Locale.ROOT))) {
-				return level;
+			if (level.getLevelData() instanceof ServerLevelData levelData) {
+				String levelName = levelData.getLevelName();
+				if (levelName != null && normalized.equals(levelName.trim().toLowerCase(Locale.ROOT))) {
+					return level;
+				}
 			}
 		}
 
@@ -359,27 +362,19 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 	}
 
 	long currentWeatherDurationTicks(ServerLevel level, boolean raining, boolean thundering) {
-		Object levelData = invokeNoArg(level, "getLevelData");
-		if (levelData == null) {
+		if (!(level.getLevelData() instanceof ServerLevelData levelData)) {
 			return 0L;
 		}
 
 		if (thundering) {
-			Integer thunderTime = invokeInt(levelData, "getThunderTime");
-			if (thunderTime != null && thunderTime >= 0) {
-				return thunderTime.longValue();
-			}
+			return Math.max(0L, levelData.getThunderTime());
 		}
 
 		if (raining) {
-			Integer rainTime = invokeInt(levelData, "getRainTime");
-			if (rainTime != null && rainTime >= 0) {
-				return rainTime.longValue();
-			}
+			return Math.max(0L, levelData.getRainTime());
 		}
 
-		Integer clearWeatherTime = invokeInt(levelData, "getClearWeatherTime");
-		return clearWeatherTime == null || clearWeatherTime < 0 ? 0L : clearWeatherTime.longValue();
+		return Math.max(0L, levelData.getClearWeatherTime());
 	}
 
 	WorldKind toWorldKind(ServerLevel level) {
@@ -483,29 +478,9 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 	}
 
 	private double currentTickDurationMillis(double currentTps) {
-		for (String methodName : new String[] {"getAverageTickTime", "getCurrentSmoothedTickTime", "getTickTime"}) {
-			Double averageTickTime = invokeDouble(server, methodName);
-			if (averageTickTime != null && averageTickTime > 0D) {
-				return averageTickTime;
-			}
-		}
-
-		Object tickTimes = readField(server, "tickTimes");
-		if (tickTimes instanceof long[] values && values.length > 0) {
-			long total = 0L;
-			int samples = 0;
-			for (long value : values) {
-				if (value <= 0L) {
-					continue;
-				}
-
-				total += value;
-				samples++;
-			}
-
-			if (samples > 0) {
-				return Math.max(0D, (total / (double) samples) / 1_000_000D);
-			}
+		double averageTickTime = ServerMetrics.tickDurationMillis(server);
+		if (averageTickTime > 0D) {
+			return averageTickTime;
 		}
 
 		if (currentTps > 0D) {
@@ -553,38 +528,7 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 			return 0;
 		}
 
-		for (String methodName : new String[] {"latency", "getLatency", "connectionLatency", "getConnectionLatency"}) {
-			Integer directValue = invokeInt(player, methodName);
-			if (directValue != null && directValue >= 0) {
-				return directValue;
-			}
-		}
-
-		Object connection = readField(player, "connection");
-		if (connection != null) {
-			for (String methodName : new String[] {"latency", "getLatency", "connectionLatency", "getConnectionLatency"}) {
-				Integer connectionValue = invokeInt(connection, methodName);
-				if (connectionValue != null && connectionValue >= 0) {
-					return connectionValue;
-				}
-			}
-
-			for (String fieldName : new String[] {"latency", "connectionLatency"}) {
-				Object value = readField(connection, fieldName);
-				if (value instanceof Number number) {
-					return Math.max(0, number.intValue());
-				}
-			}
-		}
-
-		for (String fieldName : new String[] {"latency", "connectionLatency"}) {
-			Object value = readField(player, fieldName);
-			if (value instanceof Number number) {
-				return Math.max(0, number.intValue());
-			}
-		}
-
-		return 0;
+		return Math.max(0, ServerMetrics.pingMillis(player));
 	}
 
 	private Double invokeDouble(Object target, String methodName) {
@@ -721,6 +665,9 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 		return Math.max(1L, Runtime.getRuntime().maxMemory());
 	}
 
+	// Count through direct calls, never reflection: forge and neoforge reobfuscate
+	// this jar to SRG, and a method name written as a string is not remapped with
+	// it, so a lookup by "getAllEntities" misses and every count reads zero.
 	private int countEntities() {
 		int total = 0;
 		for (ServerLevel level : server.getAllLevels()) {
@@ -740,50 +687,19 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 	private int countLoadedChunks() {
 		int total = 0;
 		for (ServerLevel level : server.getAllLevels()) {
-			Object chunkSource = level.getChunkSource();
-			Integer loadedChunks = invokeInt(chunkSource, "getLoadedChunksCount");
-			if (loadedChunks != null && loadedChunks >= 0) {
-				total += loadedChunks;
-				continue;
-			}
-
-			Object chunkMap = readField(chunkSource, "chunkMap");
-			Integer reflectedSize = invokeInt(chunkMap, "size");
-			if (reflectedSize != null && reflectedSize >= 0) {
-				total += reflectedSize;
-			}
+			total += Math.max(0, level.getChunkSource().getLoadedChunksCount());
 		}
 		return Math.max(0, total);
 	}
 
 	private int countEntities(ServerLevel level, boolean livingOnly) {
-		Iterable<?> entities = allEntities(level);
-		if (entities == null) {
-			return 0;
-		}
-
 		int total = 0;
-		for (Object entity : entities) {
+		for (var entity : level.getAllEntities()) {
 			if (!livingOnly || entity instanceof LivingEntity) {
 				total++;
 			}
 		}
 		return total;
-	}
-
-	private Iterable<?> allEntities(ServerLevel level) {
-		Object direct = invokeNoArg(level, "getAllEntities");
-		if (direct instanceof Iterable<?> iterable) {
-			return iterable;
-		}
-
-		Object entityGetter = invokeNoArg(level, "getEntities");
-		Object nested = invokeNoArg(entityGetter, "getAll");
-		if (nested instanceof Iterable<?> iterable) {
-			return iterable;
-		}
-
-		return null;
 	}
 
 	private double systemCpuPercent() {
@@ -817,14 +733,20 @@ public final class BuiltInPlaceholderService implements PlaceholderService {
 		return String.format(Locale.US, "%.2f", Math.max(0D, value));
 	}
 
+	String formatMillis(double value) {
+		return String.format(Locale.US, "%.2f", Math.max(0D, value));
+	}
+
 	String formatSparkTickDuration(PlaceholderSnapshot snapshot) {
 		String sparkValue = safe(snapshot.sparkTickDuration10Sec());
 		if (!sparkValue.isBlank()) {
 			return sparkValue;
 		}
 
-		String fallback = formatOneDecimal(snapshot.currentTickDurationMillis());
-		return fallback + "/" + fallback + "/" + fallback + "/" + fallback;
+		// spark reports four windows; without it every window is the same reading
+		double fallback = snapshot.currentTickDurationMillis();
+
+		return TickDurationFormat.spread(fallback, fallback, fallback, fallback);
 	}
 
 	String formatDecimal(double value) {

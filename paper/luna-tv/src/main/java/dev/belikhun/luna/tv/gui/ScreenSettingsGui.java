@@ -200,7 +200,8 @@ public final class ScreenSettingsGui {
 		view.setItem(38, LunaUi.item(Material.REPEATER,
 			"<aqua>Âm lượng: " + screen.volume() + "%</aqua>",
 			List.of(
-				LunaUi.mini("<gray>Bấm trái: +10 · bấm phải: −10</gray>"))),
+				LunaUi.mini("<gray>Bấm trái: +10 · bấm phải: −10 · tối đa 200%</gray>"),
+				LunaUi.mini("<gray>Trên 100% là khuếch đại, tiếng to sẵn sẽ rè.</gray>"))),
 			(clicker, click, view0) -> {
 				int step = click.isRightClick() ? -10 : 10;
 

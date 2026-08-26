@@ -66,7 +66,7 @@ final class BuiltinPlaceholderProvider implements FabricPlaceholderProvider {
 	 * leaving it out, because a snapshot never re-resolves a key it already holds.
 	 */
 	private static final Set<String> CORE_KEYS = Set.of(
-		"current_server", "status", "online", "max", "tps", "player_ping", "latency",
+		"current_server", "status", "online", "max", "tps", "tick_duration", "player_ping", "latency",
 		"uptime", "uptime_long", "uptime_ms", "system_cpu", "process_cpu", "version",
 		"display", "server_name", "color", "whitelist",
 		"total_entities", "total_living_entities", "total_chunks"
@@ -85,6 +85,7 @@ final class BuiltinPlaceholderProvider implements FabricPlaceholderProvider {
 			case "online" -> Integer.toString(support.onlinePlayers());
 			case "max" -> Integer.toString(support.maxPlayers());
 			case "tps" -> support.formatTps(snapshot.currentTps());
+			case "tick_duration" -> support.formatMillis(snapshot.currentTickDurationMillis());
 			case "player_ping" -> Integer.toString(snapshot.playerPingMillis());
 			case "latency" -> "0";
 			case "uptime" -> Formatters.compactDuration(Duration.ofMillis(snapshot.uptimeMillis()));

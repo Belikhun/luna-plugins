@@ -119,7 +119,7 @@ public final class PanelRenderer {
 		button(g, "seekfwd", 188, 70, 60, 24, CARD, "+10s", 11);
 
 		// volume, then brightness: same shape so the pair reads as one group
-		slider(g, "volume", 98, "voldown", "volup", state.volume(), 0, 100,
+		slider(g, "volume", 98, "voldown", "volup", state.volume(), 0, 200,
 			state.audio() ? BLUE : MUTED, state.volume() + "%",
 			"mute", state.audio() ? "ON" : "OFF", state.audio());
 		slider(g, "brightness", 124, "brightdown", "brightup", state.brightness(), 50, 200,

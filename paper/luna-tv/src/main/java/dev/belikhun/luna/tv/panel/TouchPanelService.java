@@ -447,8 +447,8 @@ public final class TouchPanelService implements Listener {
 			case "voldown" -> screens.volume(instance, screen.volume() - 10);
 			case "volup" -> screens.volume(instance, screen.volume() + 10);
 			case "volume" -> {
-				// the slider: the press position IS the value
-				int value = (x - widget.x()) * 100 / Math.max(1, widget.width());
+				// the slider: the press position IS the value, on the 0..200 track
+				int value = (x - widget.x()) * 200 / Math.max(1, widget.width());
 
 				screens.volume(instance, value);
 			}

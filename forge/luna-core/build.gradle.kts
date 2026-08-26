@@ -24,6 +24,7 @@ sourceSets.named("main") {
 	java.srcDir(lunaCoreMc.dir("decor-nbt/java"))
 	java.srcDir(lunaCoreMc.dir("itemio-save/java"))
 	java.srcDir(lunaCoreMc.dir("text-serializer/java"))
+	java.srcDir(lunaCoreMc.dir("metrics-averagetick/java"))
 	java.srcDir(lunaCoreMc.dir("services/java"))
 }
 

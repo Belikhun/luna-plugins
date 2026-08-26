@@ -856,7 +856,7 @@ public final class ScreenManager {
 	 * Sets a screen's volume.
 	 *
 	 * @param instance the screen
-	 * @param volume 0 to 100
+	 * @param volume 0 to 200
 	 */
 	public void volume(ScreenInstance instance, int volume) {
 		instance.screen().volume(volume);

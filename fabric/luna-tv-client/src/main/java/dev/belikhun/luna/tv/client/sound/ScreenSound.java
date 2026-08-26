@@ -140,7 +140,8 @@ public final class ScreenSound implements AutoCloseable {
 	 *
 	 * @param points x, y, z per channel: one point for mono, left then right for
 	 *               stereo
-	 * @param volume the screen's own volume, 0 to 100
+	 * @param volume the screen's own volume, 0 to 200; past 100 it amplifies,
+	 *        inside the compensation cap the gain math already carries
 	 * @param range how far it can be heard, in blocks
 	 */
 	public void aim(double[] points, int volume, int range) {

@@ -659,7 +659,7 @@ public final class LunaTvCommand implements BasicCommand {
 		}
 
 		if (args.length < 3) {
-			sender.sendRichMessage(CommandStrings.syntaxRaw("/lunatv volume <tên> <0-100>"));
+			sender.sendRichMessage(CommandStrings.syntaxRaw("/lunatv volume <tên> <0-200>"));
 			return;
 		}
 
@@ -1423,7 +1423,8 @@ public final class LunaTvCommand implements BasicCommand {
 				? CommandCompletions.filterPrefix(new ArrayList<>(screens.names()), args[1])
 				: List.of();
 			case "volume" -> args.length == 3
-				? CommandCompletions.filterPrefix(List.of("0", "25", "50", "75", "100"), args[2])
+				? CommandCompletions.filterPrefix(
+					List.of("0", "25", "50", "75", "100", "150", "200"), args[2])
 				: List.of();
 			case "url" -> args.length == 3 ? presetUrls(args[2]) : List.of();
 			default -> List.of();
