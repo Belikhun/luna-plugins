@@ -60,7 +60,7 @@ public final class LunaVaultBackendForgeMod {
 	private PermissionService permissionService;
 
 	public LunaVaultBackendForgeMod() {
-		this.logger = LunaLoggers.create("VaultBackend", true);
+		this.logger = LunaLoggers.create("LunaVaultBackend", true);
 		MinecraftForge.EVENT_BUS.register(this);
 	}
 

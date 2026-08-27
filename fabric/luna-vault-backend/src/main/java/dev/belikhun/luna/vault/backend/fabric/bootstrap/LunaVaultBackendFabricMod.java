@@ -58,7 +58,7 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 	private PermissionService permissionService;
 
 	public LunaVaultBackendFabricMod() {
-		this.logger = FabricLunaLoggers.create("VaultBackend", true);
+		this.logger = FabricLunaLoggers.create("LunaVaultBackend", true);
 		this.gateway = null;
 		this.historyScreen = null;
 		this.placeholders = null;
@@ -113,7 +113,7 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 			.resolve(MOD_ID).resolve("config.yml");
 		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
 
-		logger = FabricLunaLoggers.create("VaultBackend", true);
+		logger = FabricLunaLoggers.create("LunaVaultBackend", true);
 
 		// only the direct-database mode owns these tables; in rpc mode the proxy is
 		// the one that has already migrated them

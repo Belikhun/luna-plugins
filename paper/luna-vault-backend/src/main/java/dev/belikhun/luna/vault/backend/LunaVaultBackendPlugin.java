@@ -33,7 +33,7 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 		}
 
 		saveDefaultConfig();
-		logger = PaperPluginBootstrap.initLogger(this, "VaultBackend");
+		logger = PaperPluginBootstrap.initLogger(this, "LunaVaultBackend");
 		ConfigStore coreConfig = LunaCore.services().configStore();
 		Database database = LunaCore.services().databaseManager().getDatabase();
 		try {

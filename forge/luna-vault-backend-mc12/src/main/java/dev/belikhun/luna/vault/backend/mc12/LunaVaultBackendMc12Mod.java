@@ -89,7 +89,7 @@ public final class LunaVaultBackendMc12Mod {
 
 	@Mod.EventHandler
 	public void onPreInit(FMLPreInitializationEvent event) {
-		logger = LegacyLunaLogger.create(event.getModLog(), "VaultBackend");
+		logger = LegacyLunaLogger.create(event.getModLog(), "LunaVaultBackend");
 		configDir = event.getModConfigurationDirectory().toPath();
 	}
 

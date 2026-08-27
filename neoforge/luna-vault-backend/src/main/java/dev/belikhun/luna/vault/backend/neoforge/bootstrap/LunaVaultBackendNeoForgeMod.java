@@ -61,7 +61,7 @@ public final class LunaVaultBackendNeoForgeMod {
 	private PermissionService permissionService;
 
 	public LunaVaultBackendNeoForgeMod(IEventBus modEventBus) {
-		this.logger = LunaLoggers.create("VaultBackend", true);
+		this.logger = LunaLoggers.create("LunaVaultBackend", true);
 		NeoForge.EVENT_BUS.register(this);
 	}
 
