@@ -37,9 +37,13 @@ versionRange="[0,)"
 ordering="AFTER"
 side="SERVER"
 
+# Simple Voice Chat's forge jars carry MC-prefixed versions ("1.20.1-2.5.34"),
+# which maven ordering reads as 1.x, so any semantic floor ("[2.5.0,)") refuses
+# a jar that actually satisfies it. The provider degrades gracefully at runtime,
+# so the range stays open and compatibility is the integration's own problem.
 [[dependencies.lunacore]]
 modId="voicechat"
 mandatory=false
-versionRange="[2.5.0,)"
+versionRange="[0,)"
 ordering="AFTER"
 side="SERVER"
