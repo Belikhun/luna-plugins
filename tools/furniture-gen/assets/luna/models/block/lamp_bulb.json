@@ -1,0 +1,77 @@
+{
+	"__comment": "Hand-authored: the bulb under Adorn's lamp shade. Adorn ships one model per lamp, so the lit and unlit states are told apart by this. The shade's open bottom sits at y 5; the bulb stays above it so nothing glows outside the shade.",
+	"textures": {
+		"glow": "minecraft:block/glowstone"
+	},
+	"elements": [
+		{
+			"name": "bulb",
+			"from": [
+				6,
+				6,
+				6
+			],
+			"to": [
+				10,
+				9.5,
+				10
+			],
+			"faces": {
+				"north": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				},
+				"east": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				},
+				"south": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				},
+				"west": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				},
+				"up": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				},
+				"down": {
+					"uv": [
+						4,
+						4,
+						12,
+						12
+					],
+					"texture": "#glow"
+				}
+			}
+		}
+	]
+}

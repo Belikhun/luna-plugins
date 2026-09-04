@@ -1,0 +1,41 @@
+{
+	"textures": {
+		"led": "lunasmp:block/gauge_led_blue",
+		"particle": "lunasmp:block/gauge_led_blue"
+	},
+	"elements": [
+		{
+			"from": [
+				7,
+				7,
+				7.9
+			],
+			"to": [
+				9,
+				9,
+				8.1
+			],
+			"shade": false,
+			"faces": {
+				"north": {
+					"uv": [
+						0,
+						0,
+						16,
+						16
+					],
+					"texture": "#led"
+				},
+				"south": {
+					"uv": [
+						16,
+						0,
+						0,
+						16
+					],
+					"texture": "#led"
+				}
+			}
+		}
+	]
+}

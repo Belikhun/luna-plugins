@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.api.gui.GuiManager;
 import dev.belikhun.luna.core.api.gui.GuiView;
 import dev.belikhun.luna.core.api.gui.LunaPagination;
 import dev.belikhun.luna.core.api.gui.NumberSelectorGui;
+import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.api.ui.LunaLore;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 public final class ShopGuiController implements Listener {
 	private static final int PAGE_SIZE = 45;
@@ -61,6 +63,7 @@ public final class ShopGuiController implements Listener {
 	private final ShopItemStore store;
 	private final GuiManager guiManager;
 	private final NumberSelectorGui numberSelector;
+	private final LunaLogger logger;
 	private final PlainTextComponentSerializer plainText;
 	/** Last balance the wallet reported, per player; see knownBalanceText. */
 	private final Map<UUID, Double> knownBalance = new ConcurrentHashMap<>();
@@ -72,10 +75,14 @@ public final class ShopGuiController implements Listener {
 	private final Map<UUID, UUID> pendingConfirmations;
 	private final Map<UUID, ItemEditorSession> openItemEditors;
 
-	public ShopGuiController(JavaPlugin plugin, ShopService service, ShopItemStore store) {
+	/** Trades sent to the wallet and not yet reported back; see runTrade. */
+	private final Map<UUID, Long> settlingTrades;
+
+	public ShopGuiController(JavaPlugin plugin, ShopService service, ShopItemStore store, LunaLogger logger) {
 		this.plugin = plugin;
 		this.service = service;
 		this.store = store;
+		this.logger = logger;
 		this.guiManager = new GuiManager();
 		this.numberSelector = new NumberSelectorGui(plugin, this.guiManager);
 		this.plainText = PlainTextComponentSerializer.plainText();
@@ -85,6 +92,7 @@ public final class ShopGuiController implements Listener {
 		this.waitingAdminPrompt = new ConcurrentHashMap<>();
 		this.pendingConfirmations = new ConcurrentHashMap<>();
 		this.openItemEditors = new ConcurrentHashMap<>();
+		this.settlingTrades = new ConcurrentHashMap<>();
 
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -107,6 +115,7 @@ public final class ShopGuiController implements Listener {
 		waitingAdminPrompt.remove(playerId);
 		pendingConfirmations.remove(playerId);
 		openItemEditors.remove(playerId);
+		settlingTrades.remove(playerId);
 	}
 
 	public void openManagementMenu(Player player, int page) {
@@ -771,7 +780,7 @@ public final class ShopGuiController implements Listener {
 						"<gray>Số lượng sẽ bán: <white>" + effectiveSellAmount,
 						"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(expected)
 					),
-					() -> settle(clicker, normalized, service.sellAllSimilarAsync(clicker, shopItem)),
+					() -> runTrade(clicker, shopItem, normalized, () -> service.sellAllSimilarAsync(clicker, shopItem)),
 					() -> openTradeMenu(clicker, normalized)
 				);
 			});
@@ -825,16 +834,59 @@ public final class ShopGuiController implements Listener {
 						"<gray>Số dư hiện tại: <white>" + service.formatMoney(balance),
 						"<gray>Lệnh mua này vượt <white>50%</white> số dư của bạn."
 					),
-					() -> settle(player, session, service.buyAsync(player, shopItem, session.amount())),
+					() -> runTrade(player, shopItem, session, () -> service.buyAsync(player, shopItem, session.amount())),
 					() -> openTradeMenu(player, session)
 				);
 				return;
 			}
 		}
 
-		settle(player, session, session.mode() == TradeMode.BUY
+		runTrade(player, shopItem, session, () -> session.mode() == TradeMode.BUY
 			? service.buyAsync(player, shopItem, session.amount())
 			: service.sellAsync(player, shopItem, session.amount()));
+	}
+
+	/**
+	 * Send one trade, and refuse a second until that one has been reported.
+	 *
+	 * One press of a mouse button can reach the server as two window-click packets
+	 * - a worn switch bouncing, a client resending a click the server cancelled -
+	 * and both land on a menu still showing the pre-trade state, so both pass every
+	 * check and the player is charged twice for goods they asked for once.
+	 * ShopService's own guard cannot catch it: that one is released the moment the
+	 * wallet answers, which is before the player has been told anything, and the
+	 * duplicate arrives after it.
+	 *
+	 * The gate is held until settle has reported back and redrawn the menu, which
+	 * is always a scheduler hop later, so a repeat in the same tick or the next one
+	 * finds it shut. It is logged rather than answered: the player pressed once, so
+	 * an error message would be about a click they never made.
+	 */
+	private void runTrade(Player player, ShopItem shopItem, TradeSession session, Supplier<CompletableFuture<ShopResult>> trade) {
+		UUID playerId = player.getUniqueId();
+		Long startedAt = settlingTrades.putIfAbsent(playerId, System.nanoTime());
+
+		if (startedAt != null) {
+			long gapMillis = (System.nanoTime() - startedAt.longValue()) / 1_000_000L;
+
+			logger.warn("Bỏ qua click giao dịch trùng của " + player.getName()
+				+ " (" + playerId + ") cho " + shopItem.id()
+				+ " sau " + gapMillis + "ms; giao dịch trước chưa báo kết quả.");
+
+			return;
+		}
+
+		CompletableFuture<ShopResult> pending;
+
+		try {
+			pending = trade.get();
+		} catch (RuntimeException failure) {
+			settlingTrades.remove(playerId);
+
+			throw failure;
+		}
+
+		settle(player, session, pending);
 	}
 
 	/**
@@ -848,6 +900,8 @@ public final class ShopGuiController implements Listener {
 		UUID playerId = player.getUniqueId();
 
 		pending.whenComplete((result, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+			settlingTrades.remove(playerId);
+
 			Player current = plugin.getServer().getPlayer(playerId);
 
 			if (current == null || !current.isOnline()) {
@@ -900,7 +954,9 @@ public final class ShopGuiController implements Listener {
 			}));
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	// HIGH, not HIGHEST: LunaMessenger consumes every chat line at HIGHEST and turns it
+	// into network chat, so a prompt answer has to be claimed before that sink runs.
+	@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
 	public void onChatInput(AsyncChatEvent event) {
 		Player player = event.getPlayer();
 		UUID uuid = player.getUniqueId();

@@ -23,6 +23,12 @@ import org.slf4j.LoggerFactory;
  * with no ffmpeg at all simply keeps taking the older stream of whole JPEGs -
  * which works, and only costs bandwidth.
  *
+ * The mod ships in two variants. The ffmpeg build carries that binary; the
+ * mjpeg build deliberately does not, which takes the jar from two megabytes to
+ * ninety kilobytes and pins it to the older stream of whole JPEGs. A marker resource written by
+ * the build names which one this is, so the log can say it outright rather than
+ * leaving a player to work out from behaviour which jar they installed.
+ *
  * The binary is unpacked beside the game rather than run from inside the jar,
  * because a jar entry is not a file an operating system can execute. It is
  * named after a hash of its own contents, so a rebuilt decoder replaces itself
@@ -38,6 +44,12 @@ public final class NativeFfmpeg {
 
 	/** The one platform a decoder ships for. */
 	private static final String BUNDLED = "windows-x86_64";
+
+	/** Where the build stamps which variant this jar is. */
+	private static final String VARIANT_MARKER = "/lunatv/variant";
+
+	/** This build: "mjpeg" ships no decoder on purpose, "ffmpeg" ships one. */
+	private static final String VARIANT = variant();
 
 	private static boolean resolved;
 	private static Path binary;
@@ -75,6 +87,27 @@ public final class NativeFfmpeg {
 		return reason;
 	}
 
+	/** Which build this is, defaulting to the decoder-carrying one. */
+	public static String variantName() {
+		return VARIANT;
+	}
+
+	private static String variant() {
+		try (InputStream marker = NativeFfmpeg.class.getResourceAsStream(VARIANT_MARKER)) {
+			if (marker == null) {
+				// an unmarked jar is one built before the split, which carried
+				// the decoder
+				return "ffmpeg";
+			}
+
+			return new String(marker.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+				.trim()
+				.toLowerCase(Locale.ROOT);
+		} catch (IOException unreadable) {
+			return "ffmpeg";
+		}
+	}
+
 	private static Path locate() {
 		String override = System.getProperty(OVERRIDE);
 
@@ -88,6 +121,18 @@ public final class NativeFfmpeg {
 			}
 
 			LOGGER.warn("Luna TV: -D{} points at {}, which is not executable", OVERRIDE, override);
+		}
+
+		// After the override, so somebody pointing this build at a decoder of
+		// their own still gets it, and before the search, so the mjpeg build
+		// never quietly picks up an ffmpeg that happens to be on PATH: a
+		// variant that chose its own video path per machine would be a variant
+		// nobody could reason about.
+		if ("mjpeg".equals(VARIANT)) {
+			reason = "this is the mjpeg build, which ships no decoder";
+			LOGGER.info("Luna TV: {}; screens use the JPEG stream", reason);
+
+			return null;
 		}
 
 		Path unpacked = unpack();

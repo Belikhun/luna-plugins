@@ -1,0 +1,15 @@
+{
+	"textures": {
+		"water": "lunasmp:block/tap_water",
+		"particle": "lunasmp:block/tap_water"
+	},
+	"elements": [
+		{
+			"from": [2, 9.5, 2],
+			"to": [14, 9.5, 16],
+			"faces": {
+				"up": { "uv": [2, 2, 14, 16], "texture": "#water" }
+			}
+		}
+	]
+}

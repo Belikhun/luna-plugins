@@ -68,6 +68,38 @@ dependencies {
 	compileOnly("org.lwjgl:lwjgl-openal:3.3.3")
 }
 
+// The same two variants as the 1.21 sibling: ffmpeg carries the bundled
+// decoder, mjpeg leaves it out and stays on the stream of whole JPEGs. The
+// destination and base name come from the root build's convention for the main
+// task; the mjpeg task has to state them, since no convention knows about it.
+fun variantMarker(variant: String) = resources.text.fromString(variant + "\n").asFile()
+
 tasks.named<ShadowJar>("shadowJar") {
 	configurations = project.provider { emptyList<Configuration>() }
+
+	from(variantMarker("ffmpeg")) {
+		into("lunatv")
+		rename { "variant" }
+	}
+}
+
+val mjpegShadowJar = tasks.register<ShadowJar>("mjpegShadowJar") {
+	configurations = project.provider { emptyList<Configuration>() }
+
+	from(sourceSets["main"].output)
+	exclude("lunatv/native/**")
+
+	from(variantMarker("mjpeg")) {
+		into("lunatv")
+		rename { "variant" }
+	}
+
+	destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/fabric"))
+	archiveBaseName.set("luna-tv-client-mc26-mjpeg-fabric")
+	archiveClassifier.set("all")
+	archiveVersion.set("")
+}
+
+tasks.named("shadowJar") {
+	finalizedBy(mjpegShadowJar)
 }

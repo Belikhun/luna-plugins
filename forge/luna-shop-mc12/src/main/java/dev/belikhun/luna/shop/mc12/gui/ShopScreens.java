@@ -28,8 +28,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * The shop a player sees on 1.12.2: categories, items, and the trade screen.
@@ -73,6 +75,9 @@ public final class ShopScreens {
 	/** Last balance the wallet reported, per player; see knownBalanceText. */
 	private final Map<UUID, Double> knownBalance = new ConcurrentHashMap<UUID, Double>();
 
+	/** Players whose trade has been sent and not yet reported back; see runTrade. */
+	private final Set<UUID> settlingTrades = ConcurrentHashMap.newKeySet();
+
 	/**
 	 * Set after construction, because the history screen's back button opens this
 	 * one: the two refer to each other and something has to be built first.
@@ -102,6 +107,7 @@ public final class ShopScreens {
 		mainHost.forget(playerId);
 		confirmHost.forget(playerId);
 		knownBalance.remove(playerId);
+		settlingTrades.remove(playerId);
 	}
 
 	/**
@@ -416,7 +422,7 @@ public final class ShopScreens {
 					"<gray>Số lượng sẽ bán: <white>" + effective,
 					"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(shopItem.sellPrice() * effective)
 				),
-				() -> settle(player, session, service.sellAllSimilarAsync(player, shopItem)),
+				() -> runTrade(player, session, () -> service.sellAllSimilarAsync(player, shopItem)),
 				() -> openTradeMenu(player, session)
 			);
 		});
@@ -508,10 +514,41 @@ public final class ShopScreens {
 		completeTrade(player, shopItem, session);
 	}
 
-	private void completeTrade(EntityPlayerMP player, ShopItem shopItem, TradeSession session) {
-		settle(player, session, session.mode() == TradeMode.BUY
+	private void completeTrade(EntityPlayerMP player, final ShopItem shopItem, final TradeSession session) {
+		runTrade(player, session, () -> session.mode() == TradeMode.BUY
 			? service.buyAsync(player, shopItem, session.amount())
 			: service.sellAsync(player, shopItem, session.amount()));
+	}
+
+	/**
+	 * Send one trade, and refuse a second until that one has been reported.
+	 *
+	 * One press of a mouse button can reach the server as two window-click
+	 * packets, and both land on a menu still showing the pre-trade state, so both
+	 * pass every check and the player is charged twice for goods they asked for
+	 * once. ShopService's own guard cannot catch it: that one is released the
+	 * moment the wallet answers, which is before the player has been told
+	 * anything, and the duplicate arrives after it. The Paper controller carries
+	 * the same guard and the fuller note.
+	 */
+	private void runTrade(EntityPlayerMP player, TradeSession session, Supplier<CompletableFuture<ShopResult>> trade) {
+		UUID playerId = players.idOf(player);
+
+		if (!settlingTrades.add(playerId)) {
+			return;
+		}
+
+		CompletableFuture<ShopResult> pending;
+
+		try {
+			pending = trade.get();
+		} catch (RuntimeException failure) {
+			settlingTrades.remove(playerId);
+
+			throw failure;
+		}
+
+		settle(player, session, pending);
 	}
 
 	/**
@@ -525,6 +562,8 @@ public final class ShopScreens {
 		final UUID playerId = players.idOf(player);
 
 		pending.whenComplete((result, failure) -> players.onServerThread(() -> {
+			settlingTrades.remove(playerId);
+
 			EntityPlayerMP current = players.byId(playerId);
 
 			if (current == null) {

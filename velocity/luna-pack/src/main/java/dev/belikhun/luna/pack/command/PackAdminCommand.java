@@ -273,7 +273,7 @@ public final class PackAdminCommand implements SimpleCommand {
 		}
 
 		String playerName = sanitizeArg(args[1]);
-		String packName = sanitizeArg(args[2]);
+		String packName = packArg(args, 2);
 		if (playerName == null || packName == null) {
 			send(source, "<red>❌ Tên người chơi hoặc pack không hợp lệ.</red>");
 			return;
@@ -314,7 +314,7 @@ public final class PackAdminCommand implements SimpleCommand {
 		}
 
 		String playerName = sanitizeArg(args[1]);
-		String packName = sanitizeArg(args[2]);
+		String packName = packArg(args, 2);
 		if (playerName == null || packName == null) {
 			send(source, "<red>❌ Tên người chơi hoặc pack không hợp lệ.</red>");
 			return;
@@ -489,6 +489,22 @@ public final class PackAdminCommand implements SimpleCommand {
 			return "-";
 		}
 		return value;
+	}
+
+	/**
+	 * The pack name a command was given, which is everything from [start] on.
+	 *
+	 * A pack is named by its display name ("LUNA SMP"), and a name with a
+	 * space in it can never be one argument: velocity splits the line before
+	 * the command sees it. Joining the tail back up is what lets such a pack
+	 * be named at all, and a name without spaces is unaffected.
+	 */
+	private String packArg(String[] args, int start) {
+		if (args.length <= start) {
+			return null;
+		}
+
+		return sanitizeArg(String.join(" ", java.util.Arrays.copyOfRange(args, start, args.length)));
 	}
 
 	private String sanitizeArg(String value) {

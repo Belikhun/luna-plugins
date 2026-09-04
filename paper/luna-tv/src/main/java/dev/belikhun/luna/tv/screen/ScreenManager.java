@@ -825,6 +825,21 @@ public final class ScreenManager {
 	}
 
 	/**
+	 * Sets how mod clients render this screen's sound.
+	 *
+	 * Purely a client-side rendering choice carried by the registry: nothing
+	 * on the server restarts, and voice-chat listeners are untouched, since
+	 * their spatialization is voice chat's own.
+	 *
+	 * @param instance the screen
+	 * @param spatial true for the speaker-pair model, false to play direct
+	 */
+	public void spatialAudio(ScreenInstance instance, boolean spatial) {
+		instance.screen().spatialAudio(spatial);
+		persist();
+	}
+
+	/**
 	 * The middle of a screen in the world, where its sound comes from.
 	 *
 	 * @param instance the screen

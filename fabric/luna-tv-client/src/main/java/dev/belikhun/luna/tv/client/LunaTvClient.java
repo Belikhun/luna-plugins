@@ -49,7 +49,7 @@ import dev.belikhun.luna.tv.client.sound.SoundBus;
 public final class LunaTvClient implements ClientModInitializer {
 
 	/** Must match ClientLink.PROTOCOL on the server. */
-	private static final int PROTOCOL = 8;
+	private static final int PROTOCOL = 9;
 
 	/** Extra blocks a screen keeps its stream for once it already has one. */
 	private static final double HYSTERESIS = 8.0;
@@ -140,7 +140,8 @@ public final class LunaTvClient implements ClientModInitializer {
 	private boolean installHook() {
 		try {
 			WorldHook.install(this::draw);
-			LOGGER.info("Luna TV ready: world render hook installed");
+			LOGGER.info("Luna TV ready: world render hook installed, {} build",
+				NativeFfmpeg.variantName());
 
 			return true;
 		} catch (Throwable unsupported) {
@@ -243,7 +244,7 @@ public final class LunaTvClient implements ClientModInitializer {
 					in.readInt(), in.readInt(),
 					in.readBoolean(), in.readBoolean(), in.readBoolean(), in.readInt(),
 					in.readInt(), in.readBoolean(),
-					in.readInt(), in.readInt(), in.readBoolean()));
+					in.readInt(), in.readInt(), in.readBoolean(), in.readBoolean()));
 			}
 
 			LOGGER.info("Luna TV: server listed {} screen(s), streaming from {}", count, streamBase);
@@ -450,7 +451,8 @@ public final class LunaTvClient implements ClientModInitializer {
 		}
 
 		if (live.sound != null) {
-			live.sound.aim(speakers(live), live.screen.volume(), live.screen.audioRange());
+			live.sound.aim(speakers(live), live.screen.volume(), live.screen.audioRange(),
+				live.screen.spatialAudio());
 
 			// A television and the game's soundtrack are two pieces of music at
 			// once. The screen is the one somebody chose to stand in front of,

@@ -110,6 +110,8 @@ public final class TvScreenStore {
 			section.getString("createdBy", "?"),
 			section.getLong("createdAt", 0L));
 
+		screen.spatialAudio(section.getBoolean("spatial-audio", false));
+
 		if (section.contains("redstone")) {
 			screen.redstone(
 				section.getString("redstone.world", world),
@@ -160,6 +162,7 @@ public final class TvScreenStore {
 			yaml.set(base + ".converter", screen.converter());
 			yaml.set(base + ".dither-pattern", screen.ditherPattern());
 			yaml.set(base + ".stereo", screen.stereo());
+			yaml.set(base + ".spatial-audio", screen.spatialAudio());
 			yaml.set(base + ".scroll", screen.scroll());
 			yaml.set(base + ".stream-fps", screen.streamFps());
 			yaml.set(base + ".stream-megabits", screen.streamMegabits());

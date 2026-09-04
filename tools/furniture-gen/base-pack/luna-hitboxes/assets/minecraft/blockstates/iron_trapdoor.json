@@ -1,0 +1,194 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "powered": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/luna_reserved_hitbox"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "east",
+        "half": "bottom",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_bottom"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "east",
+        "half": "bottom",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "east",
+        "half": "top",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_top"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "east",
+        "half": "top",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "north",
+        "half": "bottom",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_bottom"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "north",
+        "half": "bottom",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "north",
+        "half": "top",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_top"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "north",
+        "half": "top",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "south",
+        "half": "bottom",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_bottom"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "south",
+        "half": "bottom",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "south",
+        "half": "top",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_top"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "south",
+        "half": "top",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "west",
+        "half": "bottom",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_bottom"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "west",
+        "half": "bottom",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "west",
+        "half": "top",
+        "open": "false"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_top"
+      }
+    },
+    {
+      "when": {
+        "powered": "false",
+        "facing": "west",
+        "half": "top",
+        "open": "true"
+      },
+      "apply": {
+        "model": "minecraft:block/iron_trapdoor_open",
+        "y": 270
+      }
+    }
+  ]
+}

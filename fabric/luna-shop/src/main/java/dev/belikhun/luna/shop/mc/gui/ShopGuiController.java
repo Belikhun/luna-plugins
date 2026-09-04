@@ -30,9 +30,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Every screen the shop draws, for players and for admins alike.
@@ -71,6 +73,9 @@ public final class ShopGuiController {
 
 	private final Map<UUID, UUID> pendingConfirmations;
 
+	/** Players whose trade has been sent and not yet reported back; see runTrade. */
+	private final Set<UUID> settlingTrades = ConcurrentHashMap.newKeySet();
+
 	public ShopGuiController(MinecraftServer server, ShopService service, ShopItemStore store, ChatPrompts chatPrompts) {
 		this.server = server;
 		this.service = service;
@@ -88,6 +93,7 @@ public final class ShopGuiController {
 		numberSelector.forget(playerId);
 		chatPrompts.cancel(playerId);
 		pendingConfirmations.remove(playerId);
+		settlingTrades.remove(playerId);
 	}
 
 	public void close() {
@@ -95,6 +101,7 @@ public final class ShopGuiController {
 		confirmHost.closeAll();
 		numberSelector.closeAll();
 		pendingConfirmations.clear();
+		settlingTrades.clear();
 	}
 
 	// ---------------------------------------------------------------- admin menus
@@ -626,7 +633,7 @@ public final class ShopGuiController {
 					"<gray>Số lượng sẽ bán: <white>" + effectiveSellAmount,
 					"<gray>Tiền dự kiến nhận: <gold>" + service.formatMoney(shopItem.sellPrice() * effectiveSellAmount)
 				),
-				() -> settle(player, session, service.sellAllSimilarAsync(player, shopItem)),
+				() -> runTrade(player, session, () -> service.sellAllSimilarAsync(player, shopItem)),
 				() -> openTradeMenu(player, session)
 			);
 		});
@@ -689,9 +696,40 @@ public final class ShopGuiController {
 	}
 
 	private void completeTrade(ServerPlayer player, ShopItem shopItem, TradeSession session) {
-		settle(player, session, session.mode() == TradeMode.BUY
+		runTrade(player, session, () -> session.mode() == TradeMode.BUY
 			? service.buyAsync(player, shopItem, session.amount())
 			: service.sellAsync(player, shopItem, session.amount()));
+	}
+
+	/**
+	 * Send one trade, and refuse a second until that one has been reported.
+	 *
+	 * One press of a mouse button can reach the server as two container-click
+	 * packets, and both land on a menu still showing the pre-trade state, so both
+	 * pass every check and the player is charged twice for goods they asked for
+	 * once. ShopService's own guard cannot catch it: that one is released the
+	 * moment the wallet answers, which is before the player has been told
+	 * anything, and the duplicate arrives after it. The Paper controller carries
+	 * the same guard and the fuller note.
+	 */
+	private void runTrade(ServerPlayer player, TradeSession session, Supplier<CompletableFuture<ShopResult>> trade) {
+		UUID playerId = player.getUUID();
+
+		if (!settlingTrades.add(playerId)) {
+			return;
+		}
+
+		CompletableFuture<ShopResult> pending;
+
+		try {
+			pending = trade.get();
+		} catch (RuntimeException failure) {
+			settlingTrades.remove(playerId);
+
+			throw failure;
+		}
+
+		settle(player, session, pending);
 	}
 
 	/**
@@ -705,6 +743,8 @@ public final class ShopGuiController {
 		UUID playerId = player.getUUID();
 
 		pending.whenComplete((result, failure) -> server.execute(() -> {
+			settlingTrades.remove(playerId);
+
 			ServerPlayer current = server.getPlayerList().getPlayer(playerId);
 
 			if (current == null) {

@@ -1,0 +1,25 @@
+{
+	"textures": {
+		"water": "lunasmp:block/tap_water",
+		"particle": "lunasmp:block/tap_water"
+	},
+	"elements": [
+		{
+			"from": [3.5, 10.5, 3.5],
+			"to": [12.5, 10.5, 12.5],
+			"faces": {
+				"up": { "uv": [3.5, 3.5, 12.5, 12.5], "texture": "#water" }
+			}
+		},
+		{
+			"from": [7.4, 10.5, 7.4],
+			"to": [8.6, 19, 8.6],
+			"faces": {
+				"north": { "uv": [7.4, 0, 8.6, 8.5], "texture": "#water" },
+				"south": { "uv": [7.4, 0, 8.6, 8.5], "texture": "#water" },
+				"east": { "uv": [7.4, 0, 8.6, 8.5], "texture": "#water" },
+				"west": { "uv": [7.4, 0, 8.6, 8.5], "texture": "#water" }
+			}
+		}
+	]
+}

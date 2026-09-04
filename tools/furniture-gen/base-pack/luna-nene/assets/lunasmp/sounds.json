@@ -1,0 +1,22 @@
+{
+	"weapon.nene.swing": {
+		"category": "player",
+		"sounds": [
+			"lunasmp:nene/sweep_1",
+			"lunasmp:nene/sweep_2",
+			"lunasmp:nene/sweep_3",
+			"lunasmp:nene/sweep_4",
+			"lunasmp:nene/sweep_5",
+			"lunasmp:nene/sweep_6",
+			"lunasmp:nene/sweep_7"
+		]
+	},
+	"block.alarm_siren": {
+		"category": "block",
+		"sounds": [
+			{
+				"name": "lunasmp:block/alarm_siren"
+			}
+		]
+	}
+}

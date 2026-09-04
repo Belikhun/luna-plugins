@@ -51,7 +51,8 @@ public final class LunaTvCommand implements BasicCommand {
 	private static final List<String> SUBCOMMANDS = List.of(
 		"audio", "back", "clear", "control", "create", "debug", "forward", "gui", "info",
 		"bandwidth", "brightness", "cleanup", "dither", "fps", "glow", "quality", "key", "list", "lock", "panel", "power", "range", "redstone", "refresh", "reload", "remove", "resend", "scale",
-		"scroll", "status", "stereo", "stream", "streamfps", "streamlimit", "teleport", "type", "url", "volume", "wand");
+		"scroll", "status", "stereo", "stream", "streamfps", "streamlimit", "teleport", "type", "url", "volume", "wand",
+		"audiomode");
 
 	private static final List<String> KEYS = List.of("enter", "backspace", "tab", "escape",
 		"up", "down", "left", "right", "space", "home", "end", "pageup", "pagedown");
@@ -128,6 +129,7 @@ public final class LunaTvCommand implements BasicCommand {
 			case "quality" -> quality(sender, args);
 			case "dither" -> dither(sender, args);
 			case "stereo" -> stereo(sender, args);
+			case "audiomode" -> audioMode(sender, args);
 			case "scroll" -> scroll(sender, args);
 			case "stream" -> stream(sender, args);
 			case "streamfps" -> streamFps(sender, args);
@@ -494,6 +496,32 @@ public final class LunaTvCommand implements BasicCommand {
 		if (on) {
 			sender.sendRichMessage("<gray>Đứng trước màn hình mới nghe rõ hai bên.</gray>");
 		}
+	}
+
+	/** Sets how mod clients render a screen's sound: direct or spatial. */
+	private void audioMode(CommandSender sender, String[] args) {
+		Optional<ScreenInstance> found = require(sender, args);
+
+		if (found.isEmpty()) {
+			return;
+		}
+
+		ScreenInstance instance = found.get();
+		String wanted = args.length > 2 ? args[2].toLowerCase(java.util.Locale.ROOT) : "";
+
+		if (!wanted.equals("direct") && !wanted.equals("spatial")) {
+			sender.sendRichMessage(CommandStrings.syntaxRaw(
+				"/lunatv audiomode <tên> <direct|spatial>"));
+			sender.sendRichMessage("<gray>direct: phát thẳng hai kênh như bản gốc, chỉ nhỏ dần"
+				+ " theo khoảng cách. spatial: mô phỏng hai loa gắn tường, trộn theo vị trí"
+				+ " đứng. Chỉ áp cho mod client; voice chat không đổi.</gray>");
+
+			return;
+		}
+
+		screens.spatialAudio(instance, wanted.equals("spatial"));
+		sender.sendRichMessage("<green>✔ Chế độ âm thanh của '" + MiniText.escape(instance.name())
+			+ "': " + wanted + ".</green>");
 	}
 
 	/**
@@ -1425,6 +1453,9 @@ public final class LunaTvCommand implements BasicCommand {
 			case "volume" -> args.length == 3
 				? CommandCompletions.filterPrefix(
 					List.of("0", "25", "50", "75", "100", "150", "200"), args[2])
+				: List.of();
+			case "audiomode" -> args.length == 3
+				? CommandCompletions.filterPrefix(List.of("direct", "spatial"), args[2])
 				: List.of();
 			case "url" -> args.length == 3 ? presetUrls(args[2]) : List.of();
 			default -> List.of();

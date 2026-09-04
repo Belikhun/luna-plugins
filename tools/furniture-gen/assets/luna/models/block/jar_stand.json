@@ -1,0 +1,46 @@
+{
+	"__comment": "Hand-authored: the pedestal under the jar lamp. The jar is raised onto it so the body of the jar fills the structure void's fixed 6x6x6 outline in the middle of the block.",
+	"textures": {
+		"stand": "minecraft:block/stripped_oak_log"
+	},
+	"elements": [
+		{
+			"name": "base",
+			"from": [5, 0, 5],
+			"to": [11, 1, 11],
+			"faces": {
+				"north": {"texture": "#stand"},
+				"east": {"texture": "#stand"},
+				"south": {"texture": "#stand"},
+				"west": {"texture": "#stand"},
+				"up": {"texture": "#stand"},
+				"down": {"texture": "#stand"}
+			}
+		},
+		{
+			"name": "post",
+			"from": [6.5, 1, 6.5],
+			"to": [9.5, 4, 9.5],
+			"faces": {
+				"north": {"texture": "#stand"},
+				"east": {"texture": "#stand"},
+				"south": {"texture": "#stand"},
+				"west": {"texture": "#stand"},
+				"up": {"texture": "#stand"}
+			}
+		},
+		{
+			"name": "plate",
+			"from": [5.5, 4, 5.5],
+			"to": [10.5, 5, 10.5],
+			"faces": {
+				"north": {"texture": "#stand"},
+				"east": {"texture": "#stand"},
+				"south": {"texture": "#stand"},
+				"west": {"texture": "#stand"},
+				"up": {"texture": "#stand"},
+				"down": {"texture": "#stand"}
+			}
+		}
+	]
+}

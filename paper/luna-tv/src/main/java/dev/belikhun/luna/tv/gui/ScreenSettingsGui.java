@@ -162,6 +162,22 @@ public final class ScreenSettingsGui {
 				open(clicker, instance);
 			});
 
+		boolean spatialOn = screen.spatialAudio();
+
+		view.setItem(43, LunaUi.item(spatialOn ? Material.AMETHYST_CLUSTER : Material.MUSIC_DISC_CAT,
+			spatialOn ? "<green>Chế độ nghe: spatial</green>" : "<gray>Chế độ nghe: direct</gray>",
+			List.of(
+				LunaUi.mini("<gray>direct: phát thẳng hai kênh như bản gốc, chỉ nhỏ</gray>"),
+				LunaUi.mini("<gray>dần theo khoảng cách - hợp màn hình nghe nhạc.</gray>"),
+				LunaUi.mini("<gray>spatial: mô phỏng hai loa gắn tường, trộn theo</gray>"),
+				LunaUi.mini("<gray>vị trí đứng - hợp màn hình xem chung. Chỉ áp</gray>"),
+				LunaUi.mini("<gray>cho mod client; voice chat không đổi.</gray>"),
+				LunaUi.mini("<yellow>Bấm để chuyển sang " + (spatialOn ? "direct" : "spatial") + "</yellow>"))),
+			(clicker, click, view0) -> {
+				screens.spatialAudio(instance, !spatialOn);
+				open(clicker, instance);
+			});
+
 		boolean scrollOn = screen.scroll();
 
 		view.setItem(41, LunaUi.item(scrollOn ? Material.LEAD : Material.STRING,

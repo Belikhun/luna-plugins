@@ -82,7 +82,9 @@ public final class HelpCommandListener implements Listener {
 		return false;
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	// HIGH, not HIGHEST: LunaMessenger consumes every chat line at HIGHEST and turns it
+	// into network chat, so a prompt answer has to be claimed before that sink runs.
+	@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
 	public void onSearchChat(AsyncChatEvent event) {
 		Player player = event.getPlayer();
 		UUID uuid = player.getUniqueId();

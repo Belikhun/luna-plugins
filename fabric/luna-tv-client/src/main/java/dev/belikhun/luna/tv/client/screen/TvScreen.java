@@ -32,6 +32,7 @@ public final class TvScreen {
 	private final int brightness;
 	private final int glow;
 	private final boolean keyboard;
+	private final boolean spatialAudio;
 
 	public TvScreen(
 		String name,
@@ -56,7 +57,8 @@ public final class TvScreen {
 		boolean locked,
 		int brightness,
 		int glow,
-		boolean keyboard
+		boolean keyboard,
+		boolean spatialAudio
 	) {
 		this.name = name;
 		this.world = world;
@@ -81,6 +83,12 @@ public final class TvScreen {
 		this.brightness = brightness;
 		this.glow = glow;
 		this.keyboard = keyboard;
+		this.spatialAudio = spatialAudio;
+	}
+
+	/** Whether the sound runs the speaker-pair model; direct playback when false. */
+	public boolean spatialAudio() {
+		return spatialAudio;
 	}
 
 	public String name() {

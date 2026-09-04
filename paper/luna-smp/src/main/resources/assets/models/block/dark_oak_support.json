@@ -1,0 +1,338 @@
+{
+	"textures": {
+		"particle": "lunasmp:block/dark_oak_support_side",
+		"end": "lunasmp:block/dark_oak_support_end"
+	},
+	"elements": [
+		{
+			"__comment": "horizontal",
+			"from": [
+				0,
+				13,
+				0
+			],
+			"to": [
+				16,
+				16,
+				16
+			],
+			"faces": {
+				"down": {
+					"uv": [
+						0,
+						0,
+						16,
+						16
+					],
+					"texture": "#end"
+				},
+				"up": {
+					"uv": [
+						0,
+						0,
+						16,
+						16
+					],
+					"texture": "#end",
+					"cullface": "up"
+				},
+				"north": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"cullface": "north"
+				},
+				"south": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"cullface": "south"
+				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"cullface": "west"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"cullface": "east"
+				}
+			}
+		},
+		{
+			"__comment": "vertical",
+			"from": [
+				4,
+				0,
+				13
+			],
+			"to": [
+				12,
+				16,
+				16
+			],
+			"faces": {
+				"down": {
+					"uv": [
+						4,
+						0,
+						12,
+						3
+					],
+					"texture": "#end",
+					"cullface": "down"
+				},
+				"up": {
+					"uv": [
+						4,
+						13,
+						12,
+						16
+					],
+					"texture": "#end",
+					"cullface": "up"
+				},
+				"north": {
+					"uv": [
+						4,
+						0,
+						12,
+						16
+					],
+					"texture": "#particle"
+				},
+				"south": {
+					"uv": [
+						4,
+						0,
+						12,
+						16
+					],
+					"texture": "#particle",
+					"cullface": "south"
+				},
+				"west": {
+					"uv": [
+						13,
+						0,
+						16,
+						16
+					],
+					"texture": "#particle"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						3,
+						16
+					],
+					"texture": "#particle"
+				}
+			}
+		},
+		{
+			"__comment": "post",
+			"from": [
+				6.5,
+				6.975,
+				-1.525
+			],
+			"to": [
+				9.5,
+				9.975,
+				15.475
+			],
+			"rotation": {
+				"origin": [
+					8,
+					6.975,
+					6.975
+				],
+				"axis": "x",
+				"angle": 45
+			},
+			"faces": {
+				"down": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"rotation": 90
+				},
+				"up": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"rotation": 90
+				},
+				"west": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle"
+				},
+				"east": {
+					"uv": [
+						0,
+						0,
+						16,
+						3
+					],
+					"texture": "#particle",
+					"rotation": 180
+				}
+			}
+		}
+	],
+	"display": {
+		"gui": {
+			"rotation": [
+				30,
+				225,
+				0
+			],
+			"translation": [
+				0,
+				0,
+				0
+			],
+			"scale": [
+				0.625,
+				0.625,
+				0.625
+			]
+		},
+		"ground": {
+			"rotation": [
+				0,
+				0,
+				0
+			],
+			"translation": [
+				0,
+				3,
+				0
+			],
+			"scale": [
+				0.25,
+				0.25,
+				0.25
+			]
+		},
+		"fixed": {
+			"rotation": [
+				0,
+				0,
+				0
+			],
+			"translation": [
+				0,
+				0,
+				0
+			],
+			"scale": [
+				0.5,
+				0.5,
+				0.5
+			]
+		},
+		"thirdperson_righthand": {
+			"rotation": [
+				75,
+				45,
+				0
+			],
+			"translation": [
+				0,
+				2.5,
+				0
+			],
+			"scale": [
+				0.375,
+				0.375,
+				0.375
+			]
+		},
+		"thirdperson_lefthand": {
+			"rotation": [
+				75,
+				315,
+				0
+			],
+			"translation": [
+				0,
+				2.5,
+				0
+			],
+			"scale": [
+				0.375,
+				0.375,
+				0.375
+			]
+		},
+		"firstperson_righthand": {
+			"rotation": [
+				0,
+				45,
+				0
+			],
+			"translation": [
+				0,
+				0,
+				0
+			],
+			"scale": [
+				0.4,
+				0.4,
+				0.4
+			]
+		},
+		"firstperson_lefthand": {
+			"rotation": [
+				0,
+				225,
+				0
+			],
+			"translation": [
+				0,
+				0,
+				0
+			],
+			"scale": [
+				0.4,
+				0.4,
+				0.4
+			]
+		}
+	}
+}

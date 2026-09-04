@@ -40,6 +40,18 @@ public final class TvScreen {
 	private String redstoneWorld;
 	private BlockVector redstone;
 
+	/**
+	 * Whether mod clients render this screen's sound through the spatial
+	 * speaker-pair model rather than playing the channels straight.
+	 *
+	 * Direct (false, the default) is the mix as mastered, faded by distance:
+	 * right for music. Spatial mixes the wall's speakers into both ears by
+	 * geometry: right for a cinema wall. Set outside the constructor the way
+	 * redstone is, because it arrived later and the constructor is long
+	 * enough.
+	 */
+	private boolean spatialAudio;
+
 	public TvScreen(
 		String name,
 		String world,
@@ -366,6 +378,15 @@ public final class TvScreen {
 
 	public void stereo(boolean stereo) {
 		this.stereo = stereo;
+	}
+
+	/** Whether mod clients spatialize this screen's sound; direct when false. */
+	public boolean spatialAudio() {
+		return spatialAudio;
+	}
+
+	public void spatialAudio(boolean spatialAudio) {
+		this.spatialAudio = spatialAudio;
 	}
 
 	/**

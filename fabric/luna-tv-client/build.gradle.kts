@@ -46,8 +46,27 @@ dependencies {
 	compileOnly("org.lwjgl:lwjgl-openal:3.3.3")
 }
 
+// The mod ships in two variants, built from one source set.
+//
+// The ffmpeg build carries the bundled H.264 decoder and streams H.264; the
+// mjpeg build leaves the binary out, which takes the jar from two megabytes to
+// ninety kilobytes and pins it to the stream of whole JPEGs. Each jar is stamped with its own marker
+// so NativeFfmpeg can name the build in the log, rather than leaving a player
+// to deduce it from behaviour. Two variants of one source set rather than two
+// source sets, because nothing about the code differs: the only difference is
+// whether a resource is in the jar.
+fun variantMarker(variant: String) = resources.text.fromString(variant + "\n").asFile()
+
+/** Everything under here is the bundled decoder, and the whole mjpeg/ffmpeg split. */
+val nativeDecoder = "lunatv/native/**"
+
 tasks.named<ShadowJar>("shadowJar") {
 	configurations = project.provider { emptyList<Configuration>() }
+
+	from(variantMarker("ffmpeg")) {
+		into("lunatv")
+		rename { "variant" }
+	}
 
 	destinationDirectory.set(layout.buildDirectory.dir("libs"))
 	archiveBaseName.set("luna-tv-client")
@@ -63,6 +82,41 @@ tasks.named<RemapJarTask>("remapJar") {
 	archiveVersion.set("")
 }
 
+val mjpegShadowJar = tasks.register<ShadowJar>("mjpegShadowJar") {
+	configurations = project.provider { emptyList<Configuration>() }
+
+	// registered rather than derived from the main task: a ShadowJar built by
+	// hand is fed the source set itself, where the plugin's own task has that
+	// wired for it
+	from(sourceSets["main"].output)
+	exclude(nativeDecoder)
+
+	from(variantMarker("mjpeg")) {
+		into("lunatv")
+		rename { "variant" }
+	}
+
+	destinationDirectory.set(layout.buildDirectory.dir("libs"))
+	archiveBaseName.set("luna-tv-client-mjpeg")
+	archiveClassifier.set("shaded")
+	archiveVersion.set("")
+}
+
+val mjpegRemapJar = tasks.register<RemapJarTask>("mjpegRemapJar") {
+	inputFile.set(mjpegShadowJar.flatMap { it.archiveFile })
+	destinationDirectory.set(rootProject.layout.projectDirectory.dir("output/fabric"))
+	archiveBaseName.set("luna-tv-client-mjpeg")
+	archiveClassifier.set("all")
+	archiveVersion.set("")
+}
+
+mjpegShadowJar.configure {
+	finalizedBy(mjpegRemapJar)
+}
+
+// Both variants come out of one build, always in step: a jar pair where only
+// one half was rebuilt is the kind of mismatch nobody notices until a player
+// reports behaviour the source no longer has.
 tasks.named("shadowJar") {
-	finalizedBy(tasks.named("remapJar"))
+	finalizedBy(tasks.named("remapJar"), mjpegShadowJar)
 }

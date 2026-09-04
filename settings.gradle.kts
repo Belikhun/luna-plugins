@@ -13,8 +13,26 @@ pluginManagement {
         // RetroFuturaGradle, which builds the 1.12.2 line, is published only to
         // GTNewHorizons' own nexus - it is on neither the plugin portal nor central
         maven("https://nexus.gtnewhorizons.com/repository/public/")
+        // the nova gradle plugin, which builds luna-smp's Nova addon jar
+        maven("https://repo.xenondevs.xyz/releases/")
         gradlePluginPortal()
         mavenCentral()
+    }
+}
+
+// Nova publishes a version catalog per release; importing it keeps every
+// nova-related coordinate (kotlin, nova, gradle plugin) pinned to the one
+// version the survival server actually runs. Only :luna-smp consumes it.
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+        maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://repo.xenondevs.xyz/releases/")
+    }
+    versionCatalogs {
+        create("nova") {
+            from("xyz.xenondevs.nova:catalog:0.22.3")
+        }
     }
 }
 

@@ -96,13 +96,15 @@ public final class NumberSelectorGui implements Listener {
 		openSession(player, new Session(null, request, value));
 	}
 
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	// HIGH, not HIGHEST: LunaMessenger consumes every chat line at HIGHEST and turns it
+	// into network chat, so a prompt answer has to be claimed before that sink runs.
+	@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
 	public void onChat(AsyncChatEvent event) {
 		interceptManualInput(event.getPlayer(), plainText.serialize(event.message()).trim(), event);
 	}
 
 	@SuppressWarnings("deprecation")
-	@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+	@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
 	public void onLegacyChat(AsyncPlayerChatEvent event) {
 		interceptManualInput(event.getPlayer(), event.getMessage().trim(), event);
 	}

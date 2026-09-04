@@ -53,7 +53,7 @@ public final class ClientLink implements PluginMessageListener {
 	private static final long FOCUS_RECHECK_TICKS = 16L;
 
 	/** Bumped when the wire format changes in a way an old client misreads. */
-	public static final int PROTOCOL = 8;
+	public static final int PROTOCOL = 9;
 
 	private static final byte INPUT_POINTER_DOWN = 1;
 	private static final byte INPUT_POINTER_UP = 2;
@@ -248,6 +248,7 @@ public final class ClientLink implements PluginMessageListener {
 				out.writeInt(screen.brightness());
 				out.writeInt(screen.glow());
 				out.writeBoolean(instance.keyboardFocus());
+				out.writeBoolean(screen.spatialAudio());
 			}
 
 			player.sendPluginMessage(plugin, SCREENS, bytes.toByteArray());

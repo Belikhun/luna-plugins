@@ -54,7 +54,7 @@ public final class LunaShopPlugin extends JavaPlugin {
 
 		ShopTradeLimitService tradeLimitService = new ShopTradeLimitService(this);
 		this.shopService = new ShopService(this, economyService, itemStore, tradeLimitService, transactionStore, logger.scope("Transactions"));
-		this.guiController = new ShopGuiController(this, shopService, itemStore);
+		this.guiController = new ShopGuiController(this, shopService, itemStore, logger.scope("Gui"));
 
 		ShopCommand shopCommand = new ShopCommand(guiController, itemStore);
 		ShopAdminCommand shopAdminCommand = new ShopAdminCommand(this, itemStore, shopService, guiController);
