@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.paper.LunaCore;
 import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.shop.command.LunaShopReloadCommand;
+import dev.belikhun.luna.shop.command.SellCommand;
 import dev.belikhun.luna.shop.command.ShopAdminCommand;
 import dev.belikhun.luna.shop.command.ShopCommand;
 import dev.belikhun.luna.shop.economy.LunaVaultEconomyService;
@@ -57,6 +58,7 @@ public final class LunaShopPlugin extends JavaPlugin {
 		this.guiController = new ShopGuiController(this, shopService, itemStore, logger.scope("Gui"));
 
 		ShopCommand shopCommand = new ShopCommand(guiController, itemStore);
+		SellCommand sellCommand = new SellCommand(guiController);
 		ShopAdminCommand shopAdminCommand = new ShopAdminCommand(this, itemStore, shopService, guiController);
 		LunaShopReloadCommand reloadCommand = new LunaShopReloadCommand(this);
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
@@ -64,6 +66,7 @@ public final class LunaShopPlugin extends JavaPlugin {
 			commands.registrar().register("buy", shopCommand);
 			commands.registrar().register("store", shopCommand);
 			commands.registrar().register("b", shopCommand);
+			commands.registrar().register("sell", sellCommand);
 			commands.registrar().register("shopadmin", shopAdminCommand);
 			commands.registrar().register("lunashop", reloadCommand);
 		});
@@ -99,6 +102,10 @@ public final class LunaShopPlugin extends JavaPlugin {
 
 	@Override
 	public void onDisable() {
+		if (guiController != null) {
+			guiController.closeSellInventories();
+		}
+
 		if (itemStore != null) {
 			itemStore.save();
 		}

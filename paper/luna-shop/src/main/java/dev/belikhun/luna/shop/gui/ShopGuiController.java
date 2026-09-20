@@ -78,6 +78,9 @@ public final class ShopGuiController implements Listener {
 	/** Trades sent to the wallet and not yet reported back; see runTrade. */
 	private final Map<UUID, Long> settlingTrades;
 
+	/** The bulk sell tray, reached from the shop footer and from /sell. */
+	private final SellInventoryGui sellInventory;
+
 	public ShopGuiController(JavaPlugin plugin, ShopService service, ShopItemStore store, LunaLogger logger) {
 		this.plugin = plugin;
 		this.service = service;
@@ -94,8 +97,20 @@ public final class ShopGuiController implements Listener {
 		this.openItemEditors = new ConcurrentHashMap<>();
 		this.settlingTrades = new ConcurrentHashMap<>();
 
+		this.sellInventory = new SellInventoryGui(plugin, service, logger, player -> openMainMenu(player, 0));
+
 		plugin.getServer().getPluginManager().registerEvents(guiManager, plugin);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
+	}
+
+	/** Open the bulk sell tray. */
+	public void openSellInventory(Player player) {
+		sellInventory.open(player);
+	}
+
+	/** Hand back everything sitting in an open tray; called when the plugin stops. */
+	public void closeSellInventories() {
+		sellInventory.closeAll();
 	}
 
 	@EventHandler
@@ -297,6 +312,10 @@ public final class ShopGuiController implements Listener {
 		if (currentPage < maxPage) {
 			view.setItem(53, nav(Material.ARROW, "<yellow>Trang sau →"), (clicker, event, gui) -> openMainMenu(clicker, currentPage + 1));
 		}
+		view.setItem(48, item(Material.HOPPER, "<gold>💵 Khay bán hàng loạt", List.of(
+			plainLine(LunaPalette.NEUTRAL_100, "Bỏ nhiều vật phẩm vào một khay và bán cùng lúc."),
+			actionLine("Chuột trái", "mở khay bán")
+		)), (clicker, event, gui) -> openSellInventory(clicker));
 		view.setItem(49, nav(Material.COMPASS, "<aqua>🔍 Tìm kiếm mặt hàng"), (clicker, event, gui) -> beginSearch(clicker, null));
 		view.setItem(50, nav(Material.BOOK, "<yellow>⌚ Lịch sử giao dịch"), (clicker, event, gui) -> openTransactionHistory(clicker, 0));
 		view.setItem(52, nav(Material.OAK_DOOR, "<red>Đóng"), (clicker, event, gui) -> clicker.closeInventory());

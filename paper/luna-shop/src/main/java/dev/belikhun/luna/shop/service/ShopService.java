@@ -20,7 +20,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -245,6 +248,239 @@ public final class ShopService {
 		}
 
 		return ShopResult.ok("<green>✔ Bán thành công <white>" + tradeAmount + "</white> vật phẩm và nhận " + formatMoney(total) + ".</green>");
+	}
+
+	/**
+	 * One kind of item in a bulk sale: how many were offered, and how many the daily
+	 * limit actually allows.
+	 */
+	public record SellLot(ShopItem item, int offered, int sellable) {
+		public double total() {
+			return item.sellPrice() * sellable;
+		}
+	}
+
+	/**
+	 * What a sell inventory is worth as it stands: one lot per kind, plus what could not
+	 * be sold, so the menu can say why before the player commits.
+	 */
+	public record SellPlan(List<SellLot> lots, double total, int sellableCount, int rejectedCount, int limitedCount) {
+	}
+
+	/**
+	 * Price up everything sitting in the first [0, slotCount) slots of [inventory].
+	 *
+	 * Pure: it reads the inventory and the daily limits and changes neither, so the menu
+	 * may call it on every click to redraw the running total.
+	 */
+	public SellPlan planInventorySale(Player player, Inventory inventory, int slotCount) {
+		LinkedHashMap<String, Integer> offered = new LinkedHashMap<>();
+		LinkedHashMap<String, ShopItem> known = new LinkedHashMap<>();
+		int rejected = 0;
+
+		for (int slot = 0; slot < slotCount && slot < inventory.getSize(); slot++) {
+			ItemStack content = inventory.getItem(slot);
+			if (content == null || content.getType().isAir()) {
+				continue;
+			}
+
+			ShopItem shopItem = store.findBySimilarItem(content).orElse(null);
+			if (shopItem == null || shopItem.sellPrice() <= 0D) {
+				rejected += content.getAmount();
+				continue;
+			}
+
+			offered.merge(shopItem.id(), content.getAmount(), Integer::sum);
+			known.putIfAbsent(shopItem.id(), shopItem);
+		}
+
+		ArrayList<SellLot> lots = new ArrayList<>();
+		double total = 0D;
+		int sellableCount = 0;
+		int limitedCount = 0;
+
+		for (Map.Entry<String, Integer> entry : offered.entrySet()) {
+			ShopItem shopItem = known.get(entry.getKey());
+			int amount = entry.getValue();
+			int sellable = capSellAmount(player, shopItem, amount);
+
+			if (sellable < amount) {
+				limitedCount++;
+			}
+
+			if (sellable <= 0) {
+				lots.add(new SellLot(shopItem, amount, 0));
+				continue;
+			}
+
+			SellLot lot = new SellLot(shopItem, amount, sellable);
+			lots.add(lot);
+			total += lot.total();
+			sellableCount += sellable;
+		}
+
+		return new SellPlan(List.copyOf(lots), total, sellableCount, rejected, limitedCount);
+	}
+
+	/**
+	 * Sell everything in a sell inventory in one go.
+	 *
+	 * The items leave the inventory before the wallet is asked and come back if it
+	 * refuses, the same order a single sell uses; one deposit covers the whole lot, so a
+	 * bulk sale is one round trip to a wallet that may live on the proxy rather than one
+	 * per kind. Must be called on the main thread.
+	 */
+	public CompletableFuture<ShopResult> sellInventoryAsync(Player player, Inventory inventory, int slotCount) {
+		SellPlan plan = planInventorySale(player, inventory, slotCount);
+
+		if (plan.sellableCount() <= 0) {
+			return completed(ShopResult.fail(plan.rejectedCount() > 0
+				? "<red>❌ Không có vật phẩm nào trong khay bán được.</red>"
+				: "<red>❌ Khay bán đang trống.</red>"));
+		}
+
+		UUID playerId = player.getUniqueId();
+
+		if (!beginTrade(playerId)) {
+			return completed(ShopResult.fail("<yellow>⚠ Giao dịch trước của bạn chưa xong. Vui lòng chờ một chút.</yellow>"));
+		}
+
+		List<SellLot> sold = plan.lots().stream().filter(lot -> lot.sellable() > 0).toList();
+
+		for (SellLot lot : sold) {
+			removeSimilar(inventory, sample(lot.item()), lot.sellable(), slotCount);
+		}
+
+		double total = plan.total();
+
+		return economy.depositAsync(player, total)
+			.thenCompose(paid -> onMainThread(() ->
+				finishInventorySale(player, inventory, slotCount, sold, total, Boolean.TRUE.equals(paid))))
+			.whenComplete((ignored, failure) -> endTrade(playerId));
+	}
+
+	private ShopResult finishInventorySale(Player player, Inventory inventory, int slotCount, List<SellLot> sold, double total, boolean paid) {
+		if (!paid) {
+			for (SellLot lot : sold) {
+				giveBack(player, inventory, slotCount, sample(lot.item()), lot.sellable());
+			}
+
+			for (SellLot lot : sold) {
+				logFailure("SELL", player, lot.item(), lot.sellable(), "Không thể cộng tiền vào ví người chơi.", lot.total());
+			}
+
+			return ShopResult.fail("<red>❌ Không thể cộng tiền vào ví của bạn. Vật phẩm đã được trả lại.</red>");
+		}
+
+		int soldCount = 0;
+		double settled = 0D;
+		double reversed = 0D;
+
+		for (SellLot lot : sold) {
+			if (!tradeLimitService.consumeSell(player.getUniqueId(), lot.item(), lot.sellable())) {
+				// the cap was read under beginTrade, so this is close to unreachable; if it
+				// does happen, that one kind goes back and its share of the money with it
+				reversed += lot.total();
+				giveBack(player, inventory, slotCount, sample(lot.item()), lot.sellable());
+				logFailure("SELL", player, lot.item(), lot.sellable(), "Đã đạt giới hạn bán trong ngày.", lot.total());
+				continue;
+			}
+
+			logSuccess("SELL", player, lot.item(), lot.sellable(), lot.total());
+			soldCount += lot.sellable();
+			settled += lot.total();
+		}
+
+		if (reversed > 0D) {
+			refundReverse("SELL", player, reversed);
+		}
+
+		if (soldCount <= 0) {
+			return ShopResult.fail("<red>❌ Hạn mức bán vừa thay đổi, vui lòng thử lại.</red>");
+		}
+
+		return ShopResult.ok("<green>✔ Đã bán <white>" + soldCount + "</white> vật phẩm ("
+			+ sold.size() + " loại) và nhận " + formatMoney(settled) + ".</green>");
+	}
+
+	/** The entry's own stack; kept short-lived, the store owns the cached copy. */
+	private ItemStack sample(ShopItem item) {
+		return item.itemStack();
+	}
+
+	/**
+	 * Put items back where they came from: into the sell inventory if it still has room,
+	 * and into the player's own bag or at their feet if it does not, so a refused sale
+	 * never eats the goods.
+	 */
+	private void giveBack(Player player, Inventory inventory, int slotCount, ItemStack sample, int amount) {
+		int remaining = amount;
+		int maxStack = sample.getMaxStackSize();
+
+		// the player may have closed the tray while the wallet was answering, and putting
+		// items into an inventory nobody is looking at is the same as destroying them
+		boolean trayOpen = player.getOpenInventory().getTopInventory().equals(inventory);
+		int trayLimit = trayOpen ? slotCount : 0;
+
+		for (int slot = 0; slot < trayLimit && slot < inventory.getSize() && remaining > 0; slot++) {
+			ItemStack content = inventory.getItem(slot);
+
+			if (content == null || content.getType().isAir()) {
+				int give = Math.min(maxStack, remaining);
+				ItemStack stack = sample.clone();
+				stack.setAmount(give);
+				inventory.setItem(slot, stack);
+				remaining -= give;
+				continue;
+			}
+
+			if (!content.isSimilar(sample)) {
+				continue;
+			}
+
+			int space = Math.max(0, maxStack - content.getAmount());
+			if (space <= 0) {
+				continue;
+			}
+
+			int give = Math.min(space, remaining);
+			content.setAmount(content.getAmount() + give);
+			inventory.setItem(slot, content);
+			remaining -= give;
+		}
+
+		while (remaining > 0) {
+			int give = Math.min(maxStack, remaining);
+			ItemStack stack = sample.clone();
+			stack.setAmount(give);
+
+			for (ItemStack leftover : player.getInventory().addItem(stack).values()) {
+				player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+			}
+
+			remaining -= give;
+		}
+	}
+
+	/** Remove from the item area of a sell inventory only, never from its footer. */
+	private void removeSimilar(Inventory inventory, ItemStack sample, int amount, int slotCount) {
+		int remaining = amount;
+
+		for (int slot = 0; slot < slotCount && slot < inventory.getSize() && remaining > 0; slot++) {
+			ItemStack content = inventory.getItem(slot);
+			if (content == null || content.getType().isAir() || !content.isSimilar(sample)) {
+				continue;
+			}
+
+			if (content.getAmount() <= remaining) {
+				remaining -= content.getAmount();
+				inventory.clear(slot);
+			} else {
+				content.setAmount(content.getAmount() - remaining);
+				inventory.setItem(slot, content);
+				remaining = 0;
+			}
+		}
 	}
 
 	/** Sell everything of this kind the player is carrying, off the tick. */

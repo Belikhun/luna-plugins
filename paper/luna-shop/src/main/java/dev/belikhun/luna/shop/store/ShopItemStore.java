@@ -5,6 +5,7 @@ import dev.belikhun.luna.shop.model.ShopCategory;
 import dev.belikhun.luna.shop.model.ShopItem;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.configuration.ConfigurationSection;
@@ -15,6 +16,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +33,10 @@ public final class ShopItemStore {
 	private final File file;
 	private final ConcurrentMap<String, ShopItem> items;
 	private final ConcurrentMap<String, ShopCategory> categories;
+	/** Deserialized samples, so matching an item does not decode base64 for every entry. */
+	private final ConcurrentMap<String, ItemStack> samples;
+	/** Items bucketed by material, rebuilt the next time it is asked for after a change. */
+	private volatile Map<Material, List<ShopItem>> byMaterial;
 
 	public ShopItemStore(JavaPlugin plugin, LunaLogger logger) {
 		this.plugin = plugin;
@@ -38,11 +44,13 @@ public final class ShopItemStore {
 		this.file = new File(this.plugin.getDataFolder(), "items.yml");
 		this.items = new ConcurrentHashMap<>();
 		this.categories = new ConcurrentHashMap<>();
+		this.samples = new ConcurrentHashMap<>();
 	}
 
 	public void load() {
 		items.clear();
 		categories.clear();
+		invalidateLookup();
 		YamlConfiguration configuration = YamlConfiguration.loadConfiguration(file);
 
 		ConfigurationSection categorySection = configuration.getConfigurationSection("categories");
@@ -134,20 +142,71 @@ public final class ShopItemStore {
 		return Optional.ofNullable(items.get(ShopItem.normalizeId(id)));
 	}
 
+	/**
+	 * The shop entry a carried stack can be traded as, if there is one.
+	 *
+	 * Called once per stack whenever a sell inventory changes, so it goes through the
+	 * material index and cached samples rather than deserializing every entry in the shop:
+	 * a full scan of a thousand entries per placed item is what made the naive version
+	 * unusable for bulk selling.
+	 */
 	public Optional<ShopItem> findBySimilarItem(ItemStack itemStack) {
 		if (itemStack == null || itemStack.getType().isAir()) {
 			return Optional.empty();
 		}
 
+		List<ShopItem> candidates = lookup().get(itemStack.getType());
+		if (candidates == null || candidates.isEmpty()) {
+			return Optional.empty();
+		}
+
 		ItemStack normalized = itemStack.clone();
 		normalized.setAmount(1);
-		for (ShopItem item : items.values()) {
-			if (item.itemStack().isSimilar(normalized)) {
+		for (ShopItem item : candidates) {
+			ItemStack sample = sample(item);
+			if (sample != null && sample.isSimilar(normalized)) {
 				return Optional.of(item);
 			}
 		}
 
 		return Optional.empty();
+	}
+
+	/** The entry's own stack, decoded once and kept; never handed out for editing. */
+	private ItemStack sample(ShopItem item) {
+		return samples.computeIfAbsent(item.id(), id -> {
+			try {
+				return item.itemStack();
+			} catch (RuntimeException exception) {
+				logger.warn("Không đọc được item-data của " + id + ": " + exception.getMessage());
+				return null;
+			}
+		});
+	}
+
+	private Map<Material, List<ShopItem>> lookup() {
+		Map<Material, List<ShopItem>> index = byMaterial;
+		if (index != null) {
+			return index;
+		}
+
+		Map<Material, List<ShopItem>> rebuilt = new HashMap<>();
+		for (ShopItem item : items.values()) {
+			ItemStack sample = sample(item);
+			if (sample == null) {
+				continue;
+			}
+
+			rebuilt.computeIfAbsent(sample.getType(), material -> new ArrayList<>()).add(item);
+		}
+
+		byMaterial = rebuilt;
+		return rebuilt;
+	}
+
+	private void invalidateLookup() {
+		samples.clear();
+		byMaterial = null;
 	}
 
 	public boolean remove(String id) {
@@ -157,6 +216,7 @@ public final class ShopItemStore {
 
 		ShopItem removed = items.remove(ShopItem.normalizeId(id));
 		if (removed != null) {
+			invalidateLookup();
 			save();
 			return true;
 		}
@@ -166,6 +226,7 @@ public final class ShopItemStore {
 
 	public void upsert(ShopItem item) {
 		items.put(item.id(), item);
+		invalidateLookup();
 		save();
 	}
 
