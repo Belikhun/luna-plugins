@@ -75,25 +75,48 @@ browser:
   # Đường dẫn Chromium. Bản snap không đọc được file:// nên chỉ dùng http(s).
   executable: "/snap/bin/chromium"
   # User agent trình duyệt khai với trang web. Headless bị nhiều trang coi là bot
-  # (YouTube từ chối phát video), nên khai như một Chrome bình thường. Để trống
-  # thì dùng chuỗi gốc của trình duyệt, chỉ bỏ chữ "Headless".
-  user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+  # (YouTube từ chối phát video), nên khai như một Chrome bình thường.
+  #
+  # Để trống là lựa chọn nên dùng: lấy chuỗi gốc của trình duyệt và chỉ bỏ chữ
+  # "Headless", nên số phiên bản luôn đúng với Chromium đang chạy và hệ điều hành
+  # khai ra đúng là Linux. Khai một chuỗi Windows thì navigator.platform, tên card
+  # đồ hoạ WebGL (Mesa/ANGLE) và chuỗi này mâu thuẫn nhau, và đó chính là thứ
+  # Cloudflare đối chiếu.
+  user-agent: ""
   # Cổng CDP cấp cho màn hình đầu tiên; các màn hình sau lấy cổng trống kế tiếp.
   # Chỉ nghe trên 127.0.0.1, không mở ra ngoài.
   debug-port-start: 39330
   # Số giây chờ Chromium mở cổng CDP trước khi coi là lỗi.
   startup-timeout: 20
+  # Giữ đăng nhập qua các lần tắt bật màn hình. Nhiều trang cấp cookie phiên
+  # (không ghi hạn) cho người đã đăng nhập, và Chromium bỏ loại cookie đó mỗi lần
+  # khởi động lại: màn hình bị đăng xuất sau mỗi lần tắt bật trong khi Google,
+  # vốn ghi hạn cho cookie của mình, vẫn còn. Bật thì các cookie ấy được giữ lại,
+  # như trình duyệt để bàn đặt "tiếp tục từ chỗ đã dừng".
+  keep-session-cookies: true
   # Tham số dòng lệnh thêm vào Chromium.
   switches:
     - "--headless=new"
     - "--no-sandbox"
-    - "--disable-gpu"
-    # Không có GPU thật thì compositing và WebGL đều chạy bằng SwiftShader trên
-    # CPU. Một trang nặng hiệu ứng (TikTok) từng đốt 6 lõi chỉ để vẽ 60fps mà
-    # tường bản đồ không bao giờ hiển thị nổi. Tắt WebGL: trang 3D sẽ tự hạ cấp.
-    - "--disable-gpu-compositing"
+    # GPU thật qua ANGLE/EGL. Đã đo trên máy này: renderer là "Mesa Intel(R) HD
+    # Graphics 630", không phải SwiftShader.
+    - "--use-gl=angle"
+    - "--use-angle=gl-egl"
+    - "--ignore-gpu-blocklist"
+    - "--enable-gpu-rasterization"
+    - "--enable-features=VaapiVideoDecodeLinuxGL,VaapiIgnoreDriverChecks"
     - "--disable-gpu-vsync"
-    - "--disable-webgl"
+    # WebGL bật. Trước đây tắt vì sợ SwiftShader chạy trên CPU (một trang nhiều
+    # hiệu ứng từng đốt 6 lõi), nhưng nỗi lo đó có từ trước khi có mấy tham số
+    # ANGLE ở trên: giờ WebGL chạy thẳng trên Intel HD 630. Tắt hẳn WebGL lại là
+    # dấu hiệu bot rất rõ (Cloudflare lấy vân tay qua WebGL), và các trang 3D
+    # như GeoGuessr thì không có WebGL là không vẽ được gì.
+    #
+    # Chốt an toàn là dòng dưới, không phải tắt WebGL: nếu GPU hỏng thì Chromium
+    # bị cấm quay về SwiftShader, nên WebGL đơn giản là không có context, chứ
+    # không bao giờ âm thầm ngốn CPU. Đã kiểm: GPU tốt -> "Mesa Intel(R) HD
+    # Graphics 630"; GPU hỏng -> không có context, không phải SwiftShader.
+    - "--disable-software-rasterizer"
     - "--autoplay-policy=no-user-gesture-required"
     - "--disable-background-timer-throttling"
     - "--disable-backgrounding-occluded-windows"

@@ -444,14 +444,14 @@ public final class ScreenManager {
 		// loser of a race and would otherwise linger unreferenced
 		if (instance.browser() != null) {
 			logger.warn("Màn hình '" + instance.name() + "' đã có trình duyệt, đóng bản vừa mở.");
-			browser.close();
+			closeOffThread(browser);
 
 			return;
 		}
 
 		// powered off while Chromium was still starting: the browser is not wanted
 		if (!instance.powered()) {
-			browser.close();
+			closeOffThread(browser);
 			state(instance, ScreenState.OFF);
 			instance.placeholderStale();
 
@@ -460,7 +460,7 @@ public final class ScreenManager {
 
 		// the screen may have been removed while Chromium was starting
 		if (!instances.containsValue(instance)) {
-			browser.close();
+			closeOffThread(browser);
 
 			return;
 		}
@@ -1195,8 +1195,26 @@ public final class ScreenManager {
 		}
 
 		if (browser != null) {
-			browser.close();
+			closeOffThread(browser);
 		}
+	}
+
+	/**
+	 * Closes a browser without holding the server thread.
+	 *
+	 * A close asks Chromium to shut itself down and waits for it, which is a few
+	 * hundred milliseconds on a heavy page: several ticks. During plugin disable
+	 * the scheduler takes no new tasks, and there the wait is the point, because
+	 * the server is on its way out and the cookie flush has to finish first.
+	 */
+	private void closeOffThread(CdpBrowser browser) {
+		if (!plugin.isEnabled()) {
+			browser.close();
+
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTaskAsynchronously(plugin, browser::close);
 	}
 
 	/** Writes the current screens to disk, off the main thread. */

@@ -56,6 +56,7 @@ public final class TvConfig {
 	private final int debugPortStart;
 	private final int startupTimeoutSeconds;
 	private final List<String> switches;
+	private final boolean keepSessionCookies;
 	private final boolean audioEnabled;
 	private final String sinkPrefix;
 	private final String pactlPath;
@@ -113,6 +114,7 @@ public final class TvConfig {
 		this.debugPortStart = clamp(store.get("browser.debug-port-start").asInt(39330), 1024, 65000);
 		this.startupTimeoutSeconds = Math.max(1, store.get("browser.startup-timeout").asInt(20));
 		this.switches = readStringList(store, "browser.switches");
+		this.keepSessionCookies = store.get("browser.keep-session-cookies").asBoolean(true);
 
 		this.audioEnabled = store.get("audio.enabled").asBoolean(true);
 		this.sinkPrefix = store.get("audio.sink-prefix").asString("lunatv");
@@ -365,6 +367,10 @@ public final class TvConfig {
 
 	public List<String> switches() {
 		return switches;
+	}
+
+	public boolean keepSessionCookies() {
+		return keepSessionCookies;
 	}
 
 	public boolean audioEnabled() {

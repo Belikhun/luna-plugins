@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -111,6 +112,10 @@ public final class ChromiumProcess {
 			} catch (IOException ignored) {
 				// a lock that cannot be removed will fail the launch loudly below
 			}
+		}
+
+		if (config.keepSessionCookies()) {
+			restoreSessionCookies(profileDir);
 		}
 
 		ProcessBuilder builder = new ProcessBuilder(command);
@@ -280,7 +285,74 @@ public final class ChromiumProcess {
 		return process.pid();
 	}
 
-	/** Kills the browser, waiting briefly for a clean exit first. */
+	/**
+	 * Marks the previous run as crashed so Chromium brings its session cookies back.
+	 *
+	 * A cookie without an expiry lives as long as the browser process, and many
+	 * sites hand exactly that kind to a signed-in user; on a wall that meant every
+	 * power cycle signed them out again, while Google, whose cookies carry dates,
+	 * stayed in. Chromium does keep session cookies on disk (is_persistent=0 rows
+	 * in Default/Cookies) but reloads them in one case only: when the last run did
+	 * not end cleanly. There is no switch for it, and the "continue where you left
+	 * off" preference would reopen the previous tabs too, so the exit type recorded
+	 * in Preferences is rewritten before every launch. Verified on Chromium 152:
+	 * session cookies written before a stop came back on relaunch with this line,
+	 * and were gone without it.
+	 *
+	 * @param profileDir the profile about to be opened
+	 */
+	private static void restoreSessionCookies(Path profileDir) {
+		Path preferences = profileDir.resolve("Default").resolve("Preferences");
+
+		if (!Files.isRegularFile(preferences)) {
+			return;
+		}
+
+		try {
+			JsonElement parsed = JsonParser.parseString(Files.readString(preferences));
+
+			if (!parsed.isJsonObject()) {
+				return;
+			}
+
+			JsonObject root = parsed.getAsJsonObject();
+			JsonObject profile = root.has("profile") && root.get("profile").isJsonObject()
+				? root.getAsJsonObject("profile")
+				: new JsonObject();
+
+			profile.addProperty("exit_type", "Crashed");
+			root.add("profile", profile);
+			Files.writeString(preferences, root.toString());
+		} catch (IOException | RuntimeException exception) {
+			// a profile whose preferences cannot be rewritten still launches; it
+			// only forgets its session cookies, as it did before
+		}
+	}
+
+	/**
+	 * Waits for the browser to exit on its own.
+	 *
+	 * @param timeout how long to wait
+	 * @return true when the process is gone
+	 */
+	public boolean awaitExit(Duration timeout) {
+		try {
+			return process.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+
+			return false;
+		}
+	}
+
+	/**
+	 * Kills the browser, waiting briefly for it to act on the signal first.
+	 *
+	 * A signal is not a clean exit for Chromium: SIGTERM takes its "session
+	 * ending" path, gone in about 40 ms without flushing the cookie store, so the
+	 * flushing shutdown is asked for over CDP (Browser.close) by CdpBrowser before
+	 * this runs. What arrives here is normally already dead.
+	 */
 	public void stop() {
 		// the children are collected before the parent dies, because once it is
 		// gone they are reparented to init and there is no handle to them left

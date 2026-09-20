@@ -821,37 +821,168 @@ public final class CdpBrowser implements AutoCloseable {
 	}
 
 	/**
+	 * The GREASE brand sent alongside the real ones.
+	 *
+	 * Not a real product: Chrome invents one so that a server cannot come to
+	 * depend on the brand list holding only names it recognises.
+	 */
+	private static final String GREASE_BRAND = "Not?A_Brand";
+
+	private static final String GREASE_VERSION = "24";
+
+	/**
 	 * Presents the browser as an ordinary desktop Chrome.
 	 *
 	 * Headless Chromium announces itself as "HeadlessChrome", and sites treat
 	 * that as a bot: YouTube in particular refuses to start video playback for
 	 * it. The identity to present comes from browser.user-agent in config.yml;
 	 * an empty value falls back to the browser's own string with only the
-	 * product name corrected.
+	 * product name corrected, which is the setting that stays consistent on its
+	 * own as Chromium updates.
+	 *
+	 * The override carries client-hint metadata, and that is not optional.
+	 * Emulation.setUserAgentOverride with a bare userAgent does not leave the
+	 * hints alone, it blanks them: navigator.userAgentData.brands becomes an
+	 * empty array and the Sec-CH-UA request headers stop being sent entirely.
+	 * A browser claiming to be Chrome while sending no Sec-CH-UA header is a
+	 * combination no real Chrome produces, and it is what Cloudflare's Turnstile
+	 * was failing us on. The metadata is derived from Browser.getVersion and
+	 * from the agent string itself, so the two halves cannot drift apart.
 	 *
 	 * Waited on rather than fired off, because the navigate that follows must
 	 * not race it: begin() runs on an async thread, never the server thread.
 	 */
 	private void fixUserAgent() {
 		try {
+			JsonObject version = cdp.call("Browser.getVersion", Map.of())
+				.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+			String nativeAgent = version.has("userAgent")
+				? version.get("userAgent").getAsString()
+				: "";
 			String agent = config.userAgent();
 
 			if (agent == null || agent.isBlank()) {
-				JsonObject version = cdp.call("Browser.getVersion", Map.of())
-					.get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-				if (!version.has("userAgent")) {
+				if (nativeAgent.isEmpty()) {
 					return;
 				}
 
-				agent = version.get("userAgent").getAsString().replace("HeadlessChrome", "Chrome");
+				agent = nativeAgent.replace("HeadlessChrome", "Chrome");
 			}
 
-			cdp.call("Emulation.setUserAgentOverride", Map.of("userAgent", agent))
+			Map<String, Object> override = new java.util.HashMap<>();
+
+			override.put("userAgent", agent);
+			override.put("acceptLanguage", "en-US,en;q=0.9");
+			override.put("platform", navigatorPlatformFor(agent));
+			override.put("userAgentMetadata", agentMetadata(agent, version));
+
+			cdp.call("Emulation.setUserAgentOverride", override)
 				.get(5, java.util.concurrent.TimeUnit.SECONDS);
 		} catch (Exception exception) {
 			logger.warn("Không sửa được user agent: " + exception.getMessage());
 		}
+	}
+
+	/**
+	 * Builds the client-hint metadata that matches an agent string.
+	 *
+	 * "Google Chrome" sits beside "Chromium" because the agent we present names
+	 * Chrome rather than Chromium, and the two halves have to tell one story.
+	 *
+	 * The leading entry is a GREASE brand: a deliberately meaningless name real
+	 * Chrome always includes so that servers are forced to tolerate brands they
+	 * do not know. Its exact name and version drift between releases and the
+	 * spec requires readers to ignore it, so a fixed plausible pair is correct
+	 * here; what would be wrong is sending no GREASE entry at all, since every
+	 * real Chrome sends one.
+	 *
+	 * @param agent the user agent string being presented
+	 * @param version the Browser.getVersion result
+	 * @return the userAgentMetadata payload for setUserAgentOverride
+	 */
+	private static Map<String, Object> agentMetadata(String agent, JsonObject version) {
+		String fullVersion = version.has("product")
+			? version.get("product").getAsString().replaceAll("^[^/]+/", "")
+			: "";
+		String major = majorVersionOf(agent);
+
+		if (major.isEmpty()) {
+			major = fullVersion.contains(".")
+				? fullVersion.substring(0, fullVersion.indexOf('.'))
+				: fullVersion;
+		}
+
+		if (fullVersion.isEmpty()) {
+			fullVersion = major + ".0.0.0";
+		}
+
+		java.util.List<Map<String, Object>> brands = new java.util.ArrayList<>();
+		java.util.List<Map<String, Object>> fullVersions = new java.util.ArrayList<>();
+
+		brands.add(Map.of("brand", GREASE_BRAND, "version", GREASE_VERSION));
+		fullVersions.add(Map.of("brand", GREASE_BRAND, "version", GREASE_VERSION + ".0.0.0"));
+
+		for (String brand : new String[] { "Chromium", "Google Chrome" }) {
+			brands.add(Map.of("brand", brand, "version", major));
+			fullVersions.add(Map.of("brand", brand, "version", fullVersion));
+		}
+
+		Map<String, Object> metadata = new java.util.HashMap<>();
+
+		metadata.put("brands", brands);
+		metadata.put("fullVersionList", fullVersions);
+		metadata.put("fullVersion", fullVersion);
+		metadata.put("platform", hintPlatformFor(agent));
+		metadata.put("platformVersion", "");
+		metadata.put("architecture", "x86");
+		metadata.put("model", "");
+		metadata.put("mobile", false);
+		metadata.put("bitness", "64");
+		metadata.put("wow64", false);
+
+		return metadata;
+	}
+
+	/** The Chrome major version named by an agent string, or "" when it names none. */
+	private static String majorVersionOf(String agent) {
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+			.compile("Chrome/(\\d+)")
+			.matcher(agent);
+
+		return matcher.find() ? matcher.group(1) : "";
+	}
+
+	/**
+	 * The Sec-CH-UA-Platform value for an agent string.
+	 *
+	 * Read off the agent rather than off the host, because the whole point is
+	 * that the two agree: a configured Windows agent whose hints say Linux is
+	 * the same contradiction as no hints at all.
+	 */
+	private static String hintPlatformFor(String agent) {
+		if (agent.contains("Windows")) {
+			return "Windows";
+		}
+
+		if (agent.contains("Mac OS X")) {
+			return "macOS";
+		}
+
+		return "Linux";
+	}
+
+	/** The navigator.platform value matching an agent string. */
+	private static String navigatorPlatformFor(String agent) {
+		if (agent.contains("Windows")) {
+			return "Win32";
+		}
+
+		if (agent.contains("Mac OS X")) {
+			return "MacIntel";
+		}
+
+		return "Linux x86_64";
 	}
 
 	/**
@@ -1687,9 +1818,48 @@ public final class CdpBrowser implements AutoCloseable {
 		decoder.shutdown();
 
 		try {
-			cdp.close();
+			requestShutdown();
 		} finally {
-			process.stop();
+			try {
+				cdp.close();
+			} finally {
+				process.stop();
+			}
+		}
+	}
+
+	/** How long the browser gets to shut itself down before the signals take over. */
+	private static final java.time.Duration SHUTDOWN_GRACE = java.time.Duration.ofSeconds(3);
+
+	/**
+	 * Asks the browser to shut itself down, and waits for it.
+	 *
+	 * A signal is not a clean exit for Chromium. SIGTERM takes its "session
+	 * ending" path: the process is gone in about 40 ms and the cookie store,
+	 * which commits to disk only every 30 s, is never flushed, so a sign-in
+	 * completed shortly before a power-off was lost every time (measured on
+	 * Chromium 152: cookies set 2 s before SIGTERM never reached the profile;
+	 * after Browser.close they were on disk within 300 ms). Browser.close runs
+	 * the full shutdown and records a clean exit, so it goes first; the signals
+	 * in ChromiumProcess.stop() remain for a browser that no longer answers.
+	 */
+	private void requestShutdown() {
+		long started = System.nanoTime();
+
+		try {
+			cdp.call("Browser.close", Map.of());
+		} catch (RuntimeException exception) {
+			// a connection already gone cannot be asked; the signals handle it
+			logger.warn("Không gửi được yêu cầu đóng trình duyệt: " + exception.getMessage());
+		}
+
+		boolean exited = process.awaitExit(SHUTDOWN_GRACE);
+		long millis = (System.nanoTime() - started) / 1_000_000L;
+
+		if (exited) {
+			logger.info("Trình duyệt tự đóng sau " + millis + " ms.");
+		} else {
+			logger.warn("Trình duyệt không tự đóng trong " + millis + " ms, gửi tín hiệu kết thúc.");
 		}
 	}
 
