@@ -2,6 +2,7 @@ package dev.belikhun.luna.smp.furniture
 
 import dev.belikhun.luna.smp.Hitboxes
 import dev.belikhun.luna.smp.LunaSmp
+import dev.belikhun.luna.smp.power.WirelessLampTile
 import net.kyori.adventure.key.Key
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
@@ -187,6 +188,8 @@ object FurnitureCatalog {
 		val legs: Boolean = false,
 		val box: Box = Box.SOLID,
 		val light: Light? = null,
+		/** Lit only while a wireless power node in reach pays for it. */
+		val wireless: Boolean = false,
 		val lamp: Lamp? = null,
 		val surface: List<Slot> = emptyList(),
 		val surfaceUpright: Boolean = false,
@@ -284,22 +287,22 @@ object FurnitureCatalog {
 		Spec(id = "green_sofa", seatHeight = 0.50, directional = true, box = Box.PEDESTAL, hardness = 0.8, sounds = SoundGroup.WOOD),
 		Spec(id = "red_sofa", seatHeight = 0.50, directional = true, box = Box.PEDESTAL, hardness = 0.8, sounds = SoundGroup.WOOD),
 		Spec(id = "black_sofa", seatHeight = 0.50, directional = true, box = Box.PEDESTAL, hardness = 0.8, sounds = SoundGroup.WOOD),
-		Spec(id = "white_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "orange_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "magenta_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "light_blue_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "yellow_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "lime_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "pink_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "gray_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "light_gray_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "cyan_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "purple_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "blue_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "brown_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "green_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "red_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "black_table_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "white_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "orange_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "magenta_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "light_blue_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "yellow_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "lime_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "pink_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "gray_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "light_gray_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "cyan_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "purple_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "blue_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "brown_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "green_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "red_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "black_table_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 13, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
 		Spec(id = "rose_planter", directional = true, hanging = true, box = Box.POT, hardness = 0.6, sounds = SoundGroup.STONE),
 		Spec(id = "lilac_planter", directional = true, hanging = true, box = Box.POT, hardness = 0.6, sounds = SoundGroup.STONE),
 		Spec(id = "peony_planter", directional = true, hanging = true, box = Box.POT, hardness = 0.6, sounds = SoundGroup.STONE),
@@ -373,9 +376,9 @@ object FurnitureCatalog {
 		Spec(id = "long_planter", directional = true, box = Box.PEDESTAL, pot = true, plantSlots = listOf(Slot(0.2800, 0.4375, 0.5000), Slot(0.7200, 0.4375, 0.5000)), hardness = 0.6, sounds = SoundGroup.STONE),
 		Spec(id = "flower_basket", directional = true, box = Box.PEDESTAL, pot = true, plantSlots = listOf(Slot(0.3000, 0.3125, 0.3500), Slot(0.7000, 0.3125, 0.4000), Slot(0.5000, 0.3125, 0.7200)), hardness = 0.4, sounds = SoundGroup.WOOD),
 		Spec(id = "display_case", showcase = true, hardness = 1.0, sounds = SoundGroup.WOOD),
-		Spec(id = "jar_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 14, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.STONE),
-		Spec(id = "bamboo_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 14, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
-		Spec(id = "light_bulb_lamp", directional = true, box = Box.SMALL, lamp = Lamp(level = 15, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.STONE),
+		Spec(id = "jar_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 14, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.STONE),
+		Spec(id = "bamboo_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 14, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.WOOD),
+		Spec(id = "light_bulb_lamp", directional = true, box = Box.SMALL, wireless = true, lamp = Lamp(level = 15, offset = 1, flint = false, litByDefault = true), hardness = 0.5, sounds = SoundGroup.STONE),
 		Spec(id = "red_candelabra", directional = true, box = Box.SMALL, lamp = Lamp(level = 12, offset = 1, flint = true, litByDefault = false), hardness = 0.8, sounds = SoundGroup.STONE),
 		Spec(id = "brazier", lamp = Lamp(level = 15, offset = 1, flint = true, litByDefault = false), hardness = 1.5, sounds = SoundGroup.STONE),
 		Spec(id = "soul_brazier", lamp = Lamp(level = 12, offset = 1, flint = true, litByDefault = false), hardness = 1.5, sounds = SoundGroup.STONE),
@@ -569,7 +572,7 @@ object FurnitureCatalog {
 		Spec(id = "warped_tv_stand", directional = true, storageRows = 3, hardness = 1.0, sounds = SoundGroup.WOOD),
 		Spec(id = "hazard_block", cube = true, hardness = 1.5, sounds = SoundGroup.STONE),
 		Spec(id = "drain_grate", hardness = 3.0, sounds = SoundGroup.STONE),
-		Spec(id = "ceiling_lamp", box = Box.CEILING, lamp = Lamp(level = 15, offset = -1, flint = false, litByDefault = true), hardness = 0.6, sounds = SoundGroup.STONE),
+		Spec(id = "ceiling_lamp", box = Box.CEILING, wireless = true, lamp = Lamp(level = 15, offset = -1, flint = false, litByDefault = true), hardness = 0.6, sounds = SoundGroup.STONE),
 		Spec(id = "clinker_bricks", cube = true, hardness = 3.0, sounds = SoundGroup.STONE),
 		Spec(id = "stained_clinker_bricks", cube = true, hardness = 3.0, sounds = SoundGroup.STONE),
 		Spec(id = "slag_bricks", cube = true, hardness = 3.0, sounds = SoundGroup.STONE),
@@ -587,10 +590,10 @@ object FurnitureCatalog {
 		Spec(id = "thick_steel_pole", box = Box.POST, hardness = 2.0, sounds = SoundGroup.STONE),
 		Spec(id = "steel_railing", directional = true, box = Box.DOOR, faceAway = true, hardness = 2.0, sounds = SoundGroup.STONE),
 		Spec(id = "steel_mesh_fence", connects = "mesh", box = Box.PANE, hardness = 2.0, sounds = SoundGroup.STONE),
-		Spec(id = "iron_bulb_light", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 0), hardness = 0.6, sounds = SoundGroup.STONE),
-		Spec(id = "iron_inset_light", directional = true, box = Box.FLAT, light = Light(level = 12, offset = 0), hardness = 0.6, sounds = SoundGroup.STONE),
-		Spec(id = "ceiling_edge_light", directional = true, box = Box.FLAT, light = Light(level = 12, offset = 0), hardness = 0.6, sounds = SoundGroup.STONE),
-		Spec(id = "floor_edge_light", directional = true, box = Box.FLAT, light = Light(level = 10, offset = 0), hardness = 0.6, sounds = SoundGroup.STONE),
+		Spec(id = "iron_bulb_light", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 0), wireless = true, hardness = 0.6, sounds = SoundGroup.STONE),
+		Spec(id = "iron_inset_light", directional = true, box = Box.FLAT, light = Light(level = 12, offset = 0), wireless = true, hardness = 0.6, sounds = SoundGroup.STONE),
+		Spec(id = "ceiling_edge_light", directional = true, box = Box.FLAT, light = Light(level = 12, offset = 0), wireless = true, hardness = 0.6, sounds = SoundGroup.STONE),
+		Spec(id = "floor_edge_light", directional = true, box = Box.FLAT, light = Light(level = 10, offset = 0), wireless = true, hardness = 0.6, sounds = SoundGroup.STONE),
 		Spec(id = "metal_sliding_door", directional = true, openable = Openable(sound = OpenSound.DOOR), box = Box.DOOR, hardness = 2.0, sounds = SoundGroup.STONE),
 		Spec(id = "metal_sliding_door_top", directional = true, openable = Openable(sound = OpenSound.DOOR), upper = true, box = Box.DOOR, hardness = 2.0, sounds = SoundGroup.STONE),
 		Spec(id = "industrial_wood_door", directional = true, openable = Openable(sound = OpenSound.WOOD), box = Box.DOOR, hardness = 1.5, sounds = SoundGroup.WOOD),
@@ -673,15 +676,15 @@ object FurnitureCatalog {
 		Spec(id = "step_ladder", directional = true, box = Box.SMALL, hardness = 1.0, sounds = SoundGroup.WOOD),
 		Spec(id = "rope_coil", cube = true, hardness = 0.5, sounds = SoundGroup.WOOD),
 		Spec(id = "rocky_dirt", cube = true, hardness = 0.6, sounds = SoundGroup.STONE),
-		Spec(id = "iron_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "hanging_iron_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "iron_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "gold_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "hanging_gold_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "gold_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "silver_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "hanging_silver_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "silver_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "iron_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "hanging_iron_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "iron_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "gold_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "hanging_gold_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "gold_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "silver_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "hanging_silver_lantern", box = Box.SMALL, light = Light(level = 14, offset = -1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
+		Spec(id = "silver_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.5, sounds = SoundGroup.STONE),
 		Spec(id = "iron_chandelier", box = Box.SMALL, light = Light(level = 15, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
 		Spec(id = "gold_chandelier", box = Box.SMALL, light = Light(level = 15, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
 		Spec(id = "silver_chandelier", box = Box.SMALL, light = Light(level = 15, offset = -1), hardness = 1.5, sounds = SoundGroup.STONE),
@@ -733,10 +736,10 @@ object FurnitureCatalog {
 		Spec(id = "straw_beehive", directional = true, hardness = 0.6, sounds = SoundGroup.WOOD),
 		Spec(id = "brewing_barrel", directional = true, hardness = 1.0, sounds = SoundGroup.WOOD),
 		Spec(id = "gargoyle", directional = true, hardness = 1.5, sounds = SoundGroup.STONE),
-		Spec(id = "iron_torch", box = Box.SMALL, light = Light(level = 14, offset = 1), hardness = 0.5, sounds = SoundGroup.STONE),
-		Spec(id = "iron_wall_torch", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), hardness = 0.5, sounds = SoundGroup.STONE),
-		Spec(id = "wooden_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), hardness = 1.0, sounds = SoundGroup.WOOD),
-		Spec(id = "wooden_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), hardness = 1.0, sounds = SoundGroup.WOOD),
+		Spec(id = "iron_torch", box = Box.SMALL, light = Light(level = 14, offset = 1), wireless = true, hardness = 0.5, sounds = SoundGroup.STONE),
+		Spec(id = "iron_wall_torch", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), wireless = true, hardness = 0.5, sounds = SoundGroup.STONE),
+		Spec(id = "wooden_lantern", box = Box.SMALL, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.0, sounds = SoundGroup.WOOD),
+		Spec(id = "wooden_wall_lantern", directional = true, box = Box.FLAT, light = Light(level = 14, offset = 1), wireless = true, hardness = 1.0, sounds = SoundGroup.WOOD),
 		Spec(id = "book_stack", box = Box.PEDESTAL, hardness = 0.5, sounds = SoundGroup.WOOD),
 		Spec(id = "paper_stack", box = Box.PEDESTAL, hardness = 0.5, sounds = SoundGroup.WOOD),
 		Spec(id = "candlestick", box = Box.PEDESTAL, light = Light(level = 9, offset = 1), hardness = 0.5, sounds = SoundGroup.WOOD),
@@ -865,6 +868,20 @@ object FurnitureCatalog {
 	)
 
 	private fun register(spec: Spec): NovaBlock {
+		// a street light keeps everything the furniture gives it - model,
+		// facing, hitbox, hardness - and borrows the wireless fixture's tile.
+		// Deliberately NO new state property: adding one orphans every placed
+		// instance, and the lit state lives in the tile instead
+		if (spec.wireless) {
+			return LunaSmp.tileEntity(spec.id, ::WirelessLampTile) {
+				configure(spec)
+
+				// once a second: a fixture only asks whether it was paid for
+				tickrate(1)
+				behaviors(*(behaviorsOf(spec) + TileEntityDrops + TileEntityInteractive).toTypedArray())
+			}
+		}
+
 		val stateful = spec.lamp != null || spec.surface.isNotEmpty()
 			|| spec.storageRows > 0 || spec.showcase || spec.pot || spec.openable != null
 			|| spec.aquarium || spec.clock
@@ -916,7 +933,9 @@ object FurnitureCatalog {
 			add(TableConnect)
 		}
 
-		if (spec.light != null) {
+		// a wireless piece's light is the node's to give: its level and offset
+		// are read by the fixture tile, never placed at build time
+		if (spec.light != null && !spec.wireless) {
 			add(EmitsLight(spec.light.offset, spec.light.level))
 		}
 
@@ -1039,13 +1058,23 @@ object FurnitureCatalog {
 		// the one shape that still borrows a real warped trapdoor, because a
 		// hatch WANTS the trapdoor's behaviour: the client's open prediction
 		// matches the toggle the server makes, so nothing flickers
-		Box.TRAPDOOR -> Blocks.WARPED_TRAPDOOR.defaultBlockState()
+		// an IRON trapdoor, never a wooden one: a hand cannot open an iron
+		// trapdoor, so the one vanilla path that toggled the backing under a
+		// piece - a sneaking click the tile hands back to vanilla so blocks
+		// can be placed against it - now does nothing. A warped backing that
+		// got toggled that way became a state Nova no longer recognised as
+		// the piece's, the piece was dropped, and an invisible vanilla
+		// trapdoor stayed behind ("the glass trapdoor went transparent and
+		// broke into a warped trapdoor"). POWERED marks it as ours for the
+		// hitbox skin, exactly as the walkway plate does.
+		Box.TRAPDOOR -> Blocks.IRON_TRAPDOOR.defaultBlockState()
 			.setValue(BlockStateProperties.HORIZONTAL_FACING, facingOf(scope))
 			.setValue(BlockStateProperties.OPEN, spec.openable != null && scope.getPropertyValueOrNull(OPEN) == true)
 			.setValue(
 				BlockStateProperties.HALF,
 				if (scope.getPropertyValueOrNull(TOP) == true) Half.TOP else Half.BOTTOM,
 			)
+			.setValue(BlockStateProperties.POWERED, true)
 
 		// the same plate, but a closed IRON trapdoor: nothing a hand click
 		// moves, so the client predicts no swing on a walkway
@@ -1328,7 +1357,8 @@ object FurnitureCatalog {
 	}
 
 	private fun scopedLit(spec: Spec) =
-		LIT.scope(setOf(false, true)) { spec.lamp?.litByDefault == true }
+		// a wireless lamp starts dark and is lit by the first node that pays
+		LIT.scope(setOf(false, true)) { spec.lamp?.litByDefault == true && !spec.wireless }
 
 	private fun scopedHanging() =
 		HANGING.scope(setOf(false, true)) { ctx -> ctx[DefaultContextParamTypes.CLICKED_BLOCK_FACE] == BlockFace.DOWN }

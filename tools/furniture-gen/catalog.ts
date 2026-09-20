@@ -66,6 +66,11 @@ export interface Behaviour {
 	/** Always-on light through a vanilla light block at this offset. */
 	light?: { offset: number; level: number };
 	/**
+	 * A wireless fixture: lit only while a power node in reach pays for it.
+	 * The draw and light level live in lamps.ts (STREET_LIGHTS), keyed by id.
+	 */
+	wireless?: boolean;
+	/**
 	 * The vanilla block behind the model, which is what the game collides with
 	 * and what the outline is drawn around. `solid` is a full cube (a barrier);
 	 * `small` is a 6x6x6 box in the middle of the block with no collider at
@@ -373,6 +378,7 @@ const SOFAS: Piece[] = COLORS.map((color) => ({
  */
 const TABLE_LAMPS: Piece[] = COLORS.map((color) => ({
 	id: `${color}_table_lamp`,
+	wireless: true,
 	models: [`adorn:block/${color}_table_lamp`, 'luna:block/lamp_bulb'],
 	en: `${COLOR_EN[color]} Table Lamp`,
 	vi: `Đèn Bàn ${COLOR_VI[color]}`,
@@ -555,6 +561,7 @@ const SINGLES: Piece[] = [
 	},
 	{
 		id: 'jar_lamp',
+		wireless: true,
 		models: ['beautify:block/lamps/standing_lamp_jar', 'luna:block/jar_glow'],
 		en: 'Standing Jar Lamp',
 		vi: 'Đèn Lồng Thủy Tinh',
@@ -576,6 +583,7 @@ const SINGLES: Piece[] = [
 	},
 	{
 		id: 'bamboo_lamp',
+		wireless: true,
 		models: ['beautify:block/lamps/standing_lamp_bamboo'],
 		en: 'Standing Bamboo Lamp',
 		vi: 'Đèn Tre',
@@ -593,6 +601,7 @@ const SINGLES: Piece[] = [
 	},
 	{
 		id: 'light_bulb_lamp',
+		wireless: true,
 		models: ['beautify:block/lamps/standing_light_bulb'],
 		en: 'Standing Light Bulb',
 		vi: 'Đèn Bóng Tròn',

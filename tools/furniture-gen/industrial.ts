@@ -395,6 +395,7 @@ export const STEELWORKS: Piece[] = [
 		rotateY: 180,
 		directional: true,
 		collider: 'flat',
+		wireless: true,
 		light: { offset: 0, level: 14 },
 		hardness: 0.6,
 		tool: 'pickaxe',
@@ -407,11 +408,16 @@ export const STEELWORKS: Piece[] = [
 		rotateY: 180,
 		directional: true,
 		collider: 'flat',
+		wireless: true,
 		light: { offset: 0, level: 12 },
 		hardness: 0.6,
 		tool: 'pickaxe',
 	},
-	// the edge lights are authored along the north edge like the inset light,
+	// the four Engineer's Decor lights are the street lights: wireless
+	// consumers lit by a power node in reach. `light` here is the level and
+	// where it goes (offset 0 = the block they face), read by the wireless
+	// tile rather than placed at build time.
+	// The edge lights are authored along the north edge like the inset light,
 	// and take the same half turn to hug the wall behind the placer
 	{
 		id: 'ceiling_edge_light',
@@ -421,6 +427,7 @@ export const STEELWORKS: Piece[] = [
 		rotateY: 180,
 		directional: true,
 		collider: 'flat',
+		wireless: true,
 		light: { offset: 0, level: 12 },
 		hardness: 0.6,
 		tool: 'pickaxe',
@@ -433,6 +440,7 @@ export const STEELWORKS: Piece[] = [
 		rotateY: 180,
 		directional: true,
 		collider: 'flat',
+		wireless: true,
 		light: { offset: 0, level: 10 },
 		hardness: 0.6,
 		tool: 'pickaxe',
@@ -661,6 +669,7 @@ export const INDUSTRIAL: Piece[] = [
 	},
 	{
 		id: 'ceiling_lamp',
+		wireless: true,
 		built: ceilingLamp(true),
 		en: 'Ceiling Lamp',
 		vi: 'Đèn Trần',

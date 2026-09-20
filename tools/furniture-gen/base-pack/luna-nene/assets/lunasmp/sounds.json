@@ -18,5 +18,13 @@
 				"name": "lunasmp:block/alarm_siren"
 			}
 		]
+	},
+	"birthday.applause": {
+		"category": "player",
+		"sounds": [
+			{
+				"name": "lunasmp:birthday/applause"
+			}
+		]
 	}
 }

@@ -46,7 +46,13 @@ export type Metric =
 	| 'fluid_stored'
 	| 'fluid_flow'
 	| 'multi'
-	| 'multi_flow';
+	| 'multi_flow'
+	| 'item_in'
+	| 'item_out'
+	| 'fluid_in'
+	| 'fluid_out'
+	| 'item_total'
+	| 'fluid_total';
 
 export interface Gauge {
 	/** Block id inside the lunasmp namespace. */
@@ -196,6 +202,32 @@ const CORNER_KINDS: CornerKind[] = [
 	},
 ];
 
+/**
+ * The consumption and production pair, which started the corner family: the
+ * first two ids below keep the right and left corners they shipped in, and
+ * the loop fills the other seats under the matrix names.
+ */
+const LOAD_GEN_KINDS: (CornerKind & { deployed: 'br' | 'bl' })[] = [
+	{
+		key: 'energy_load', metric: 'energy_load', deployed: 'br',
+		en: 'Corner Consumption Gauge', vi: 'Đồng Hồ Tiêu Thụ Góc',
+		emblem: 'J', legend: 'LOAD', unit: 'J/S', needle: 'corner_black', flow: true,
+		zones: [
+			{ from: 0.72, to: 0.9, colour: ZONE_AMBER },
+			{ from: 0.9, to: 1, colour: ZONE_RED },
+		],
+	},
+	{
+		key: 'energy_gen', metric: 'energy_gen', deployed: 'bl',
+		en: 'Corner Production Gauge', vi: 'Đồng Hồ Điện Phát Góc',
+		emblem: 'J', legend: 'GEN', unit: 'J/S', needle: 'corner_black', flow: true,
+		zones: [
+			{ from: 0, to: 0.06, colour: ZONE_RED },
+			{ from: 0.35, to: 1, colour: ZONE_GREEN },
+		],
+	},
+];
+
 /** One corner meter: a kind seated in a corner, every label out of the arc. */
 function cornerGauge(id: string, kind: CornerKind, seat: CornerSeat, en: string, vi: string): Gauge {
 	const emblemScale = 2;
@@ -245,30 +277,35 @@ function cornerGauges(): Gauge[] {
 	// the original three keep their ids: the world and the shop already hold
 	// them. The energy level meter in the top corner doubles as that slot of
 	// the matrix, so the loop below skips it.
-	out.push(cornerGauge('gauge_energy_load_corner', {
-		key: 'energy_load', metric: 'energy_load',
-		en: 'Corner Consumption Gauge', vi: 'Đồng Hồ Tiêu Thụ Góc',
-		emblem: 'J', legend: 'LOAD', unit: 'J/S', needle: 'corner_black', flow: true,
-		zones: [
-			{ from: 0.72, to: 0.9, colour: ZONE_AMBER },
-			{ from: 0.9, to: 1, colour: ZONE_RED },
-		],
-	}, CORNER_SEATS.br!, 'Corner Consumption Gauge', 'Đồng Hồ Tiêu Thụ Góc'));
+	out.push(cornerGauge('gauge_energy_load_corner', LOAD_GEN_KINDS[0]!, CORNER_SEATS.br!,
+		'Corner Consumption Gauge', 'Đồng Hồ Tiêu Thụ Góc'));
 
-	out.push(cornerGauge('gauge_energy_gen_corner', {
-		key: 'energy_gen', metric: 'energy_gen',
-		en: 'Corner Production Gauge', vi: 'Đồng Hồ Điện Phát Góc',
-		emblem: 'J', legend: 'GEN', unit: 'J/S', needle: 'corner_black', flow: true,
-		zones: [
-			{ from: 0, to: 0.06, colour: ZONE_RED },
-			{ from: 0.35, to: 1, colour: ZONE_GREEN },
-		],
-	}, CORNER_SEATS.bl!, 'Corner Production Gauge', 'Đồng Hồ Điện Phát Góc'));
+	out.push(cornerGauge('gauge_energy_gen_corner', LOAD_GEN_KINDS[1]!, CORNER_SEATS.bl!,
+		'Corner Production Gauge', 'Đồng Hồ Điện Phát Góc'));
 
 	const stored = CORNER_KINDS.find((kind) => kind.key === 'energy_stored')!;
 
 	out.push(cornerGauge('gauge_energy_stored_corner', stored, CORNER_SEATS.tr!,
 		'Corner Storage Gauge', 'Đồng Hồ Tích Trữ Góc'));
+
+	// the consumption and production meters' other two corners, so the pair
+	// sits in every seat the level and flow meters do; the deployed ids above
+	// keep the right (load) and left (gen) corners
+	for (const kind of LOAD_GEN_KINDS) {
+		for (const [corner, seat] of Object.entries(CORNER_SEATS)) {
+			if (corner === kind.deployed) {
+				continue;
+			}
+
+			out.push(cornerGauge(
+				`gauge_corner_${kind.key}_${corner}`,
+				kind,
+				seat,
+				`${kind.en} (${seat.en})`,
+				`${kind.vi} (${seat.vi})`,
+			));
+		}
+	}
 
 	for (const kind of CORNER_KINDS) {
 		for (const [corner, seat] of Object.entries(CORNER_SEATS)) {
@@ -283,6 +320,183 @@ function cornerGauges(): Gauge[] {
 				`${kind.en} (${seat.en})`,
 				`${kind.vi} (${seat.vi})`,
 			));
+		}
+	}
+
+	return out;
+}
+
+/**
+ * The DIN-face fleet: every corner kind except the two multipurpose ones
+ * (which have hand-written squares below) on the same square bezel and low
+ * pivot as the consumption meter, so a mixed instrument wall reads as one
+ * series. This is what completes the matrix the fleet is sold as: each
+ * quantity and reading in a round dial, a square dial and three corner
+ * dials, each as a panel and as a full block.
+ */
+function squareGauges(): Gauge[] {
+	const needles: Record<CornerKind['needle'], 'red' | 'black' | 'orange'> = {
+		corner_red: 'red',
+		corner_black: 'black',
+		corner_orange: 'orange',
+	};
+
+	return CORNER_KINDS
+		.filter((kind) => kind.key !== 'multi' && kind.key !== 'multi_flow')
+		.map((kind) => ({
+			id: `gauge_${kind.key}_square`,
+			en: kind.en.replace('Corner ', 'Square '),
+			vi: `${kind.vi} Vuông`,
+			metric: kind.metric,
+			needle: needles[kind.needle],
+			dashboard: true,
+			window: kind.flow ? [44, 53] as [number, number] : undefined,
+			dial: {
+				shape: 'square' as const,
+				pivot: [32, 50] as [number, number],
+				radius: 34,
+				startDeg: -45,
+				endDeg: 45,
+				zones: kind.zones,
+				majors: 5,
+				numerals: kind.flow
+					? [
+						{ at: 0, text: '-' },
+						{ at: 0.5, text: '0' },
+						{ at: 1, text: '+' },
+					]
+					: [
+						{ at: 0, text: '0' },
+						{ at: 1, text: '100' },
+					],
+				unit: kind.unit,
+				legend: kind.legend,
+				unitPos: [13, 55] as [number, number],
+				legendPos: [32, 38] as [number, number],
+			},
+		}));
+}
+
+/**
+ * The intake and output pairs for items and fluid: what the consumption and
+ * production gauges are for energy, on the same DIN square with the same
+ * corner seats (output in the right corner like consumption, intake in the
+ * left like production), each as a panel and a full block.
+ *
+ * They read per-container gains and losses summed separately (see the
+ * tile's StockLedger), so a transfer between two stores on one network shows
+ * on both meters at the same rate, where the net flow gauge shows nothing.
+ */
+interface InOutKind {
+	key: string;
+	metric: Metric;
+	en: string;
+	vi: string;
+	emblem: string;
+	legend: 'IN' | 'OUT';
+	unit: string;
+	needle: 'black' | 'orange';
+	cornerNeedle: 'corner_black' | 'corner_orange';
+	zones: Dial['zones'];
+	seat: 'bl' | 'br';
+}
+
+const IN_OUT_KINDS: InOutKind[] = [
+	{
+		key: 'item_in', metric: 'item_in', en: 'Item Inflow Gauge', vi: 'Đồng Hồ Vật Phẩm Vào',
+		emblem: 'N', legend: 'IN', unit: 'N/S', needle: 'orange', cornerNeedle: 'corner_orange', seat: 'bl',
+		zones: [
+			{ from: 0, to: 0.06, colour: ZONE_RED },
+			{ from: 0.35, to: 1, colour: ZONE_GREEN },
+		],
+	},
+	{
+		key: 'item_out', metric: 'item_out', en: 'Item Outflow Gauge', vi: 'Đồng Hồ Vật Phẩm Ra',
+		emblem: 'N', legend: 'OUT', unit: 'N/S', needle: 'orange', cornerNeedle: 'corner_orange', seat: 'br',
+		zones: [
+			{ from: 0.72, to: 0.9, colour: ZONE_AMBER },
+			{ from: 0.9, to: 1, colour: ZONE_RED },
+		],
+	},
+	{
+		key: 'fluid_in', metric: 'fluid_in', en: 'Liquid Inflow Gauge', vi: 'Đồng Hồ Chất Lỏng Vào',
+		emblem: 'MB', legend: 'IN', unit: 'MB/S', needle: 'black', cornerNeedle: 'corner_black', seat: 'bl',
+		zones: [
+			{ from: 0, to: 0.06, colour: ZONE_RED },
+			{ from: 0.35, to: 1, colour: ZONE_BLUE },
+		],
+	},
+	{
+		key: 'fluid_out', metric: 'fluid_out', en: 'Liquid Outflow Gauge', vi: 'Đồng Hồ Chất Lỏng Ra',
+		emblem: 'MB', legend: 'OUT', unit: 'MB/S', needle: 'black', cornerNeedle: 'corner_black', seat: 'br',
+		zones: [
+			{ from: 0.72, to: 0.9, colour: ZONE_AMBER },
+			{ from: 0.9, to: 1, colour: ZONE_RED },
+		],
+	},
+];
+
+function inOutGauges(): Gauge[] {
+	const out: Gauge[] = [];
+
+	for (const kind of IN_OUT_KINDS) {
+		// the DIN square, exactly the consumption meter's face
+		out.push({
+			id: `gauge_${kind.key}`,
+			en: kind.en,
+			vi: kind.vi,
+			metric: kind.metric,
+			needle: kind.needle,
+			dashboard: true,
+			window: [44, 53],
+			dial: {
+				shape: 'square',
+				pivot: [32, 50],
+				radius: 34,
+				startDeg: -45,
+				endDeg: 45,
+				zones: kind.zones,
+				majors: 5,
+				numerals: [
+					{ at: 0, text: '0' },
+					{ at: 1, text: '100' },
+				],
+				unit: kind.unit,
+				legend: kind.legend,
+				unitPos: [13, 55],
+				legendPos: [32, 38],
+			},
+		});
+
+		// the corner meters, one per seat: a one-sided scale (0 to full)
+		// with the range plate, not the -/0/+ a flow corner wears, because
+		// nothing here goes negative. The seat the pair shipped in first keeps
+		// its plain id; the other two take the matrix names
+		const cornerKind: CornerKind = {
+			key: kind.key,
+			metric: kind.metric,
+			en: kind.en,
+			vi: kind.vi,
+			emblem: kind.emblem,
+			legend: kind.legend,
+			unit: kind.unit,
+			needle: kind.cornerNeedle,
+			zones: kind.zones,
+			flow: false,
+		};
+
+		for (const [corner, seat] of Object.entries(CORNER_SEATS)) {
+			const first = corner === kind.seat;
+			const gauge = cornerGauge(
+				first ? `gauge_${kind.key}_corner` : `gauge_corner_${kind.key}_${corner}`,
+				cornerKind,
+				seat,
+				first ? `Corner ${kind.en}` : `Corner ${kind.en} (${seat.en})`,
+				first ? `${kind.vi} Góc` : `${kind.vi} Góc (${seat.vi})`,
+			);
+
+			gauge.window = seat.plate;
+			out.push(gauge);
 		}
 	}
 
@@ -439,6 +653,37 @@ export const GAUGES: Gauge[] = [
 		},
 	},
 	{
+		id: 'gauge_item_stored',
+		en: 'Stored Items Gauge',
+		vi: 'Đồng Hồ Vật Phẩm Lưu Trữ',
+		metric: 'item_stored',
+		needle: 'red',
+		dashboard: true,
+		// the same 240-degree level dial as the battery gauge, but a filling
+		// warehouse is the warning here: amber, then red at the top
+		dial: {
+			shape: 'round',
+			pivot: [32, 32],
+			radius: 22,
+			startDeg: -120,
+			endDeg: 120,
+			zones: [
+				{ from: 0.8, to: 0.9, colour: ZONE_AMBER },
+				{ from: 0.9, to: 1, colour: ZONE_RED },
+			],
+			majors: 4,
+			numerals: [
+				{ at: 0, text: '0' },
+				{ at: 0.5, text: '50' },
+				{ at: 1, text: '100' },
+			],
+			unit: '%',
+			legend: 'STORE',
+			unitPos: [32, 51],
+			legendPos: [32, 44],
+		},
+	},
+	{
 		id: 'gauge_fluid_stored',
 		en: 'Stored Liquid Gauge',
 		vi: 'Đồng Hồ Mức Chất Lỏng',
@@ -514,6 +759,57 @@ export const GAUGES: Gauge[] = [
 			majors: 0,
 			numerals: [],
 			unit: 'KJ',
+			legend: 'TOTAL',
+			unitPos: [32, 44],
+			legendPos: [32, 20],
+			darkFace: true,
+			window: [10, 26, 44, 12],
+		},
+	},
+	{
+		id: 'gauge_item_meter',
+		en: 'Item Meter',
+		vi: 'Công Tơ Vật Phẩm',
+		metric: 'item_total',
+		dashboard: true,
+		window: [32, 32],
+		// the Ferraris meter's housing counting goods instead of joules: the
+		// drums add up every item taken out of the network's stores
+		dial: {
+			shape: 'square',
+			pivot: [32, 46],
+			radius: 0,
+			startDeg: 0,
+			endDeg: 0,
+			zones: [],
+			majors: 0,
+			numerals: [],
+			unit: 'N',
+			legend: 'TOTAL',
+			unitPos: [32, 44],
+			legendPos: [32, 20],
+			darkFace: true,
+			window: [10, 26, 44, 12],
+		},
+	},
+	{
+		id: 'gauge_fluid_meter',
+		en: 'Liquid Meter',
+		vi: 'Công Tơ Chất Lỏng',
+		metric: 'fluid_total',
+		dashboard: true,
+		window: [32, 32],
+		// the same housing counting buckets drawn out of the network's tanks
+		dial: {
+			shape: 'square',
+			pivot: [32, 46],
+			radius: 0,
+			startDeg: 0,
+			endDeg: 0,
+			zones: [],
+			majors: 0,
+			numerals: [],
+			unit: 'B',
 			legend: 'TOTAL',
 			unitPos: [32, 44],
 			legendPos: [32, 20],
@@ -613,6 +909,8 @@ export const GAUGES: Gauge[] = [
 		},
 	},
 	...cornerGauges(),
+	...squareGauges(),
+	...inOutGauges(),
 	{
 		id: 'gauge_energy_bar',
 		en: 'Energy Level Column',
@@ -966,7 +1264,7 @@ export function jointLongModel(): Model {
 export function needleModels(): Record<string, Model> {
 	const out: Record<string, Model> = {};
 
-	for (const style of ['red', 'black', 'orange']) {
+	for (const style of ['red', 'black', 'orange', 'blue']) {
 		const texture = `lunasmp:block/gauge_needle_${style}`;
 
 		out[`gauge_needle_${style}`] = {
@@ -1108,6 +1406,17 @@ export const DIODE = {
 	id: 'network_diode',
 	en: 'One-Way Bridge',
 	vi: 'Van Một Chiều',
+};
+
+/**
+ * The same bridge as a full block, for a wall of them or a run that has to
+ * read as machinery rather than as a fitting on a cable. Same tile, same
+ * buffers, same knobs: only the body and the backing block differ.
+ */
+export const DIODE_BLOCK = {
+	id: 'network_diode_block',
+	en: 'One-Way Bridge Block',
+	vi: 'Khối Van Một Chiều',
 };
 
 /** The indicator, the alarm and the light panel: each its own tile. */
@@ -1335,6 +1644,40 @@ export function diodeModel(): Model {
 }
 
 /**
+ * The one-way bridge as a full block.
+ *
+ * The flank sprite is painted as a whole face, so here it is shown whole
+ * rather than cropped to a body eight pixels deep: the arrow runs inlet to
+ * outlet on all four long sides, the outlet end wears the green flange plate
+ * that marks the side you may draw from, and the inlet end is plain casing.
+ */
+export function diodeBlockModel(): Model {
+	return {
+		textures: {
+			body: CASING,
+			arrow: DIODE_SIDE,
+			out: DIODE_OUT,
+			particle: CASING,
+		},
+		elements: [
+			{
+				from: [0, 0, 0],
+				to: [16, 16, 16],
+				faces: {
+					north: { uv: [0, 0, 16, 16], texture: '#body' },
+					south: { uv: [0, 0, 16, 16], texture: '#out' },
+					east: { uv: [16, 0, 0, 16], texture: '#arrow' },
+					west: { uv: [0, 0, 16, 16], texture: '#arrow' },
+					up: { uv: [0, 0, 16, 16], texture: '#arrow', rotation: 90 },
+					down: { uv: [0, 0, 16, 16], texture: '#arrow', rotation: 270 },
+				},
+			},
+		],
+		display: DISPLAY,
+	};
+}
+
+/**
  * The live LED bars the level columns climb: item models like the needles,
  * because a display entity can only wear a model an item owns. The blade
  * stands on the model's own middle - the display is anchored at the slot's
@@ -1343,7 +1686,7 @@ export function diodeModel(): Model {
 export function barModels(): Record<string, Model> {
 	const out: Record<string, Model> = {};
 
-	for (const style of ['amber', 'blue']) {
+	for (const style of ['amber', 'blue', 'red']) {
 		const texture = `lunasmp:block/gauge_bar_${style}`;
 
 		out[`gauge_bar_${style}`] = {
@@ -1592,6 +1935,7 @@ export function gaugeModels(): Record<string, Model> {
 	}
 
 	out.network_diode = diodeModel();
+	out.network_diode_block = diodeBlockModel();
 	out.network_led = ledPanelModel();
 	out.network_led_block = ledBlockModel();
 	out.alarm_light = alarmModel();

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.smp.gauges
 
+import dev.belikhun.luna.smp.LightSource
 import dev.belikhun.luna.smp.LunaSmp
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.sound.SoundStop
@@ -35,6 +36,7 @@ import xyz.xenondevs.nova.world.block.tileentity.network.type.item.ItemBridge
 import xyz.xenondevs.nova.world.fakeentity.impl.FakeItemDisplay
 import xyz.xenondevs.nova.world.format.NetworkState
 import xyz.xenondevs.nova.world.model.FixedMultiModel
+import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
 import org.bukkit.event.inventory.ClickType
 
@@ -61,12 +63,28 @@ class AlarmTile(
 	/**
 	 * The full-block form: a housing cube with the dome riding the face the
 	 * placer clicked, and a base that genuinely glows while the alarm holds
-	 * (the backing bulb's LIT follows the ON state).
+	 * (a companion light block thrown the way the dome points).
 	 */
 	private val cube = blockState.block.id.value() == "alarm_light_block"
 
 	private val facing: BlockFace
 		get() = blockState[DefaultBlockStateProperties.FACING] ?: BlockFace.UP
+
+	/** The block the dome floodlights: the one it points into. */
+	private val lightTarget: Block
+		get() = pos.advance(facing, 1).block
+
+	/**
+	 * Keeps the floodlight in step with the glowing base. Idempotent, and
+	 * called every tick, so a light something built over comes back.
+	 */
+	private fun syncLight() {
+		if (cube && blockState[GaugeCatalog.ON] == true) {
+			LightSource.place(lightTarget, LIGHT_LEVEL)
+		} else {
+			LightSource.clear(lightTarget)
+		}
+	}
 
 	// ---- the wire side -------------------------------------------------------
 	//
@@ -140,6 +158,9 @@ class AlarmTile(
 		NetworkManager.queueAddBridge(this, WIRE_TYPES, wireFaces())
 
 		valid = true
+
+		LightSource.retireBulbBacking(pos.block)
+		syncLight()
 	}
 
 	override fun handleDisable() {
@@ -155,6 +176,7 @@ class AlarmTile(
 		valid = false
 		joints.clear()
 		quiet()
+		LightSource.clear(lightTarget)
 	}
 
 	override suspend fun handleNetworkLoaded(state: NetworkState) {
@@ -203,6 +225,9 @@ class AlarmTile(
 
 	override fun handleTick() {
 		tickCount++
+
+		LightSource.retireBulbBacking(pos.block)
+		syncLight()
 
 		// once a second, re-check which cable line the beacon sits in and
 		// audit the registration, exactly as the gauges do
@@ -545,6 +570,9 @@ class AlarmTile(
 		const val THRESHOLD = "alarmThreshold"
 		const val HORN = "alarmHorn"
 		const val LOAD_THRESHOLD = "alarmLoadThreshold"
+
+		/** What the alarming base throws, matching the bulb backing it replaced. */
+		const val LIGHT_LEVEL = 15
 
 		/** The wail: freesound #470504 (onderwish, CC0), cut to three cycles. */
 		const val SIREN = "lunasmp:block.alarm_siren"

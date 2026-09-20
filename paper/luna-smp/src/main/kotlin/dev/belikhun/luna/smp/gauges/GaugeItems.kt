@@ -39,6 +39,9 @@ object GaugeItems {
 	/** The item that places the one-way bridge. */
 	val DIODE_ITEM: NovaItem = LunaSmp.item(GaugeCatalog.DIODE) {}
 
+	/** And the same bridge as a full block. */
+	val DIODE_CUBE_ITEM: NovaItem = LunaSmp.item(GaugeCatalog.DIODE_BLOCK) {}
+
 	/** The items that place the indicator, the alarm and the light panel. */
 	val LED_BLOCK_ITEM: NovaItem = LunaSmp.item(GaugeCatalog.LED) {}
 	val LED_CUBE_ITEM: NovaItem = LunaSmp.item(GaugeCatalog.LED_BLOCK) {}
@@ -83,6 +86,8 @@ object GaugeItems {
 		"gauge_needle_orange",
 		"gauge_needle_corner_red",
 		"gauge_needle_corner_black",
+		"gauge_needle_blue",
+		"gauge_needle_corner_blue",
 		"gauge_needle_corner_orange",
 	).associateWith { id ->
 		LunaSmp.item(id) {
@@ -94,6 +99,7 @@ object GaugeItems {
 	val BARS: Map<String, NovaItem> = listOf(
 		"gauge_bar_amber",
 		"gauge_bar_blue",
+		"gauge_bar_red",
 	).associateWith { id ->
 		LunaSmp.item(id) {
 			maxStackSize(1)

@@ -31,6 +31,8 @@ reproduced below.
 | lanterns, iron torches, candles, candle chandeliers, gold and silver chains, gargoyle, wooden barrel, cabinet, apiary, straw beehive, brewing barrel, crushing tub, vases, painted wood, clay walls, slate, stone columns, iron barrel | Rustic |
 | stacks of books and papers, candlesticks, globe, ink and quill, potion bottles, scarecrow, skull and bones, trophy | Builder's Bounty |
 | timber frames (every pattern, eleven woods) | Aesthetic Frames |
+| power pole segments, crossarm insulators | Create: Electro Energetics |
+| the hanging power line, the wire spools | ours, composed over its wire sprite |
 
 ## Tables & Chairs 2 — "Furniture Resources" (misterk7_-)
 
@@ -234,6 +236,10 @@ floor grating, steel table, treated wood table, treated wood stool, steel railin
 steel mesh fence, treated wood / thin steel / thick steel pole, iron bulb light and
 iron inset light element models with their textures. Its `straight_pipe_valve` was
 also consulted (not copied) for the one-way bridge's check-valve design language.
+2026-09-04: the bulb light model is also the geometry of the wireless bulb, turned
+half round and retextured (its steel pushed to copper, its warm lamp glass copied
+lit and painted down for the unlit state); the wireless panel and node are drawn
+here, not ported.
 
 ## MrCrayfish's Furniture Mod: Refurbished — NOT ADOPTED
 
@@ -424,6 +430,30 @@ nothing of it is here.
   **Supplementaries**, **Handcrafted**, **Environmental**: custom licences that
   withhold the art.
 
+## Create: Electro Energetics (George VI)
+
+https://github.com/george8188625/Create-Electro-Energetics · **MIT**, LICENSE
+file at the repository ("Copyright (c) 2025 George VI") and the same in the
+Modrinth licence field. The 1.21.1 branch is staged by `fetch-sources.sh`.
+
+Ported 2026-09-04 for the power line: the `concrete_pole` middle segment
+verbatim, the `triple_connector` crossarm with its three insulator stacks, and
+the `concrete_pole` and `connector` textures those models' uv windows are
+windows onto. The generator READS those model files at generate time and lifts
+the arm onto the top of a block rather than transcribing its boxes, so the
+geometry and the uvs cannot drift apart from the texture beside them.
+
+The pole base's plinth, the wire spool and the hanging wire itself are ours.
+The mod draws its own wires in code with no model to take, so the span here is
+our geometry (a pair of crossed planes a display entity stretches onto each
+chord of a sag) over a flat sheet of the tier's colour. The tier colours and
+transfer rates are read off Nova Logistics' own cable tiers, so a line and the
+cable feeding it read as the same tier; nothing of Logistics' art is used.
+
+Not taken: its machines, its bundled and coloured wires, its hanging
+insulators, wire dampers, pole mounts and struts, and everything electrical
+beyond the pole itself.
+
 ## Alarm siren recording (onderwish, freesound #470504)
 
 `assets/lunasmp/sounds/block/alarm_siren.ogg` is cut from "Emergency Siren"
@@ -432,3 +462,56 @@ under **Creative Commons 0** and verified as such on 2026-09-03. Three wail
 cycles (5.76 s, from 7.98 s into the recording) were taken trough-to-trough,
 loudness-normalised, faded 30 ms at both ends and encoded as mono Vorbis.
 CC0 requires nothing; the credit here is a courtesy and a provenance record.
+
+## The birthday set (ours)
+
+Every model and every sheet of the birthday set (the cake tower and its slice
+plates, the gift box, the chocolate bars, the party hat, the flower ring) is
+composed and painted in `tools/furniture-gen/birthday.ts`; nothing is taken
+from any pack or mod. The one borrowed idea is vanilla's own slice: a box that
+grows shorter on the cut side with the sponge showing on the cut.
+
+## Applause recording (YouTube, provenance only)
+
+`assets/lunasmp/sounds/birthday/applause.ogg` is the first five seconds of
+"Small Audience Applause" (YouTube video id nl3naIGHq0E), taken on 2026-09-06
+at the user's request instead of a synthesised clap track, faded out over the
+last second, loudness-normalised and encoded as mono Vorbis. **Its licence is
+not verified**: the video carries YouTube's standard licence and names no
+source, so this is a provenance record, not a grant. It is played on one
+private server for one evening; replace it with a CC0 recording before it goes
+anywhere else.
+
+## A player's skin (the plushie)
+
+`textures/block/phuynhi_plush.png` is the Minecraft skin (with its leg strips copied turned into a margin) of the player `phuynhi`, taken on
+2026-09-06 from the console's own skin endpoint (the game serves it to every client that sees her
+anyway) and worn by the `phuynhi_plushie` model. It is one person's likeness, used for a gift to
+that person on one private server; it is not ours and is not to be reused for anything else.
+
+## The crops (ours, over Stardew Valley's published crop data)
+
+Every crop sprite in `assets/textures/block/*_crop_stage*.png` and every crop
+item sprite is drawn in `tools/furniture-gen/crops.ts` from eight plant
+silhouettes and a per-crop palette. **Nothing of ConcernedApe's art is copied,
+traced or sampled**, and no file of the game's is read: the pixels here are
+built from primitives the same way the signs and the flowering vines are.
+
+What is taken is the game's crop *data*, read off the Stardew Valley Wiki's
+[Crops](https://stardewvalleywiki.com/Crops) page on 2026-09-13: which crops
+exist, what season each belongs to, how many days each growth stage lasts,
+which keep producing after the first harvest and how often, how many items a
+harvest gives, and what each sells for. Those are facts about a published
+game rather than expression, and they are the reason a parsnip here takes four
+days and an ancient fruit takes twenty-eight.
+
+Crops Minecraft already grows (wheat, potato, carrot, beetroot, melon,
+pumpkin) are deliberately absent, and so are the three Stardew flowers vanilla
+has its own version of (poppy, tulip, sunflower), which the flora catalog
+already ships.
+
+Two rules are ours rather than the game's, both written down in
+`crops/CropBehavior.kt`: unwatered farmland halves growth instead of stopping
+it, and a crop that does not regrow returns a seed when it is picked. The
+game's answers there (no growth at all, and a seed maker) both lose a player's
+farm to something they cannot see from inside Minecraft.

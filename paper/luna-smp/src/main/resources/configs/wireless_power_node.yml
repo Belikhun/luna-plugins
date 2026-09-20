@@ -1,0 +1,5 @@
+tool_categories: [pickaxe]
+tool_tier: wood
+requires_tool_for_drops: false
+upgrade_values:
+  range: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]

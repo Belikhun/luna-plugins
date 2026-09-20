@@ -40,15 +40,6 @@ object Hitboxes {
 	fun post(): BlockState = Blocks.WARPED_FENCE.defaultBlockState()
 
 	/**
-	 * The light panel's whole body: a waxed copper bulb, the one vanilla
-	 * block that is solid, full-cube and carries its own LIT property - so
-	 * the backing block itself is the light source, at level 15, with no
-	 * companion light block to hide anywhere.
-	 */
-	fun bulb(lit: Boolean): BlockState = Blocks.WAXED_COPPER_BULB.defaultBlockState()
-		.setValue(BlockStateProperties.LIT, lit)
-
-	/**
 	 * A bare wall post: the eight-pixel column through the middle of the
 	 * block, full height. The line devices (switches, the one-way bridge)
 	 * are authored around the cable at block centre, so their click target

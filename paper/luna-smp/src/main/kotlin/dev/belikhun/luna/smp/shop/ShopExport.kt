@@ -3,6 +3,8 @@ package dev.belikhun.luna.smp.shop
 import dev.belikhun.luna.smp.flora.FloraItems
 import dev.belikhun.luna.smp.furniture.FurnitureItems
 import dev.belikhun.luna.smp.gauges.GaugeItems
+import dev.belikhun.luna.smp.power.LampCatalog
+import dev.belikhun.luna.smp.power.PowerItems
 import dev.belikhun.luna.smp.signs.SignItems
 import dev.belikhun.luna.smp.weapons.NeneSpear
 import dev.belikhun.luna.smp.weapons.NeneWeapons
@@ -86,11 +88,29 @@ object ShopExport {
 		}
 
 		add("gauge", "network_diode", GaugeItems.DIODE_ITEM)
+		add("gauge", "network_diode_block", GaugeItems.DIODE_CUBE_ITEM)
 		add("gauge", "network_led", GaugeItems.LED_BLOCK_ITEM)
 		add("gauge", "network_led_block", GaugeItems.LED_CUBE_ITEM)
 		add("gauge", "alarm_light", GaugeItems.ALARM_ITEM)
 		add("gauge", "alarm_light_block", GaugeItems.ALARM_BLOCK_ITEM)
 		add("gauge", "light_panel", GaugeItems.LIGHT_PANEL_ITEM)
+
+		for ((id, item) in PowerItems.BLOCK_ITEMS) {
+			add("power", id, item)
+		}
+
+		// the spools are sold; the hidden wire a display wears is not
+		for ((id, item) in PowerItems.SPOOLS) {
+			add("power", "power_wire_$id", item)
+		}
+
+		add("power", LampCatalog.NODE_ID, PowerItems.NODE_ITEM)
+
+		for ((id, item) in PowerItems.LAMP_ITEMS) {
+			add("power", id, item)
+		}
+
+		add("power", LampCatalog.SWITCH_ID, PowerItems.SWITCH_ITEM)
 
 		for ((id, item) in FurnitureItems.CROWNS) {
 			add("crown", id, item)

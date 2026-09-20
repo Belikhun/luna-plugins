@@ -1,0 +1,76 @@
+{
+	"textures": {
+		"needle": "lunasmp:block/gauge_needle_blue",
+		"particle": "lunasmp:block/gauge_needle_blue"
+	},
+	"elements": [
+		{
+			"from": [
+				7.75,
+				6,
+				7.75
+			],
+			"to": [
+				8.25,
+				15,
+				8.25
+			],
+			"faces": {
+				"north": {
+					"uv": [
+						7,
+						1,
+						8,
+						10
+					],
+					"texture": "#needle"
+				},
+				"south": {
+					"uv": [
+						8,
+						1,
+						7,
+						10
+					],
+					"texture": "#needle"
+				},
+				"east": {
+					"uv": [
+						7,
+						1,
+						8,
+						10
+					],
+					"texture": "#needle"
+				},
+				"west": {
+					"uv": [
+						7,
+						1,
+						8,
+						10
+					],
+					"texture": "#needle"
+				},
+				"up": {
+					"uv": [
+						7,
+						1,
+						8,
+						2
+					],
+					"texture": "#needle"
+				},
+				"down": {
+					"uv": [
+						7,
+						9,
+						8,
+						10
+					],
+					"texture": "#needle"
+				}
+			}
+		}
+	]
+}

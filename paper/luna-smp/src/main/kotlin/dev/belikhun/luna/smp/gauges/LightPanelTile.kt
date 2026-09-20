@@ -1,7 +1,9 @@
 package dev.belikhun.luna.smp.gauges
 
+import dev.belikhun.luna.smp.LightSource
 import dev.belikhun.luna.smp.LunaSmp
 import net.kyori.adventure.key.Key
+import org.bukkit.block.Block
 import org.bukkit.block.BlockFace
 import xyz.xenondevs.cbf.Compound
 import xyz.xenondevs.nova.context.Context
@@ -26,9 +28,9 @@ import xyz.xenondevs.nova.world.block.tileentity.network.type.energy.holder.Defa
  * one - which is the whole point: a ceiling of panels laid side by side is
  * its own wiring, fed from one cable touching any panel of the run. Each
  * second every panel draws a few joules out of the batteries and generators
- * of the network it sits in; while the draw is met, the panel is lit, and
- * its backing block (a reserved copper bulb) is the actual light source. A
- * network that runs dry goes dark, panel by panel.
+ * of the network it sits in; while the draw is met, the panel is lit and
+ * drops a companion light block under itself, which is where the light
+ * actually comes from. A network that runs dry goes dark, panel by panel.
  */
 class LightPanelTile(
 	pos: BlockPos,
@@ -57,6 +59,13 @@ class LightPanelTile(
 	private val on: Boolean
 		get() = blockState[GaugeCatalog.ON] == true
 
+	/**
+	 * The block the panel lights: the one beneath it, because a run of
+	 * panels is a ceiling. The space is not reserved - see [LightSource].
+	 */
+	private val lightTarget: Block
+		get() = pos.add(0, -1, 0).block
+
 	override fun handleEnable() {
 		super.handleEnable()
 
@@ -64,6 +73,13 @@ class LightPanelTile(
 		NetworkManager.queueRemoveBridge(this)
 		NetworkManager.queueAddBridge(this, TYPES, FACES.toSet())
 		valid = true
+
+		LightSource.retireBulbBacking(pos.block)
+
+		// a panel that arrives dark takes any light it left behind with it
+		if (!on) {
+			LightSource.clear(lightTarget)
+		}
 	}
 
 	override fun handleDisable() {
@@ -74,9 +90,12 @@ class LightPanelTile(
 	override fun handleBreak(ctx: Context<BlockBreak>) {
 		NetworkManager.queueRemoveBridge(this)
 		valid = false
+		LightSource.clear(lightTarget)
 	}
 
 	override fun handleTick() {
+		LightSource.retireBulbBacking(pos.block)
+
 		val sampled = Wiring.lineIdAt(pos, FACES)
 
 		if (sampled != null && sampled != typeId) {
@@ -91,6 +110,15 @@ class LightPanelTile(
 
 		if (lit != on) {
 			updateBlockState(blockState.with(GaugeCatalog.ON, lit))
+		}
+
+		// re-placed every second on purpose: the light block is replaceable,
+		// so anything built into that space took it, and it comes back once
+		// the space is clear again
+		if (lit) {
+			LightSource.place(lightTarget, LIGHT_LEVEL)
+		} else {
+			LightSource.clear(lightTarget)
 		}
 	}
 
@@ -143,6 +171,9 @@ class LightPanelTile(
 
 		/** What one panel costs the wire, per second: 10 J/s read as free. */
 		const val DRAIN_PER_SECOND = 40L
+
+		/** What a lit panel throws, matching the bulb backing it replaced. */
+		const val LIGHT_LEVEL = 15
 
 		const val AUDIT_MS = 5_000L
 		const val MAX_AUDIT_STRIKES = 3

@@ -56,6 +56,7 @@ object GaugeCatalog {
 	enum class Metric {
 		ENERGY_STORED, ENERGY_FLOW, ENERGY_LOAD, ENERGY_GEN, ENERGY_TOTAL,
 		ITEM_FLOW, ITEM_STORED, FLUID_STORED, FLUID_FLOW, MULTI, MULTI_FLOW,
+		ITEM_IN, ITEM_OUT, FLUID_IN, FLUID_OUT, ITEM_TOTAL, FLUID_TOTAL,
 	}
 
 	/** How the live reading is drawn in front of the painted face. */
@@ -143,12 +144,18 @@ object GaugeCatalog {
 		Spec(id = "gauge_energy_gen_block", metric = Metric.ENERGY_GEN, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53, dashboard = true),
 		Spec(id = "gauge_item_flow", metric = Metric.ITEM_FLOW, pivotX = 32, pivotY = 42, startDeg = -50.0, endDeg = 50.0, needleLen = 25, needle = "gauge_needle_orange", windowX = 42, windowY = 53),
 		Spec(id = "gauge_item_flow_block", metric = Metric.ITEM_FLOW, pivotX = 32, pivotY = 42, startDeg = -50.0, endDeg = 50.0, needleLen = 25, needle = "gauge_needle_orange", windowX = 42, windowY = 53, dashboard = true),
+		Spec(id = "gauge_item_stored", metric = Metric.ITEM_STORED, pivotX = 32, pivotY = 32, startDeg = -120.0, endDeg = 120.0, needleLen = 21, needle = "gauge_needle_red"),
+		Spec(id = "gauge_item_stored_block", metric = Metric.ITEM_STORED, pivotX = 32, pivotY = 32, startDeg = -120.0, endDeg = 120.0, needleLen = 21, needle = "gauge_needle_red", dashboard = true),
 		Spec(id = "gauge_fluid_stored", metric = Metric.FLUID_STORED, pivotX = 32, pivotY = 32, startDeg = -135.0, endDeg = 135.0, needleLen = 20, needle = "gauge_needle_red"),
 		Spec(id = "gauge_fluid_stored_block", metric = Metric.FLUID_STORED, pivotX = 32, pivotY = 32, startDeg = -135.0, endDeg = 135.0, needleLen = 20, needle = "gauge_needle_red", dashboard = true),
 		Spec(id = "gauge_fluid_flow", metric = Metric.FLUID_FLOW, pivotX = 32, pivotY = 42, startDeg = -55.0, endDeg = 55.0, needleLen = 25, needle = "gauge_needle_black", windowX = 42, windowY = 53),
 		Spec(id = "gauge_fluid_flow_block", metric = Metric.FLUID_FLOW, pivotX = 32, pivotY = 42, startDeg = -55.0, endDeg = 55.0, needleLen = 25, needle = "gauge_needle_black", windowX = 42, windowY = 53, dashboard = true),
 		Spec(id = "gauge_energy_meter", metric = Metric.ENERGY_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32),
 		Spec(id = "gauge_energy_meter_block", metric = Metric.ENERGY_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32, dashboard = true),
+		Spec(id = "gauge_item_meter", metric = Metric.ITEM_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32),
+		Spec(id = "gauge_item_meter_block", metric = Metric.ITEM_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32, dashboard = true),
+		Spec(id = "gauge_fluid_meter", metric = Metric.FLUID_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32),
+		Spec(id = "gauge_fluid_meter_block", metric = Metric.FLUID_TOTAL, pivotX = 32, pivotY = 46, startDeg = 0.0, endDeg = 0.0, needleLen = 0, windowX = 32, windowY = 32, dashboard = true),
 		Spec(id = "gauge_multi", metric = Metric.MULTI, pivotX = 32, pivotY = 32, startDeg = -120.0, endDeg = 120.0, needleLen = 21, needle = "gauge_needle_red", windowX = 32, windowY = 54),
 		Spec(id = "gauge_multi_block", metric = Metric.MULTI, pivotX = 32, pivotY = 32, startDeg = -120.0, endDeg = 120.0, needleLen = 21, needle = "gauge_needle_red", windowX = 32, windowY = 54, dashboard = true),
 		Spec(id = "gauge_multi_square", metric = Metric.MULTI, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red", windowX = 44, windowY = 53),
@@ -161,6 +168,14 @@ object GaugeCatalog {
 		Spec(id = "gauge_energy_gen_corner_block", metric = Metric.ENERGY_GEN, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
 		Spec(id = "gauge_energy_stored_corner", metric = Metric.ENERGY_STORED, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_red"),
 		Spec(id = "gauge_energy_stored_corner_block", metric = Metric.ENERGY_STORED, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_red", dashboard = true),
+		Spec(id = "gauge_corner_energy_load_bl", metric = Metric.ENERGY_LOAD, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_energy_load_bl_block", metric = Metric.ENERGY_LOAD, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_energy_load_tr", metric = Metric.ENERGY_LOAD, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_energy_load_tr_block", metric = Metric.ENERGY_LOAD, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9, dashboard = true),
+		Spec(id = "gauge_corner_energy_gen_br", metric = Metric.ENERGY_GEN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_energy_gen_br_block", metric = Metric.ENERGY_GEN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_energy_gen_tr", metric = Metric.ENERGY_GEN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_energy_gen_tr_block", metric = Metric.ENERGY_GEN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9, dashboard = true),
 		Spec(id = "gauge_corner_energy_stored_br", metric = Metric.ENERGY_STORED, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_red"),
 		Spec(id = "gauge_corner_energy_stored_br_block", metric = Metric.ENERGY_STORED, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_red", dashboard = true),
 		Spec(id = "gauge_corner_energy_stored_bl", metric = Metric.ENERGY_STORED, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_red"),
@@ -207,6 +222,50 @@ object GaugeCatalog {
 		Spec(id = "gauge_corner_multi_flow_bl_block", metric = Metric.MULTI_FLOW, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58, dashboard = true),
 		Spec(id = "gauge_corner_multi_flow_tr", metric = Metric.MULTI_FLOW, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9),
 		Spec(id = "gauge_corner_multi_flow_tr_block", metric = Metric.MULTI_FLOW, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9, dashboard = true),
+		Spec(id = "gauge_energy_stored_square", metric = Metric.ENERGY_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red"),
+		Spec(id = "gauge_energy_stored_square_block", metric = Metric.ENERGY_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red", dashboard = true),
+		Spec(id = "gauge_item_stored_square", metric = Metric.ITEM_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red"),
+		Spec(id = "gauge_item_stored_square_block", metric = Metric.ITEM_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red", dashboard = true),
+		Spec(id = "gauge_fluid_stored_square", metric = Metric.FLUID_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red"),
+		Spec(id = "gauge_fluid_stored_square_block", metric = Metric.FLUID_STORED, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_red", dashboard = true),
+		Spec(id = "gauge_energy_flow_square", metric = Metric.ENERGY_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53),
+		Spec(id = "gauge_energy_flow_square_block", metric = Metric.ENERGY_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_item_flow_square", metric = Metric.ITEM_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53),
+		Spec(id = "gauge_item_flow_square_block", metric = Metric.ITEM_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_fluid_flow_square", metric = Metric.FLUID_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53),
+		Spec(id = "gauge_fluid_flow_square_block", metric = Metric.FLUID_FLOW, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_item_in", metric = Metric.ITEM_IN, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53),
+		Spec(id = "gauge_item_in_block", metric = Metric.ITEM_IN, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_corner_item_in_br", metric = Metric.ITEM_IN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_item_in_br_block", metric = Metric.ITEM_IN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_item_in_corner", metric = Metric.ITEM_IN, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58),
+		Spec(id = "gauge_item_in_corner_block", metric = Metric.ITEM_IN, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_item_in_tr", metric = Metric.ITEM_IN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_item_in_tr_block", metric = Metric.ITEM_IN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9, dashboard = true),
+		Spec(id = "gauge_item_out", metric = Metric.ITEM_OUT, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53),
+		Spec(id = "gauge_item_out_block", metric = Metric.ITEM_OUT, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_orange", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_item_out_corner", metric = Metric.ITEM_OUT, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58),
+		Spec(id = "gauge_item_out_corner_block", metric = Metric.ITEM_OUT, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_item_out_bl", metric = Metric.ITEM_OUT, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_item_out_bl_block", metric = Metric.ITEM_OUT, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_item_out_tr", metric = Metric.ITEM_OUT, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_item_out_tr_block", metric = Metric.ITEM_OUT, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_orange", windowX = 32, windowY = 9, dashboard = true),
+		Spec(id = "gauge_fluid_in", metric = Metric.FLUID_IN, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53),
+		Spec(id = "gauge_fluid_in_block", metric = Metric.FLUID_IN, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_corner_fluid_in_br", metric = Metric.FLUID_IN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_fluid_in_br_block", metric = Metric.FLUID_IN, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_fluid_in_corner", metric = Metric.FLUID_IN, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_fluid_in_corner_block", metric = Metric.FLUID_IN, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_fluid_in_tr", metric = Metric.FLUID_IN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_fluid_in_tr_block", metric = Metric.FLUID_IN, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9, dashboard = true),
+		Spec(id = "gauge_fluid_out", metric = Metric.FLUID_OUT, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53),
+		Spec(id = "gauge_fluid_out_block", metric = Metric.FLUID_OUT, pivotX = 32, pivotY = 50, startDeg = -45.0, endDeg = 45.0, needleLen = 33, needle = "gauge_needle_black", windowX = 44, windowY = 53, dashboard = true),
+		Spec(id = "gauge_fluid_out_corner", metric = Metric.FLUID_OUT, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_fluid_out_corner_block", metric = Metric.FLUID_OUT, pivotX = 52, pivotY = 52, startDeg = -90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_fluid_out_bl", metric = Metric.FLUID_OUT, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58),
+		Spec(id = "gauge_corner_fluid_out_bl_block", metric = Metric.FLUID_OUT, pivotX = 12, pivotY = 52, startDeg = 90.0, endDeg = 0.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 58, dashboard = true),
+		Spec(id = "gauge_corner_fluid_out_tr", metric = Metric.FLUID_OUT, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9),
+		Spec(id = "gauge_corner_fluid_out_tr_block", metric = Metric.FLUID_OUT, pivotX = 52, pivotY = 12, startDeg = -90.0, endDeg = -180.0, needleLen = 33, needle = "gauge_needle_corner_black", windowX = 32, windowY = 9, dashboard = true),
 		Spec(id = "gauge_energy_bar", metric = Metric.ENERGY_STORED, pivotX = 32, pivotY = 54, startDeg = 0.0, endDeg = 0.0, needleLen = 44, style = Style.BAR),
 		Spec(id = "gauge_energy_bar_block", metric = Metric.ENERGY_STORED, pivotX = 32, pivotY = 54, startDeg = 0.0, endDeg = 0.0, needleLen = 44, style = Style.BAR, dashboard = true),
 		Spec(id = "gauge_fluid_bar", metric = Metric.FLUID_STORED, pivotX = 32, pivotY = 54, startDeg = 0.0, endDeg = 0.0, needleLen = 44, style = Style.BAR),
@@ -228,6 +287,9 @@ object GaugeCatalog {
 
 	/** The one-way bridge: two separated networks, and a flow between them. */
 	val DIODE: NovaBlock = registerDiode()
+
+	/** The same bridge filling its block, for a machinery wall. */
+	val DIODE_BLOCK: NovaBlock = registerDiodeBlock()
 
 	/** The activity indicator: the port lights of a network. */
 	val LED: NovaBlock = registerLed()
@@ -421,16 +483,10 @@ object GaugeCatalog {
 			// every tick: the beam sweep and the horn are timed in ticks
 			tickrate(20)
 
-			// quiet: barrier, so room light reaches the display (a solid
-			// backing renders it black). Alarming: the LIT reserved bulb -
-			// its own light 15 both glows and floodlights the model
-			entityBacked(stateSelector = {
-				if (getPropertyValueOrNull(ON) == true) {
-					Hitboxes.bulb(true)
-				} else {
-					Blocks.BARRIER.defaultBlockState()
-				}
-			}) {
+			// always a barrier, so room light reaches the display (a solid
+			// backing renders it black); alarming, the floodlight is a
+			// companion light block thrown the way the dome points
+			entityBacked(stateSelector = { Blocks.BARRIER.defaultBlockState() }) {
 				lineRotated(defaultModel)
 			}
 
@@ -449,9 +505,9 @@ object GaugeCatalog {
 			// once a second: the panel draws its joules and settles lit or dark
 			tickrate(1)
 
-			// the backing carries the light itself: a reserved copper bulb,
-			// solid and full-cube, LIT following the panel's own state
-			entityBacked(stateSelector = { Hitboxes.bulb(getPropertyValueOrNull(ON) == true) }) {
+			// a barrier, like every fixture here: the light is a companion
+			// light block under the panel, so no vanilla block is hidden
+			entityBacked(stateSelector = { Blocks.BARRIER.defaultBlockState() }) {
 				if (getPropertyValueOrNull(ON) == false) {
 					getModel("lunasmp:block/light_panel_off")
 				} else {
@@ -477,6 +533,32 @@ object GaugeCatalog {
 			tickrate(20)
 
 			entityBacked(stateSelector = { Hitboxes.linePost() }) {
+				lineRotated(defaultModel)
+			}
+
+			behaviors(
+				Breakable(hardness = 1.5),
+				BlockSounds(SoundGroup.STONE),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The one-way bridge as a full block: the same tile and the same buffers,
+	 * on a body that fills its space.
+	 *
+	 * The backing is a BARRIER, as every full-block device here is. A display
+	 * entity takes its light from its own position, and inside an occluding
+	 * block that is level zero - a full-block device backed onto anything
+	 * solid renders as a pitch-black cube with perfectly good textures.
+	 */
+	private fun registerDiodeBlock(): NovaBlock =
+		LunaSmp.tileEntity("network_diode_block", ::NetworkDiodeTile) {
+			stateProperties(DefaultScopedBlockStateProperties.FACING_CARTESIAN)
+			tickrate(20)
+
+			entityBacked(stateSelector = { Blocks.BARRIER.defaultBlockState() }) {
 				lineRotated(defaultModel)
 			}
 

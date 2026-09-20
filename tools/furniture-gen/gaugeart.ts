@@ -966,6 +966,10 @@ export function gaugeCommonSprites(): Record<string, Uint8Array> {
 		gauge_needle_corner_red: cornerNeedleSprite(rgb('#c22f2a')),
 		gauge_needle_corner_black: cornerNeedleSprite(rgb('#1c1e24')),
 		gauge_needle_corner_orange: cornerNeedleSprite(rgb('#d97e21')),
+		// the water needle: every fluid dial swings a blue one for water and a
+		// red one for lava, so a mixed tank farm reads at a glance
+		gauge_needle_blue: needleSprite(rgb('#2f7fd1')),
+		gauge_needle_corner_blue: cornerNeedleSprite(rgb('#2f7fd1')),
 		gauge_casing: casingSprite(),
 		gauge_switch_top_on: switchTopSprite(true),
 		gauge_switch_top_off: switchTopSprite(false),
@@ -984,6 +988,7 @@ export function gaugeCommonSprites(): Record<string, Uint8Array> {
 		gauge_diode_out: diodeOutSprite(),
 		gauge_bar_amber: barSprite(rgb('#e8b422')),
 		gauge_bar_blue: barSprite(rgb('#3d8bd9')),
+		gauge_bar_red: barSprite(rgb('#d9483d')),
 		network_led: ledPanelSprite(),
 		gauge_led_amber: ledChipSprite(rgb('#ffcf4d')),
 		gauge_led_green: ledChipSprite(rgb('#6fe06f')),

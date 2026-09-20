@@ -29,8 +29,12 @@ import { FLORA, FLOWERS, type Flora } from './flora';
 import { bushSprite, mossOverlay, ropeSprite, vineSprite, waterSheet } from './sprites';
 import { INDUSTRIAL_SPRITES } from './industrial';
 import { frameSprites, medievalPieces } from './medieval';
+import { POLE_PARTS, TERMINAL_HEIGHT, WIRE_COVERS, WIRE_TIERS, poleItemModels, poleModels, poleSprites } from './poles';
+import { BUTTON, FIELD_DRAW_PER_BLOCK, LAMPS, NODE, NODE_CAPACITY, NODE_RADIUS, RANGE_LEVELS, RANGE_STEP, SWITCH, lampModels, lampSprites } from './lamps';
 import { POST_FACE_Z, SIGNS, WALL_FACE_Z, signModels, signSprites } from './signs';
-import { BLOCK_FACE, DEVICES, DIODE, GAUGES, PANEL_FACE, SWITCHES, UNIT_FACE, alarmBeamModel, barModels, directionalJointLongModels, directionalJointModels, gaugeModels, gaugeSprites, ledChipModels, needleModels } from './gauges';
+import { BIRTHDAY_BLOCKS, BIRTHDAY_ITEMS, birthdayItemModels, birthdayItemSprites, birthdayModels, birthdaySprites } from './birthday';
+import { BLOCK_FACE, DEVICES, DIODE, DIODE_BLOCK, GAUGES, PANEL_FACE, SWITCHES, UNIT_FACE, alarmBeamModel, barModels, directionalJointLongModels, directionalJointModels, gaugeModels, gaugeSprites, ledChipModels, needleModels } from './gauges';
+import { CROPS, DEAD_CROP, cropBlockId, cropItemSprites, cropModels, cropSprites, maturity, nutritionOf, saturationOf, seedItemId, stageThresholds } from './crops';
 
 interface Model {
 	parent?: string;
@@ -110,6 +114,7 @@ const ADDON_MODELS = join(addonDir, 'assets/models/block');
 const ADDON_TEXTURES = join(addonDir, 'assets/textures/block');
 const ADDON_LANG = join(addonDir, 'assets/lang');
 const ADDON_ITEMS = join(addonDir, 'assets/models/item');
+const ADDON_ITEM_TEXTURES = join(addonDir, 'assets/textures/item');
 const ADDON_CONFIGS = join(addonDir, 'configs');
 
 function splitRef(ref: string): [string, string] {
@@ -1193,6 +1198,18 @@ for (const [name, bytes] of Object.entries(frameSprites(sourcesDir))) {
 	painted[name] = bytes;
 }
 
+for (const [name, bytes] of Object.entries(poleSprites(sourcesDir))) {
+	painted[name] = bytes;
+}
+
+for (const [name, bytes] of Object.entries(lampSprites(sourcesDir))) {
+	painted[name] = bytes;
+}
+
+for (const [name, bytes] of Object.entries(birthdaySprites())) {
+	painted[name] = bytes;
+}
+
 for (const [name, bytes] of Object.entries(painted)) {
 	writeFileSync(join(ADDON_TEXTURES, `${name}.png`), bytes);
 	takenNames.add(name);
@@ -1587,6 +1604,10 @@ for (const piece of PIECES) {
 		fields.push(`light = Light(level = ${piece.light.level}, offset = ${piece.light.offset})`);
 	}
 
+	if (piece.wireless) {
+		fields.push('wireless = true');
+	}
+
 	if (piece.lamp) {
 		const lamp = piece.lamp;
 		fields.push(
@@ -1898,6 +1919,14 @@ writeFileSync(
 en[`block.lunasmp.${DIODE.id}`] = DIODE.en;
 vi[`block.lunasmp.${DIODE.id}`] = DIODE.vi;
 
+// and the same bridge as a full block
+writeFileSync(
+	join(ADDON_CONFIGS, `${DIODE_BLOCK.id}.yml`),
+	'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+);
+en[`block.lunasmp.${DIODE_BLOCK.id}`] = DIODE_BLOCK.en;
+vi[`block.lunasmp.${DIODE_BLOCK.id}`] = DIODE_BLOCK.vi;
+
 // the indicator, the alarm and the light panel
 for (const dev of DEVICES) {
 	writeFileSync(
@@ -1960,6 +1989,214 @@ for (const [name, model] of Object.entries(directionalJointLongModels())) {
 	vi[`item.lunasmp.${name}`] = 'Ống Nối Cầu Dao';
 }
 
+// ---- the power line ------------------------------------------------------
+//
+// The poles are blocks with their own tiles, so they follow the instrument
+// path rather than the furniture one: models and textures written here, the
+// spec table written into PowerCatalog.kt below.
+
+for (const [name, model] of Object.entries(poleModels(sourcesDir))) {
+	writeModel(name, adoptAll(model as Model));
+}
+
+for (const part of POLE_PARTS) {
+	writeFileSync(
+		join(ADDON_CONFIGS, `${part.id}.yml`),
+		'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${part.id}`] = part.en;
+	vi[`block.lunasmp.${part.id}`] = part.vi;
+}
+
+// the spool a span is strung with, and the hidden length of wire a display
+// entity wears: a display can only wear a model that some item owns
+for (const [name, model] of Object.entries(poleItemModels())) {
+	writeFileSync(join(ADDON_ITEMS, `${name}.json`), JSON.stringify(model, null, '\t') + '\n');
+}
+
+for (const tier of WIRE_TIERS) {
+	en[`item.lunasmp.power_wire_${tier.id}`] = tier.en;
+	vi[`item.lunasmp.power_wire_${tier.id}`] = tier.vi;
+}
+
+// the wire covers: solid blocks, so they break like the cables they replace
+// rather than like a cast pole
+for (const cover of WIRE_COVERS) {
+	writeFileSync(
+		join(ADDON_CONFIGS, `${cover.id}.yml`),
+		'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${cover.id}`] = cover.en;
+	vi[`block.lunasmp.${cover.id}`] = cover.vi;
+}
+
+// ---- the wireless lamps ---------------------------------------------------
+//
+// The node and its two fixtures: blocks with their own tiles, on the same
+// path as the poles. Every one has a lit and a dark model, the dark one under
+// the `_off` suffix the light panel established.
+
+for (const [name, model] of Object.entries(lampModels(sourcesDir))) {
+	writeModel(name, adoptAll(model as Model));
+}
+
+// the node's own range ladder: Simple Upgrades reads a block's
+// `upgrade_values` before the global table, so two blocks a level lives here
+// and nowhere else - the GUI reads the same list
+const rangeLadder = Array.from({ length: RANGE_LEVELS + 1 }, (_, level) => level * RANGE_STEP);
+
+writeFileSync(
+	join(ADDON_CONFIGS, `${NODE.id}.yml`),
+	'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n'
+	+ `upgrade_values:\n  range: [${rangeLadder.join(', ')}]\n`,
+);
+
+en[`block.lunasmp.${NODE.id}`] = NODE.en;
+vi[`block.lunasmp.${NODE.id}`] = NODE.vi;
+
+for (const lamp of LAMPS) {
+	writeFileSync(
+		join(ADDON_CONFIGS, `${lamp.id}.yml`),
+		'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${lamp.id}`] = lamp.en;
+	vi[`block.lunasmp.${lamp.id}`] = lamp.vi;
+}
+
+writeFileSync(
+	join(ADDON_CONFIGS, `${SWITCH.id}.yml`),
+	'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+);
+
+en[`block.lunasmp.${SWITCH.id}`] = SWITCH.en;
+vi[`block.lunasmp.${SWITCH.id}`] = SWITCH.vi;
+
+writeFileSync(
+	join(ADDON_CONFIGS, `${BUTTON.id}.yml`),
+	'tool_categories: [pickaxe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+);
+
+en[`block.lunasmp.${BUTTON.id}`] = BUTTON.en;
+vi[`block.lunasmp.${BUTTON.id}`] = BUTTON.vi;
+
+// ---- crops ----------------------------------------------------------------
+//
+// The Stardew Valley crop roster: a plant per crop with a sprite per growth
+// stage, a seed packet that plants it and the item it is picked for. The
+// growth table is the game's own; every pixel is drawn in crops.ts.
+
+for (const [name, bytes] of Object.entries(cropSprites())) {
+	writeFileSync(join(ADDON_TEXTURES, `${name}.png`), bytes);
+	takenNames.add(name);
+	spriteCount++;
+}
+
+mkdirSync(ADDON_ITEM_TEXTURES, { recursive: true });
+
+for (const [name, bytes] of Object.entries(cropItemSprites())) {
+	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png`), bytes);
+	spriteCount++;
+}
+
+for (const [name, model] of Object.entries(cropModels())) {
+	writeModel(name, model as Model);
+}
+
+const cropSpecs: string[] = [];
+
+// the withered plant is one block for the whole roster, exactly as the game
+// draws one dead-crop sprite whatever died
+writeFileSync(
+	join(ADDON_CONFIGS, `${DEAD_CROP}.yml`),
+	'tool_categories: [hoe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+);
+
+en[`block.lunasmp.${DEAD_CROP}`] = 'Dead Crop';
+vi[`block.lunasmp.${DEAD_CROP}`] = 'Cây Chết Khô';
+
+for (const crop of CROPS) {
+	const block = cropBlockId(crop);
+
+	writeFileSync(
+		join(ADDON_CONFIGS, `${block}.yml`),
+		'tool_categories: [hoe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${block}`] = `${crop.en} Crop`;
+	vi[`block.lunasmp.${block}`] = `Cây ${crop.vi}`;
+	en[`item.lunasmp.${seedItemId(crop)}`] = crop.seedEn ?? `${crop.en} Seeds`;
+	vi[`item.lunasmp.${seedItemId(crop)}`] = crop.seedVi ?? `Hạt ${crop.vi}`;
+	en[`item.lunasmp.${crop.id}`] = crop.en;
+	vi[`item.lunasmp.${crop.id}`] = crop.vi;
+
+	const seasons = crop.seasons.map((season) => `Season.${season.toUpperCase()}`).join(', ');
+	const fields = [
+		`id = "${crop.id}"`,
+		`seasons = setOf(${seasons})`,
+		`maturity = ${maturity(crop)}`,
+		`stages = listOf(${stageThresholds(crop).join(', ')})`,
+		`regrow = ${crop.regrow ?? 'null'}`,
+	];
+
+	if (crop.count && crop.count > 1) {
+		fields.push(`count = ${crop.count}`);
+	}
+
+	if (crop.extra) {
+		fields.push(`extra = ${crop.extra}`);
+	}
+
+	fields.push(`price = ${crop.price}`);
+	fields.push(`nutrition = ${nutritionOf(crop)}`);
+	fields.push(`saturation = ${saturationOf(crop).toFixed(1)}f`);
+
+	if (crop.trellis) {
+		fields.push('trellis = true');
+	}
+
+	cropSpecs.push(`\t\tSpec(${fields.join(', ')}),`);
+}
+
+// ---- the birthday set -------------------------------------------------------
+//
+// The cake tower, the gift box, the plate a slice is served on, and the small
+// gifts: every model and sheet is drawn in birthday.ts, and the Kotlin is
+// hand-written (birthday/), because the whole set is one occasion's worth of
+// bespoke behaviour rather than a table of pieces.
+
+for (const [name, model] of Object.entries(birthdayModels())) {
+	writeModel(name, adoptAll(model as Model));
+}
+
+for (const block of BIRTHDAY_BLOCKS) {
+	writeFileSync(
+		join(ADDON_CONFIGS, `${block.id}.yml`),
+		'tool_categories: [axe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${block.id}`] = block.en;
+	vi[`block.lunasmp.${block.id}`] = block.vi;
+}
+
+for (const item of BIRTHDAY_ITEMS) {
+	en[`item.lunasmp.${item.id}`] = item.en;
+	vi[`item.lunasmp.${item.id}`] = item.vi;
+}
+
+mkdirSync(ADDON_ITEMS, { recursive: true });
+mkdirSync(ADDON_ITEM_TEXTURES, { recursive: true });
+
+for (const [name, model] of Object.entries(birthdayItemModels())) {
+	writeFileSync(join(ADDON_ITEMS, `${name}.json`), JSON.stringify(adoptAll(model as Model), null, '\t') + '\n');
+}
+
+for (const [name, bytes] of Object.entries(birthdayItemSprites())) {
+	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png`), bytes);
+}
+
 // ---- flower crowns -------------------------------------------------------
 
 mkdirSync(ADDON_ITEMS, { recursive: true });
@@ -1981,6 +2218,7 @@ const kotlin = `package dev.belikhun.luna.smp.furniture
 
 import dev.belikhun.luna.smp.Hitboxes
 import dev.belikhun.luna.smp.LunaSmp
+import dev.belikhun.luna.smp.power.WirelessLampTile
 import net.kyori.adventure.key.Key
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.level.block.state.BlockState
@@ -2166,6 +2404,8 @@ object FurnitureCatalog {
 		val legs: Boolean = false,
 		val box: Box = Box.SOLID,
 		val light: Light? = null,
+		/** Lit only while a wireless power node in reach pays for it. */
+		val wireless: Boolean = false,
 		val lamp: Lamp? = null,
 		val surface: List<Slot> = emptyList(),
 		val surfaceUpright: Boolean = false,
@@ -2203,6 +2443,20 @@ ${CROWNS.map((crown) => `		"${crown.id}",`).join('\n')}
 	)
 
 	private fun register(spec: Spec): NovaBlock {
+		// a street light keeps everything the furniture gives it - model,
+		// facing, hitbox, hardness - and borrows the wireless fixture's tile.
+		// Deliberately NO new state property: adding one orphans every placed
+		// instance, and the lit state lives in the tile instead
+		if (spec.wireless) {
+			return LunaSmp.tileEntity(spec.id, ::WirelessLampTile) {
+				configure(spec)
+
+				// once a second: a fixture only asks whether it was paid for
+				tickrate(1)
+				behaviors(*(behaviorsOf(spec) + TileEntityDrops + TileEntityInteractive).toTypedArray())
+			}
+		}
+
 		val stateful = spec.lamp != null || spec.surface.isNotEmpty()
 			|| spec.storageRows > 0 || spec.showcase || spec.pot || spec.openable != null
 			|| spec.aquarium || spec.clock
@@ -2254,7 +2508,9 @@ ${CROWNS.map((crown) => `		"${crown.id}",`).join('\n')}
 			add(TableConnect)
 		}
 
-		if (spec.light != null) {
+		// a wireless piece's light is the node's to give: its level and offset
+		// are read by the fixture tile, never placed at build time
+		if (spec.light != null && !spec.wireless) {
 			add(EmitsLight(spec.light.offset, spec.light.level))
 		}
 
@@ -2377,13 +2633,23 @@ ${CROWNS.map((crown) => `		"${crown.id}",`).join('\n')}
 		// the one shape that still borrows a real warped trapdoor, because a
 		// hatch WANTS the trapdoor's behaviour: the client's open prediction
 		// matches the toggle the server makes, so nothing flickers
-		Box.TRAPDOOR -> Blocks.WARPED_TRAPDOOR.defaultBlockState()
+		// an IRON trapdoor, never a wooden one: a hand cannot open an iron
+		// trapdoor, so the one vanilla path that toggled the backing under a
+		// piece - a sneaking click the tile hands back to vanilla so blocks
+		// can be placed against it - now does nothing. A warped backing that
+		// got toggled that way became a state Nova no longer recognised as
+		// the piece's, the piece was dropped, and an invisible vanilla
+		// trapdoor stayed behind ("the glass trapdoor went transparent and
+		// broke into a warped trapdoor"). POWERED marks it as ours for the
+		// hitbox skin, exactly as the walkway plate does.
+		Box.TRAPDOOR -> Blocks.IRON_TRAPDOOR.defaultBlockState()
 			.setValue(BlockStateProperties.HORIZONTAL_FACING, facingOf(scope))
 			.setValue(BlockStateProperties.OPEN, spec.openable != null && scope.getPropertyValueOrNull(OPEN) == true)
 			.setValue(
 				BlockStateProperties.HALF,
 				if (scope.getPropertyValueOrNull(TOP) == true) Half.TOP else Half.BOTTOM,
 			)
+			.setValue(BlockStateProperties.POWERED, true)
 
 		// the same plate, but a closed IRON trapdoor: nothing a hand click
 		// moves, so the client predicts no swing on a walkway
@@ -2666,7 +2932,8 @@ ${CROWNS.map((crown) => `		"${crown.id}",`).join('\n')}
 	}
 
 	private fun scopedLit(spec: Spec) =
-		LIT.scope(setOf(false, true)) { spec.lamp?.litByDefault == true }
+		// a wireless lamp starts dark and is lit by the first node that pays
+		LIT.scope(setOf(false, true)) { spec.lamp?.litByDefault == true && !spec.wireless }
 
 	private fun scopedHanging() =
 		HANGING.scope(setOf(false, true)) { ctx -> ctx[DefaultContextParamTypes.CLICKED_BLOCK_FACE] == BlockFace.DOWN }
@@ -3166,6 +3433,7 @@ object GaugeCatalog {
 	enum class Metric {
 		ENERGY_STORED, ENERGY_FLOW, ENERGY_LOAD, ENERGY_GEN, ENERGY_TOTAL,
 		ITEM_FLOW, ITEM_STORED, FLUID_STORED, FLUID_FLOW, MULTI, MULTI_FLOW,
+		ITEM_IN, ITEM_OUT, FLUID_IN, FLUID_OUT, ITEM_TOTAL, FLUID_TOTAL,
 	}
 
 	/** How the live reading is drawn in front of the painted face. */
@@ -3252,6 +3520,9 @@ ${gaugeSpecs.join('\n')}
 
 	/** The one-way bridge: two separated networks, and a flow between them. */
 	val DIODE: NovaBlock = registerDiode()
+
+	/** The same bridge filling its block, for a machinery wall. */
+	val DIODE_BLOCK: NovaBlock = registerDiodeBlock()
 
 	/** The activity indicator: the port lights of a network. */
 	val LED: NovaBlock = registerLed()
@@ -3513,6 +3784,32 @@ ${gaugeSpecs.join('\n')}
 		}
 
 	/**
+	 * The one-way bridge as a full block: the same tile and the same buffers,
+	 * on a body that fills its space.
+	 *
+	 * The backing is a BARRIER, as every full-block device here is. A display
+	 * entity takes its light from its own position, and inside an occluding
+	 * block that is level zero - a full-block device backed onto anything
+	 * solid renders as a pitch-black cube with perfectly good textures.
+	 */
+	private fun registerDiodeBlock(): NovaBlock =
+		LunaSmp.tileEntity("network_diode_block", ::NetworkDiodeTile) {
+			stateProperties(DefaultScopedBlockStateProperties.FACING_CARTESIAN)
+			tickrate(20)
+
+			entityBacked(stateSelector = { Blocks.BARRIER.defaultBlockState() }) {
+				lineRotated(defaultModel)
+			}
+
+			behaviors(
+				Breakable(hardness = 1.5),
+				BlockSounds(SoundGroup.STONE),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
 	 * Which way an instrument looks when placed: along the wall face that was
 	 * clicked, or back at whoever set it down anywhere else.
 	 */
@@ -3574,9 +3871,761 @@ const gaugeDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/gauges');
 mkdirSync(gaugeDir, { recursive: true });
 writeFileSync(join(gaugeDir, 'GaugeCatalog.kt'), gaugeKotlin);
 
+const tierSpecs = WIRE_TIERS.map((tier) =>
+	`\t\tTierSpec(id = "${tier.id}", en = "${tier.en}", vi = "${tier.vi}", rate = ${tier.rate}L, span = ${tier.span}.0)`,
+).join(',\n');
+
+const partSpecs = POLE_PARTS.map((part) =>
+	`\t\tPartSpec(id = "${part.id}", role = Role.${part.role.toUpperCase()})`,
+).join(',\n');
+
+const coverSpecs = WIRE_COVERS.map((cover) =>
+	`\t\tCoverSpec(id = "${cover.id}", tier = "${cover.tier.id}")`,
+).join(',\n');
+
+const powerKotlin = `package dev.belikhun.luna.smp.power
+
+import dev.belikhun.luna.smp.Hitboxes
+import dev.belikhun.luna.smp.LunaSmp
+import xyz.xenondevs.nova.resources.builder.layout.block.BackingStateCategory
+import xyz.xenondevs.nova.world.block.NovaBlock
+import xyz.xenondevs.nova.world.block.behavior.BlockSounds
+import xyz.xenondevs.nova.world.block.behavior.Breakable
+import xyz.xenondevs.nova.world.block.behavior.TileEntityDrops
+import xyz.xenondevs.nova.world.block.behavior.TileEntityInteractive
+import xyz.xenondevs.nova.world.block.sound.SoundGroup
+import xyz.xenondevs.nova.world.block.state.property.DefaultScopedBlockStateProperties
+
+/**
+ * The generated power-line table: the three pole parts and the wire ladder.
+ *
+ * GENERATED FILE - do not edit by hand. Change tools/furniture-gen/poles.ts
+ * and re-run the generator; the models, the textures and this table come from
+ * the same pass, so editing one of them alone drifts the set.
+ *
+ * A tier's rate is the matching Logistics cable's own transfer rate turned
+ * into joules a second, and its span is how far one length of it may reach.
+ * The tier's own colour lives in its texture rather than here: nothing in
+ * Kotlin draws a wire, it only says which item a display should wear.
+ */
+@Suppress("unused")
+object PowerCatalog {
+
+	/** What a pole part does. */
+	enum class Role {
+		BASE, MAST, HEAD,
+	}
+
+	data class PartSpec(val id: String, val role: Role)
+
+	data class TierSpec(
+		val id: String,
+		val en: String,
+		val vi: String,
+		/** Joules a second one span of it carries. */
+		val rate: Long,
+		/** How far it may reach, head to head, in blocks. */
+		val span: Double,
+	)
+
+	/**
+	 * How far over its own block a head's terminal sits: the insulator caps
+	 * top out at the block's ceiling, so a wire leaves exactly one block up.
+	 */
+	const val TERMINAL_HEIGHT = ${TERMINAL_HEIGHT.toFixed(2)}
+
+	val TIERS: List<TierSpec> = listOf(
+${tierSpecs},
+	)
+
+	/** Every wire tier, by the id its spool item carries. */
+	val TIER_BY_ID: Map<String, TierSpec> = TIERS.associateBy { it.id }
+
+	private val PARTS = listOf(
+${partSpecs},
+	)
+
+	/** Every pole part's spec, by block id. */
+	val PART_BY_ID: Map<String, PartSpec> = PARTS.associateBy { it.id }
+
+	/** Every pole part's block, by block id. */
+	val BLOCKS: Map<String, NovaBlock> = PARTS.associate { it.id to register(it) }
+
+	/** A wire cover, and the cable tier it conducts as. */
+	data class CoverSpec(val id: String, val tier: String)
+
+	private val COVERS = listOf(
+${coverSpecs},
+	)
+
+	/** Every wire cover's spec, by block id. */
+	val COVER_BY_ID: Map<String, CoverSpec> = COVERS.associateBy { it.id }
+
+	/** Every wire cover's block, by block id. */
+	val COVER_BLOCKS: Map<String, NovaBlock> = COVERS.associate { it.id to registerCover(it) }
+
+	/**
+	 * The pole parts.
+	 *
+	 * The base and the mast are plain posts: nothing about them is
+	 * directional, because a cast pole looks the same from every side and
+	 * their whole job is to conduct upward. The head carries the crossarm, so
+	 * it takes the placer's facing and the arm lands across the line.
+	 *
+	 * All three back onto the line post - a bare wall's centred column, which
+	 * is the 8-pixel post the models actually draw. A base or a mast ticks
+	 * once a second, because its only work is keeping its bridge
+	 * registration honest; the head ticks every tick, because that is the
+	 * clock a span is paid out on.
+	 */
+	private fun register(spec: PartSpec): NovaBlock =
+		if (spec.role == Role.HEAD) {
+			LunaSmp.tileEntity(spec.id, ::PoleHeadTile) {
+				stateProperties(DefaultScopedBlockStateProperties.FACING_HORIZONTAL)
+
+				// every tick: a tier's rate is joules a SECOND, and a
+				// second's worth of the fastest one would not fit in the
+				// head's buffer, so the line is paid out a twentieth at a
+				// time. The once-a-second housekeeping is counted inside.
+				tickrate(20)
+
+				entityBacked(stateSelector = { Hitboxes.linePost() }) {
+					defaultModel.rotated()
+				}
+
+				behaviors(
+					Breakable(hardness = 1.5),
+					BlockSounds(SoundGroup.STONE),
+					TileEntityDrops,
+					TileEntityInteractive,
+				)
+			}
+		} else {
+			LunaSmp.tileEntity(spec.id, ::PoleTile) {
+				tickrate(1)
+
+				entityBacked(stateSelector = { Hitboxes.linePost() }) {
+					defaultModel
+				}
+
+				behaviors(
+					Breakable(hardness = 1.5),
+					BlockSounds(SoundGroup.STONE),
+					TileEntityDrops,
+				)
+			}
+		}
+
+	/**
+	 * A wire cover: a cable of its tier as a solid block.
+	 *
+	 * A reserved note block state rather than a display entity, so a covered
+	 * run costs the client nothing a stone wall does not, and occludes and
+	 * lights like one. It never ticks: its type id is fixed to its tier's
+	 * cable, so it has no line to impersonate and no registration to audit.
+	 */
+	private fun registerCover(spec: CoverSpec): NovaBlock =
+		LunaSmp.tileEntity(spec.id, ::WireCoverTile) {
+			tickrate(0)
+
+			stateBacked(BackingStateCategory.NOTE_BLOCK) {
+				defaultModel
+			}
+
+			behaviors(
+				Breakable(hardness = 1.0),
+				BlockSounds(SoundGroup.METAL),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+}
+`;
+
+const powerDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/power');
+mkdirSync(powerDir, { recursive: true });
+writeFileSync(join(powerDir, 'PowerCatalog.kt'), powerKotlin);
+
+/** Where a fixture throws its light, and which state property mirrors it. */
+function lampTarget(kind: string): string {
+	switch (kind) {
+		case 'block':
+			return 'SELF';
+		case 'pole':
+			return 'UP';
+		default:
+			return 'FRONT';
+	}
+}
+
+const ownedSpecs = LAMPS.map((lamp) =>
+	`\t\tLampSpec(id = "${lamp.id}", kind = Kind.${lamp.kind.toUpperCase()}, draw = ${lamp.draw}L, level = ${lamp.level}, `
+	+ `target = Target.${lampTarget(lamp.kind)}, state = State.ON)`,
+);
+
+// the furniture that runs off a node: every piece flagged wireless, its light
+// level and offset read off the piece itself. Six joules a second per level
+// of light, so a torch is cheaper than a ceiling lamp. A piece that already
+// had a switch keeps swapping models through the furniture's own LIT state;
+// one that never had a state gets none, because adding a block-state
+// property orphans every placed instance
+const furnitureSpecs = PIECES.filter((piece) => piece.wireless).map((piece) => {
+	const light = piece.lamp ?? piece.light;
+
+	if (!light) {
+		throw new Error(`${piece.id} is wireless but declares no light`);
+	}
+
+	const target = light.offset > 0 ? 'UP' : light.offset < 0 ? 'DOWN' : 'FRONT';
+	const state = piece.lamp ? 'LIT' : 'NONE';
+
+	return `\t\tLampSpec(id = "${piece.id}", kind = Kind.STREET, draw = ${light.level * 6}L, level = ${light.level}, `
+		+ `target = Target.${target}, state = State.${state})`;
+});
+
+const lampSpecs = [...ownedSpecs, ...furnitureSpecs].join(',\n');
+
+const lampKotlin = `package dev.belikhun.luna.smp.power
+
+import dev.belikhun.luna.smp.Hitboxes
+import dev.belikhun.luna.smp.LunaSmp
+import dev.belikhun.luna.smp.gauges.GaugeCatalog
+import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.level.block.state.BlockState
+import org.bukkit.block.BlockFace
+import xyz.xenondevs.nova.context.Context
+import xyz.xenondevs.nova.context.intention.DefaultContextIntentions.BlockPlace
+import xyz.xenondevs.nova.context.param.DefaultContextParamTypes
+import xyz.xenondevs.nova.resources.builder.layout.block.BlockModelSelectorScope
+import xyz.xenondevs.nova.resources.builder.model.ModelBuilder
+import xyz.xenondevs.nova.world.block.NovaBlock
+import xyz.xenondevs.nova.world.block.behavior.BlockSounds
+import xyz.xenondevs.nova.world.block.behavior.Breakable
+import xyz.xenondevs.nova.world.block.behavior.TileEntityDrops
+import xyz.xenondevs.nova.world.block.behavior.TileEntityInteractive
+import xyz.xenondevs.nova.world.block.sound.SoundGroup
+import xyz.xenondevs.nova.world.block.state.property.DefaultBlockStateProperties
+import kotlin.math.abs
+
+/**
+ * The generated wireless-lamp table: the node and the fixtures it lights.
+ *
+ * GENERATED FILE - do not edit by hand. Change tools/furniture-gen/lamps.ts
+ * and re-run the generator; the models, the textures and this table come from
+ * the same pass, so editing one of them alone drifts the set.
+ *
+ * A fixture's draw is what it costs the node each second, before the node's
+ * efficiency upgrade; its level is the vanilla light it throws into the block
+ * it faces. The node's own two numbers are the reach and the buffer of an
+ * un-upgraded node - the upgrades build on them at runtime.
+ */
+@Suppress("unused")
+object LampCatalog {
+
+	/**
+	 * The shapes a fixture comes in; the shape picks the hitbox. STREET is
+	 * the furniture catalog's lights - lanterns, torches, lamps, the
+	 * Engineer's Decor fittings - registered there and only borrowing the
+	 * tile, so this catalog registers no block for them.
+	 */
+	enum class Kind {
+		BULB, PANEL, BLOCK, POLE, STREET,
+	}
+
+	/** Where a fixture throws its light: the block it faces, above, below, or its own backing block. */
+	enum class Target {
+		FRONT, UP, DOWN, SELF,
+	}
+
+	/** Which block-state property mirrors the lit state, if any. */
+	enum class State {
+		NONE, ON, LIT,
+	}
+
+	data class LampSpec(
+		val id: String,
+		val kind: Kind,
+		/** Joules a second the fixture costs the node that lights it. */
+		val draw: Long,
+		/** The vanilla light level it throws. */
+		val level: Int,
+		val target: Target,
+		val state: State,
+	)
+
+	const val NODE_ID = "${NODE.id}"
+	const val SWITCH_ID = "${SWITCH.id}"
+	const val BUTTON_ID = "${BUTTON.id}"
+
+	/** How far a bare node reaches, in blocks each way. */
+	const val NODE_RADIUS = ${NODE_RADIUS}
+
+	/** What a bare node holds, in joules. */
+	const val NODE_CAPACITY = ${NODE_CAPACITY}L
+
+	/**
+	 * What radiating the field costs, in joules a second per block of radius:
+	 * a node's standing draw is this times its current reach, on top of what
+	 * its fixtures take, so reach is paid for whether or not it is used.
+	 */
+	const val FIELD_DRAW_PER_BLOCK = ${FIELD_DRAW_PER_BLOCK}L
+
+	/** Blocks of reach one range upgrade buys; the config ladder is built from it. */
+	const val RANGE_STEP = ${RANGE_STEP}
+
+	val LAMPS: List<LampSpec> = listOf(
+${lampSpecs},
+	)
+
+	/** Every fixture's spec, by block id. */
+	val LAMP_BY_ID: Map<String, LampSpec> = LAMPS.associateBy { it.id }
+
+	/**
+	 * The walls a switch can hang on. Declared before any block is
+	 * registered: a Kotlin object initialises top to bottom, and a value read
+	 * by a registration above its own declaration is still null - which is
+	 * exactly how the first switch build took survival down at boot.
+	 */
+	private val WALLS = setOf(BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST)
+
+	/** Every face a fixture can be mounted on. */
+	private val ALL_FACES = setOf(
+		BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST, BlockFace.UP, BlockFace.DOWN,
+	)
+
+	/** The node: the battery that pays for every fixture in its reach. */
+	val NODE: NovaBlock = registerNode()
+
+	/** The street lights' block ids: furniture pieces that run off a node. */
+	val STREET_IDS: Set<String> = LAMPS.filter { it.kind == Kind.STREET }.mapTo(HashSet()) { it.id }
+
+	/** Every fixture block this catalog owns, by its id; the street lights are the furniture's. */
+	val LAMP_BLOCKS: Map<String, NovaBlock> = LAMPS.filter { it.kind != Kind.STREET }.associate {
+		it.id to when (it.kind) {
+			Kind.BLOCK -> registerCube(it)
+			Kind.POLE -> registerPole(it)
+			else -> register(it)
+		}
+	}
+
+	/** The light switch: a rocker on a wall that toggles a channel on the nodes around it. */
+	val SWITCH: NovaBlock = registerSwitch()
+
+	/** The push button: the same control with a spring-back button and a locator LED. */
+	val BUTTON: NovaBlock = registerButton()
+
+	/**
+	 * The node fills its block, so it backs onto a barrier: full collision,
+	 * and non-occluding, because a display entity inside an occluding block
+	 * takes light level zero and renders pitch black.
+	 */
+	private fun registerNode(): NovaBlock =
+		LunaSmp.tileEntity(NODE_ID, ::WirelessNodeTile) {
+			stateProperties(GaugeCatalog.ON.scope(setOf(false, true)) { false })
+
+			// every tick: the node pays its fixtures the way a furnace burns
+			// fuel, a twentieth of a second's worth at a time, so a meter on
+			// it reads a flat load instead of a spike once a second
+			tickrate(20)
+
+			entityBacked(stateSelector = { Blocks.BARRIER.defaultBlockState() }) {
+				if (getPropertyValueOrNull(GaugeCatalog.ON) == false) {
+					getModel("lunasmp:block/${NODE.id}_off")
+				} else {
+					defaultModel
+				}
+			}
+
+			behaviors(
+				Breakable(hardness = 2.0),
+				BlockSounds(SoundGroup.METAL),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The full block: no facing at all, because a cube is the same from every
+	 * side and it lights from inside its own block rather than through a face.
+	 *
+	 * Lit, the backing block IS the light: a reserved copper bulb, the one
+	 * vanilla block that is solid, full-cube and carries its own light level,
+	 * so one sunk flush into a floor lights the room with no companion light
+	 * block hidden anywhere. Dark, it falls back to a barrier - full collision
+	 * but non-occluding, so the unlit model is drawn by the room's own light
+	 * instead of coming back pitch black the way an unpowered wired panel
+	 * does. Occlusion is safe on the lit state because the model is itself a
+	 * full cube, covering every seam its backing culls.
+	 */
+	private fun registerCube(spec: LampSpec): NovaBlock =
+		LunaSmp.tileEntity(spec.id, ::WirelessLampTile) {
+			stateProperties(GaugeCatalog.ON.scope(setOf(false, true)) { false })
+
+			// once a second: a fixture only asks whether it was paid for
+			tickrate(1)
+
+			entityBacked(stateSelector = {
+				if (getPropertyValueOrNull(GaugeCatalog.ON) == true) {
+					Hitboxes.bulb(true)
+				} else {
+					Blocks.BARRIER.defaultBlockState()
+				}
+			}) {
+				if (getPropertyValueOrNull(GaugeCatalog.ON) == false) {
+					getModel("lunasmp:block/\${spec.id}_off")
+				} else {
+					defaultModel
+				}
+			}
+
+			behaviors(
+				Breakable(hardness = 0.5),
+				BlockSounds(SoundGroup.GLASS),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The light pole: a bollard standing in the line post - the centred
+	 * eight-pixel column its own post and head are drawn around. No facing;
+	 * a bollard is the same from every side.
+	 */
+	private fun registerPole(spec: LampSpec): NovaBlock =
+		LunaSmp.tileEntity(spec.id, ::WirelessLampTile) {
+			stateProperties(GaugeCatalog.ON.scope(setOf(false, true)) { false })
+
+			// once a second: a fixture only asks whether it was paid for
+			tickrate(1)
+
+			entityBacked(stateSelector = { Hitboxes.linePost() }) {
+				if (getPropertyValueOrNull(GaugeCatalog.ON) == false) {
+					getModel("lunasmp:block/\${spec.id}_off")
+				} else {
+					defaultModel
+				}
+			}
+
+			behaviors(
+				Breakable(hardness = 1.0),
+				BlockSounds(SoundGroup.METAL),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The light switch: a wall plate hung on the wall the placer clicked,
+	 * the rocker up (ON) or down (OFF) following the channel's state on the
+	 * nodes whose reach covers it. The clump is its hitbox, like every flat
+	 * fitting here.
+	 */
+	private fun registerSwitch(): NovaBlock =
+		LunaSmp.tileEntity(SWITCH_ID, ::WirelessSwitchTile) {
+			stateProperties(
+				DefaultBlockStateProperties.FACING.scope(WALLS) { ctx -> facingOnPlace(ctx) },
+				GaugeCatalog.ON.scope(setOf(false, true)) { false },
+			)
+
+			// once a second the rocker re-reads the channel off the nodes
+			tickrate(1)
+
+			entityBacked(stateSelector = {
+				Hitboxes.clumpAgainst(getPropertyValueOrNull(DefaultBlockStateProperties.FACING) ?: BlockFace.NORTH)
+			}) {
+				val model = if (getPropertyValueOrNull(GaugeCatalog.ON) == false) {
+					getModel("lunasmp:block/${SWITCH.id}_off")
+				} else {
+					defaultModel
+				}
+
+				model.rotated()
+			}
+
+			behaviors(
+				Breakable(hardness = 0.5),
+				BlockSounds(SoundGroup.STONE),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The push button: the rocker's plate with a button that springs back.
+	 * ON is the channel's state, shown by the LED; POWERED is the press
+	 * itself, held for a few ticks by the tile.
+	 */
+	private fun registerButton(): NovaBlock =
+		LunaSmp.tileEntity(BUTTON_ID, ::WirelessSwitchTile) {
+			stateProperties(
+				DefaultBlockStateProperties.FACING.scope(WALLS) { ctx -> facingOnPlace(ctx) },
+				GaugeCatalog.ON.scope(setOf(false, true)) { false },
+				DefaultBlockStateProperties.POWERED.scope(setOf(false, true)) { false },
+			)
+
+			// once a second the LED re-reads the channel off the nodes
+			tickrate(1)
+
+			entityBacked(stateSelector = {
+				Hitboxes.clumpAgainst(getPropertyValueOrNull(DefaultBlockStateProperties.FACING) ?: BlockFace.NORTH)
+			}) {
+				val on = getPropertyValueOrNull(GaugeCatalog.ON) != false
+				val pressed = getPropertyValueOrNull(DefaultBlockStateProperties.POWERED) == true
+
+				val model = when {
+					on && !pressed -> defaultModel
+					!on && !pressed -> getModel("lunasmp:block/${BUTTON.id}_off")
+					on -> getModel("lunasmp:block/${BUTTON.id}_pressed")
+					else -> getModel("lunasmp:block/${BUTTON.id}_pressed_off")
+				}
+
+				model.rotated()
+			}
+
+			behaviors(
+				Breakable(hardness = 0.5),
+				BlockSounds(SoundGroup.STONE),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/** The wall a flat fitting hangs on: the one clicked, else the one the placer faces. */
+	private fun facingOnPlace(ctx: Context<BlockPlace>): BlockFace {
+		val clicked = ctx[DefaultContextParamTypes.CLICKED_BLOCK_FACE]
+
+		if (clicked != null && clicked in WALLS) {
+			return clicked
+		}
+
+		val direction = ctx[DefaultContextParamTypes.SOURCE_DIRECTION] ?: return BlockFace.NORTH
+
+		if (abs(direction.x) > abs(direction.z)) {
+			return if (direction.x > 0) BlockFace.WEST else BlockFace.EAST
+		}
+
+		return if (direction.z > 0) BlockFace.NORTH else BlockFace.SOUTH
+	}
+
+	/**
+	 * A fixture mounts on the face the placer clicked, like the small siren:
+	 * up off a floor, out of a wall, hanging under a ceiling. The model is
+	 * authored standing off the south wall and pointing north, which
+	 * lineRotated() lands on that face; the hitbox follows the face too, a
+	 * plate on floors and ceilings and a clump against a wall.
+	 */
+	private fun register(spec: LampSpec): NovaBlock =
+		LunaSmp.tileEntity(spec.id, ::WirelessLampTile) {
+			stateProperties(
+				DefaultBlockStateProperties.FACING.scope(ALL_FACES) { ctx ->
+					ctx[DefaultContextParamTypes.CLICKED_BLOCK_FACE] ?: BlockFace.UP
+				},
+				GaugeCatalog.ON.scope(setOf(false, true)) { false },
+			)
+
+			// once a second: a fixture only asks whether it was paid for
+			tickrate(1)
+
+			entityBacked(stateSelector = {
+				hitboxOf(spec, getPropertyValueOrNull(DefaultBlockStateProperties.FACING) ?: BlockFace.UP)
+			}) {
+				val model = if (getPropertyValueOrNull(GaugeCatalog.ON) == false) {
+					getModel("lunasmp:block/\${spec.id}_off")
+				} else {
+					defaultModel
+				}
+
+				lineRotated(model)
+			}
+
+			behaviors(
+				Breakable(hardness = 0.5),
+				BlockSounds(SoundGroup.GLASS),
+				TileEntityDrops,
+				TileEntityInteractive,
+			)
+		}
+
+	/**
+	 * The vanilla block a mounted fixture stands in. A bulb on a floor gets
+	 * the eight-pixel core its plate and cage fit inside; a panel on a floor
+	 * or a ceiling gets the three-pixel plate; anything on a wall gets the
+	 * clump hugging that wall. The full block never reaches this - it fills
+	 * its block and picks its backing from its lit state instead.
+	 */
+	private fun hitboxOf(spec: LampSpec, facing: BlockFace): BlockState =
+		when (facing) {
+			BlockFace.UP -> if (spec.kind == Kind.BULB) Blocks.HEAVY_CORE.defaultBlockState() else Hitboxes.plate(false)
+			BlockFace.DOWN -> if (spec.kind == Kind.BULB) Hitboxes.clumpOnCeiling() else Hitboxes.plate(true)
+			else -> Hitboxes.clumpAgainst(facing)
+		}
+
+	/**
+	 * Rotates a north-authored fixture onto its FACING; Nova's own rotated()
+	 * walks its vertical ring backwards (see GaugeCatalog), so the two
+	 * vertical cases are turned explicitly, model-north onto FACING.
+	 */
+	private fun BlockModelSelectorScope.lineRotated(model: ModelBuilder): ModelBuilder =
+		when (getPropertyValueOrNull(DefaultBlockStateProperties.FACING)) {
+			BlockFace.UP -> model.rotateX(90.0)
+			BlockFace.DOWN -> model.rotateX(-90.0)
+			else -> model.rotated()
+		}
+}
+`;
+
+writeFileSync(join(powerDir, 'LampCatalog.kt'), lampKotlin);
+
+
 const signDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/signs');
 mkdirSync(signDir, { recursive: true });
 writeFileSync(join(signDir, 'SignCatalog.kt'), signKotlin);
+
+const cropKotlin = `package dev.belikhun.luna.smp.crops
+
+import dev.belikhun.luna.smp.Hitboxes
+import dev.belikhun.luna.smp.LunaSmp
+import net.kyori.adventure.key.Key
+import net.minecraft.world.level.block.Blocks
+import xyz.xenondevs.nova.world.block.NovaBlock
+import xyz.xenondevs.nova.world.block.behavior.BlockSounds
+import xyz.xenondevs.nova.world.block.behavior.Breakable
+import xyz.xenondevs.nova.world.block.sound.SoundGroup
+import xyz.xenondevs.nova.world.block.state.property.impl.IntProperty
+
+/**
+ * The generated crop table.
+ *
+ * GENERATED FILE - do not edit by hand. Change tools/furniture-gen/crops.ts and
+ * re-run the generator; the sprites, models, configs and language files beside
+ * this table come from the same pass, so editing one of them alone drifts the
+ * set.
+ *
+ * A crop is one block whose \`age\` counts Stardew *days*, not frames: parsnip
+ * reaches four, ancient fruit reaches twenty-eight, and [stages] says which of
+ * its sprites each age draws. Counting days rather than pictures is what lets a
+ * regrowing crop simply be wound back to \`maturity - regrow\` when it is picked,
+ * and what keeps the pace the game published rather than a pace invented here.
+ *
+ * Every crop is entity-backed. A plant needs geometry that leaves its block and
+ * a hitbox that is not a cube, and there is no backing-state budget anywhere
+ * near the six hundred states this roster would otherwise reserve. A trellis
+ * crop stands in a fence post instead of a structure void, which is the whole
+ * of what "cannot be walked through" means here.
+ */
+@Suppress("unused")
+object CropCatalog {
+
+	/** How many days a crop has been growing. */
+	val AGE: IntProperty = IntProperty(Key.key("lunasmp", "age"))
+
+	/** The seasons a crop can be planted and grown in. */
+	enum class Season {
+		SPRING, SUMMER, FALL, WINTER,
+	}
+
+	data class Spec(
+		val id: String,
+		val seasons: Set<Season>,
+		/** Days to maturity, which is also this block's highest age. */
+		val maturity: Int,
+		/** The age each sprite takes over at, rising; the last is [maturity]. */
+		val stages: List<Int>,
+		/** Days back to the next harvest, or null when picking ends the plant. */
+		val regrow: Int?,
+		/** How many items one harvest gives. */
+		val count: Int = 1,
+		/** The chance of one more on top of that. */
+		val extra: Double = 0.0,
+		/** What the game sells it for, which only the tooltip uses. */
+		val price: Int,
+		/** Hunger restored, or 0 for a crop the game calls inedible. */
+		val nutrition: Int,
+		val saturation: Float,
+		/** Climbs a trellis, so it is solid to walk into. */
+		val trellis: Boolean = false,
+	) {
+
+		/** The block this crop grows as. */
+		val blockId: String
+			get() = "\${id}_crop"
+
+		/** The item that plants it. */
+		val seedId: String
+			get() = "\${id}_seeds"
+
+		/** Whether picking it leaves the plant standing. */
+		val regrows: Boolean
+			get() = regrow != null
+	}
+
+	private val SPECS = listOf(
+${cropSpecs.join('\n')}
+	)
+
+	/** Every crop's spec, by crop id. */
+	val BY_ID: Map<String, Spec> = SPECS.associateBy { it.id }
+
+	/** Every crop's spec, by the id of the block it grows as. */
+	val BY_BLOCK: Map<String, Spec> = SPECS.associateBy { it.blockId }
+
+	/** Every crop block, by crop id. */
+	val BLOCKS: Map<String, NovaBlock> = SPECS.associate { it.id to register(it) }
+
+	/**
+	 * The withered plant.
+	 *
+	 * One block for the whole roster, because a crop that died out of season is
+	 * no longer a parsnip or a melon, it is straw; the game draws one dead-crop
+	 * sprite for the same reason. It grows into nothing and drops nothing.
+	 */
+	val DEAD: NovaBlock = LunaSmp.block("dead_crop") {
+		behaviors(Breakable(hardness = 0.0), BlockSounds(SoundGroup.CROP))
+
+		entityBacked(stateSelector = { Blocks.STRUCTURE_VOID.defaultBlockState() }) {
+			getModel("lunasmp:block/dead_crop")
+		}
+	}
+
+	/**
+	 * Which sprite an age draws: the first stage whose day threshold the crop
+	 * has not yet passed, and the ripe sprite once it is at maturity.
+	 */
+	fun stageOf(spec: Spec, age: Int): Int {
+		for (index in spec.stages.indices) {
+			if (age < spec.stages[index]) {
+				return index
+			}
+		}
+
+		return spec.stages.size - 1
+	}
+
+	private fun register(spec: Spec): NovaBlock = LunaSmp.block(spec.blockId) {
+		stateProperties(AGE.scope(0..spec.maturity) { 0 })
+		behaviors(CropBehavior, Breakable(hardness = 0.0), BlockSounds(SoundGroup.CROP))
+
+		// a trellis crop stands in a fence post, which is the four-pixel column
+		// Nova keeps from ever growing arms; everything else is a structure
+		// void, so a field is walked through rather than waded through
+		entityBacked(
+			stateSelector = {
+				if (spec.trellis) {
+					Hitboxes.post()
+				} else {
+					Blocks.STRUCTURE_VOID.defaultBlockState()
+				}
+			},
+		) {
+			getModel("lunasmp:block/\${spec.id}_crop_stage\${stageOf(spec, getPropertyValueOrNull(AGE) ?: 0)}")
+		}
+	}
+}
+`;
+
+const cropDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/crops');
+mkdirSync(cropDir, { recursive: true });
+writeFileSync(join(cropDir, 'CropCatalog.kt'), cropKotlin);
 
 const floraDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/flora');
 mkdirSync(floraDir, { recursive: true });
@@ -3585,6 +4634,7 @@ writeFileSync(join(floraDir, 'FloraCatalog.kt'), floraKotlin);
 
 console.log(`pieces:   ${PIECES.length - failures.length}/${PIECES.length}`);
 console.log(`flora:    ${FLORA.length}`);
+console.log(`crops:    ${CROPS.length}`);
 console.log(`signs:    ${SIGNS.length}`);
 console.log(`gauges:   ${GAUGES.length} kinds, ${SWITCHES.length} switch`);
 console.log(`crowns:   ${CROWNS.length}`);

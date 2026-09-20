@@ -13,6 +13,7 @@ import org.bukkit.entity.ItemDisplay.ItemDisplayTransform
 import org.bukkit.entity.Player
 import org.bukkit.entity.TextDisplay
 import org.bukkit.inventory.EquipmentSlot
+import org.bukkit.inventory.ItemStack
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import xyz.xenondevs.cbf.Compound
@@ -45,6 +46,7 @@ import xyz.xenondevs.nova.util.yaw
 import xyz.xenondevs.nova.world.fakeentity.impl.FakeItemDisplay
 import xyz.xenondevs.nova.world.fakeentity.impl.FakeTextDisplay
 import xyz.xenondevs.nova.world.format.NetworkState
+import xyz.xenondevs.nova.world.block.tileentity.network.type.fluid.FluidType
 import xyz.xenondevs.nova.world.format.WorldDataManager
 import xyz.xenondevs.nova.world.model.FixedMultiModel
 import xyz.xenondevs.nova.world.model.Model
@@ -161,8 +163,46 @@ class GaugeTile(
 	private var lastStockAt = 0L
 	private var smoothedRate = 0.0
 
-	/** The totaliser's count, in joules; persisted so the meter never forgets. */
-	private var totalJoules = 0.0
+	/** The per-container books behind the intake and output meters. */
+	private val ledger = GaugeSources.StockLedger()
+
+	/** Whether the dial reads what arrives (true) or what leaves (false); null for other dials. */
+	private val intakeDial: Boolean?
+		get() = when (spec.metric) {
+			GaugeCatalog.Metric.ITEM_IN, GaugeCatalog.Metric.FLUID_IN -> true
+			GaugeCatalog.Metric.ITEM_OUT, GaugeCatalog.Metric.FLUID_OUT -> false
+			else -> null
+		}
+
+	/** Picks the half of the ledger this dial shows. */
+	private fun side(rates: GaugeSources.StockLedger.Rates?): Double? {
+		if (rates == null) {
+			return null
+		}
+
+		return if (intakeDial == true) rates.intake else rates.output
+	}
+
+	/**
+	 * The totaliser's count in the metric's base unit - joules, items or
+	 * millibuckets; persisted so the meter never forgets. The drums show it
+	 * divided by [meterScale].
+	 */
+	private var total = 0.0
+
+	/**
+	 * The second moving part every fluid dial has: a red needle (or bar) for
+	 * lava beside the blue one for water. Both read on one range.
+	 */
+	private var needle2: FakeItemDisplay? = null
+	private var bar2: FakeItemDisplay? = null
+	private var shownSecond = Double.NaN
+
+	/** The lava side of a fluid flow dial; [rateOf] and [smoothedRate] are the water side. */
+	private val lavaFlow = Rate()
+
+	/** The lava side of a fluid intake/output dial; [ledger] is the water side. */
+	private val lavaLedger = GaugeSources.StockLedger()
 
 	/** One dial fraction per second, a chart column each; a ring, newest last. */
 	private val history = DoubleArray(HISTORY)
@@ -179,7 +219,7 @@ class GaugeTile(
 	// ---- lifecycle ---------------------------------------------------------
 
 	override fun handleEnable() {
-		totalJoules = retrieveDataOrNull<Double>(TOTAL) ?: 0.0
+		total = retrieveDataOrNull<Double>(TOTAL) ?: 0.0
 		fixedRange = retrieveDataOrNull<Double>(FIXED_RANGE) ?: 0.0
 
 		if (bridging) {
@@ -202,7 +242,7 @@ class GaugeTile(
 	override fun handleDisable() {
 		super.handleDisable()
 		valid = false
-		storeData(TOTAL, totalJoules)
+		storeData(TOTAL, total)
 		storeData(FIXED_RANGE, fixedRange)
 		joints.clear()
 		clear()
@@ -337,6 +377,8 @@ class GaugeTile(
 		val frac: Double,
 		val plate: String? = null,
 		val digits: String? = null,
+		/** The second needle's fraction: the lava on a fluid dial, on the same range. */
+		val second: Double? = null,
 	)
 
 	private fun sample(): Sample {
@@ -392,7 +434,7 @@ class GaugeTile(
 				val stats = GaugeSources.energy(anchors())
 
 				if (stats != null) {
-					totalJoules += stats.load.toDouble()
+					total += stats.load.toDouble()
 				}
 
 				// the meter has no needle, but its chart plots the draw the
@@ -414,11 +456,50 @@ class GaugeTile(
 			GaugeCatalog.Metric.FLUID_STORED -> {
 				val stats = GaugeSources.fluid(anchors())
 
-				Sample(level(stats?.amount, stats?.capacity))
+				Sample(level(stats?.water, stats?.capacity), second = level(stats?.lava, stats?.capacity))
 			}
 
-			GaugeCatalog.Metric.FLUID_FLOW ->
-				centred(rateOf(GaugeSources.fluid(anchors())?.amount?.toDouble(), now), FLOOR_FLUID)
+			GaugeCatalog.Metric.FLUID_FLOW -> {
+				val stats = GaugeSources.fluid(anchors())
+
+				centredPair(
+					rateOf(stats?.water?.toDouble(), now),
+					lavaFlow.update(stats?.lava?.toDouble(), now),
+					FLOOR_FLUID,
+				)
+			}
+
+			GaugeCatalog.Metric.ITEM_IN, GaugeCatalog.Metric.ITEM_OUT ->
+				scaled(side(ledger.update(GaugeSources.itemStocks(anchors()), now)), FLOOR_ITEMS)
+
+			GaugeCatalog.Metric.FLUID_IN, GaugeCatalog.Metric.FLUID_OUT ->
+				scaledPair(
+					side(ledger.update(GaugeSources.fluidStocks(anchors(), FluidType.WATER), now)),
+					side(lavaLedger.update(GaugeSources.fluidStocks(anchors(), FluidType.LAVA), now)),
+					FLOOR_FLUID,
+				)
+
+			GaugeCatalog.Metric.ITEM_TOTAL -> {
+				val rates = ledger.update(GaugeSources.itemStocks(anchors()), now)
+
+				// one sample a second: what left the stores since the last
+				// one is what the drums count, like the electrical meter
+				if (rates != null) {
+					total += rates.output
+				}
+
+				Sample(scaled(rates?.output, FLOOR_ITEMS).frac, digits = meterDigits())
+			}
+
+			GaugeCatalog.Metric.FLUID_TOTAL -> {
+				val rates = ledger.update(GaugeSources.fluidStocks(anchors()), now)
+
+				if (rates != null) {
+					total += rates.output
+				}
+
+				Sample(scaled(rates?.output, FLOOR_FLUID).frac, digits = meterDigits())
+			}
 
 			GaugeCatalog.Metric.MULTI -> multiSample(now, flow = false)
 
@@ -471,7 +552,7 @@ class GaugeTile(
 				if (rate != null) {
 					// one sample a second: the per-second rate is the joules
 					// since the last one, which is what a meter counts
-					totalJoules += rate
+					total += rate
 				}
 
 				val load = scaled(rate, FLOOR_ENERGY)
@@ -484,6 +565,34 @@ class GaugeTile(
 
 			GaugeCatalog.Metric.FLUID_FLOW ->
 				centred(rateOf(diode.movedFluid, now), FLOOR_FLUID)
+
+			// what crosses a one-way bridge arrives on one side exactly as it
+			// leaves the other, so both halves of the pair read the crossing
+			GaugeCatalog.Metric.ITEM_IN, GaugeCatalog.Metric.ITEM_OUT ->
+				scaled(rateOf(diode.movedItems, now), FLOOR_ITEMS)
+
+			GaugeCatalog.Metric.FLUID_IN, GaugeCatalog.Metric.FLUID_OUT ->
+				scaled(rateOf(diode.movedFluid, now), FLOOR_FLUID)
+
+			GaugeCatalog.Metric.ITEM_TOTAL -> {
+				val rate = rateOf(diode.movedItems, now)
+
+				if (rate != null) {
+					total += rate
+				}
+
+				Sample(scaled(rate, FLOOR_ITEMS).frac, digits = meterDigits())
+			}
+
+			GaugeCatalog.Metric.FLUID_TOTAL -> {
+				val rate = rateOf(diode.movedFluid, now)
+
+				if (rate != null) {
+					total += rate
+				}
+
+				Sample(scaled(rate, FLOOR_FLUID).frac, digits = meterDigits())
+			}
 		}
 	}
 
@@ -598,7 +707,7 @@ class GaugeTile(
 
 			GaugeCatalog.Metric.ENERGY_TOTAL ->
 				energy?.let {
-					totalJoules += it.energyMinus.toDouble()
+					total += it.energyMinus.toDouble()
 
 					val load = scaled(it.energyMinus * 20.0, FLOOR_ENERGY)
 
@@ -612,10 +721,50 @@ class GaugeTile(
 				host.itemCount?.let { centred(rateOf(it.toDouble(), now), FLOOR_ITEMS) }
 
 			GaugeCatalog.Metric.FLUID_STORED ->
-				host.fluid?.let { Sample(level(it.amount, it.capacity)) }
+				host.fluid?.let { Sample(level(it.water, it.capacity), second = level(it.lava, it.capacity)) }
 
 			GaugeCatalog.Metric.FLUID_FLOW ->
-				host.fluid?.let { centred(rateOf(it.amount.toDouble(), now), FLOOR_FLUID) }
+				host.fluid?.let {
+					centredPair(
+						rateOf(it.water.toDouble(), now),
+						lavaFlow.update(it.lava.toDouble(), now),
+						FLOOR_FLUID,
+					)
+				}
+
+			GaugeCatalog.Metric.ITEM_IN, GaugeCatalog.Metric.ITEM_OUT ->
+				host.itemCount?.let { scaled(side(ledger.update(mapOf(HOST_STOCK to it), now)), FLOOR_ITEMS) }
+
+			GaugeCatalog.Metric.FLUID_IN, GaugeCatalog.Metric.FLUID_OUT ->
+				host.fluid?.let {
+					scaledPair(
+						side(ledger.update(mapOf(HOST_STOCK to it.water), now)),
+						side(lavaLedger.update(mapOf(HOST_STOCK to it.lava), now)),
+						FLOOR_FLUID,
+					)
+				}
+
+			GaugeCatalog.Metric.ITEM_TOTAL ->
+				host.itemCount?.let {
+					val rates = ledger.update(mapOf(HOST_STOCK to it), now)
+
+					if (rates != null) {
+						total += rates.output
+					}
+
+					Sample(scaled(rates?.output, FLOOR_ITEMS).frac, digits = meterDigits())
+				}
+
+			GaugeCatalog.Metric.FLUID_TOTAL ->
+				host.fluid?.let {
+					val rates = ledger.update(mapOf(HOST_STOCK to it.amount), now)
+
+					if (rates != null) {
+						total += rates.output
+					}
+
+					Sample(scaled(rates?.output, FLOOR_FLUID).frac, digits = meterDigits())
+				}
 
 			// the multipurpose meters run their own host logic
 			GaugeCatalog.Metric.MULTI, GaugeCatalog.Metric.MULTI_FLOW -> null
@@ -689,6 +838,72 @@ class GaugeTile(
 	}
 
 	/**
+	 * [rateOf]'s bookkeeping as an object, for a dial that differentiates two
+	 * stocks at once: the lava beside the water.
+	 */
+	private class Rate {
+
+		private var last = Double.NaN
+		private var lastAt = 0L
+
+		var smoothed = 0.0
+			private set
+
+		fun update(stock: Double?, now: Long): Double? {
+			if (stock == null) {
+				last = Double.NaN
+
+				return null
+			}
+
+			if (last.isNaN() || now <= lastAt) {
+				last = stock
+				lastAt = now
+
+				return smoothed
+			}
+
+			val rate = (stock - last) / ((now - lastAt) / 1000.0)
+
+			last = stock
+			lastAt = now
+			smoothed = smoothed * 0.5 + rate * 0.5
+
+			return smoothed
+		}
+	}
+
+	/** Two one-sided rates on one range: the water and the lava. */
+	private fun scaledPair(water: Double?, lava: Double?, floor: Double): Sample {
+		if (water == null && lava == null) {
+			return Sample(0.0, plate = IDLE_PLATE, second = 0.0)
+		}
+
+		retune(max(abs(water ?: 0.0), abs(lava ?: 0.0)), floor)
+
+		return Sample(
+			((water ?: 0.0) / range).coerceIn(0.0, 1.0),
+			plate = fmt(range),
+			second = ((lava ?: 0.0) / range).coerceIn(0.0, 1.0),
+		)
+	}
+
+	/** Two signed rates on one centre-zero dial: the water and the lava. */
+	private fun centredPair(water: Double?, lava: Double?, floor: Double): Sample {
+		if (water == null && lava == null) {
+			return Sample(0.5, plate = IDLE_PLATE, second = 0.5)
+		}
+
+		retune(max(abs(water ?: 0.0), abs(lava ?: 0.0)), floor)
+
+		return Sample(
+			(0.5 + 0.5 * (water ?: 0.0) / range).coerceIn(0.0, 1.0),
+			plate = PLUS_MINUS + fmt(range),
+			second = (0.5 + 0.5 * (lava ?: 0.0) / range).coerceIn(0.0, 1.0),
+		)
+	}
+
+	/**
 	 * Differentiates a sampled stock into a rate, smoothed just enough that a
 	 * batchy machine reads as a flow instead of a flicker.
 	 */
@@ -724,11 +939,26 @@ class GaugeTile(
 		range = niceCeil(max(peak, floor))
 	}
 
-	private fun meterDigits(): String {
-		val kilojoules = (totalJoules / 1000.0).toLong()
+	/** What one drum unit is worth: a kilojoule, an item, or a bucket. */
+	private fun meterScale(): Double =
+		when (spec.metric) {
+			GaugeCatalog.Metric.ITEM_TOTAL -> 1.0
+			else -> 1000.0
+		}
 
-		return kilojoules.coerceIn(0, 9_999_999).toString().padStart(7, '0')
+	private fun meterDigits(): String {
+		val shown = (total / meterScale()).toLong()
+
+		return shown.coerceIn(0, 9_999_999).toString().padStart(7, '0')
 	}
+
+	/** The red tenths drum; the item meter counts whole things and has none. */
+	private fun meterFraction(): String =
+		if (spec.metric == GaugeCatalog.Metric.ITEM_TOTAL) {
+			""
+		} else {
+			((total / (meterScale() / 10.0)) % 10).toInt().toString()
+		}
 
 	// ---- anchors -----------------------------------------------------------
 
@@ -806,17 +1036,29 @@ class GaugeTile(
 	// ---- the moving parts ----------------------------------------------------
 
 	private fun show(sample: Sample) {
+		val second = sample.second
+
 		if (spec.needle != null) {
 			if (shownFrac.isNaN() || abs(sample.frac - shownFrac) > 0.004) {
 				shownFrac = sample.frac
-				swing(sample.frac)
+				swing(sample.frac, lava = false)
+			}
+
+			if (second != null && (shownSecond.isNaN() || abs(second - shownSecond) > 0.004)) {
+				shownSecond = second
+				swing(second, lava = true)
 			}
 		}
 
 		if (spec.style == GaugeCatalog.Style.BAR) {
 			if (shownFrac.isNaN() || abs(sample.frac - shownFrac) > 0.004) {
 				shownFrac = sample.frac
-				climb(sample.frac)
+				climb(sample.frac, lava = false)
+			}
+
+			if (second != null && (shownSecond.isNaN() || abs(second - shownSecond) > 0.004)) {
+				shownSecond = second
+				climb(second, lava = true)
 			}
 		}
 
@@ -832,8 +1074,43 @@ class GaugeTile(
 		}
 	}
 
-	/** Swings the needle to a dial fraction, interpolated on the client. */
-	private fun swing(frac: Double) {
+	/** Whether this dial reads a fluid, and so swings a water needle and a lava needle. */
+	private val fluidDial: Boolean
+		get() = when (spec.metric) {
+			GaugeCatalog.Metric.FLUID_STORED, GaugeCatalog.Metric.FLUID_FLOW,
+			GaugeCatalog.Metric.FLUID_IN, GaugeCatalog.Metric.FLUID_OUT,
+			-> true
+
+			else -> false
+		}
+
+	/**
+	 * The needle item a dial swings. A fluid dial ignores the catalog's
+	 * colour and wears blue for water and red for lava, keeping only whether
+	 * the blade is the corner kind; every other dial wears what it was given.
+	 */
+	private fun needleItem(lava: Boolean): ItemStack? {
+		val given = spec.needle ?: return null
+		val id = if (fluidDial) {
+			val corner = if (given.contains("corner")) "corner_" else ""
+
+			"gauge_needle_$corner${if (lava) "red" else "blue"}"
+		} else {
+			given
+		}
+
+		return GaugeItems.NEEDLES[id]?.createItemStack()
+	}
+
+	/**
+	 * Swings a needle to a dial fraction, interpolated on the client. On a
+	 * fluid dial the two blades are LAYERED, the blue water needle outermost
+	 * and the red lava needle beneath it, a fifth of a pixel apart: the first
+	 * cut put them two thousandths of a block apart, which the client's depth
+	 * buffer could not tell apart, and the blades flickered through each
+	 * other whenever the readings agreed.
+	 */
+	private fun swing(frac: Double, lava: Boolean) {
 		val degrees = spec.startDeg + (spec.endDeg - spec.startDeg) * frac
 
 		// no baked offset: the client renders the blade exactly where the
@@ -841,7 +1118,7 @@ class GaugeTile(
 		// mirrored-frame era made healthy needles look flipped; with turn()
 		// fixed, that offset itself became the flip the players saw
 		val rotation = Quaternionf().rotationZ(Math.toRadians(SPIN * degrees).toFloat())
-		val existing = needle
+		val existing = if (lava) needle2 else needle
 
 		if (existing != null) {
 			existing.updateEntityData(true) {
@@ -852,11 +1129,12 @@ class GaugeTile(
 			return
 		}
 
-		val item = GaugeItems.NEEDLES[spec.needle]?.createItemStack() ?: return
+		val item = needleItem(lava) ?: return
 		val span = form.faceSpan
 		val scale = (spec.needleLen / 64.0 * span) / BLADE
+		val lift = if (fluidDial && !lava) NEEDLE_LIFT + WATER_LAYER else NEEDLE_LIFT
 
-		needle = FakeItemDisplay(facePoint(spec.pivotX.toDouble(), spec.pivotY.toDouble(), NEEDLE_LIFT)) { _, meta ->
+		val display = FakeItemDisplay(facePoint(spec.pivotX.toDouble(), spec.pivotY.toDouble(), lift)) { _, meta ->
 			meta.itemStack = item
 			meta.itemDisplay = ItemDisplayTransform.NONE
 			meta.scale = Vector3f(scale.toFloat(), scale.toFloat(), scale.toFloat())
@@ -867,6 +1145,12 @@ class GaugeTile(
 			// an instrument that cannot be read in the dark is furniture
 			meta.brightness = Display.Brightness(15, 15)
 		}
+
+		if (lava) {
+			needle2 = display
+		} else {
+			needle = display
+		}
 	}
 
 	/**
@@ -875,13 +1159,13 @@ class GaugeTile(
 	 * anchored at the slot's floor, so scaling it moves only the top edge -
 	 * the foot of the bar never leaves the bottom of the slot.
 	 */
-	private fun climb(frac: Double) {
+	private fun climb(frac: Double, lava: Boolean) {
 		val span = form.faceSpan
 		val width = (BAR_WIDTH_PX / 64.0 * span / BAR_AUTHORED_W).toFloat()
 		val height = ((spec.needleLen / 64.0 * span / BAR_AUTHORED_H) * frac)
 			.coerceAtLeast(0.001)
 			.toFloat()
-		val existing = bar
+		val existing = if (lava) bar2 else bar
 
 		if (existing != null) {
 			existing.updateEntityData(true) {
@@ -892,16 +1176,33 @@ class GaugeTile(
 			return
 		}
 
-		val id = if (spec.metric == GaugeCatalog.Metric.FLUID_STORED) "gauge_bar_blue" else "gauge_bar_amber"
+		// a fluid column is two bars side by side in the one slot, water on
+		// the left and lava on the right; every other column is one amber bar
+		val id = when {
+			!fluidDial -> "gauge_bar_amber"
+			lava -> "gauge_bar_red"
+			else -> "gauge_bar_blue"
+		}
 		val item = GaugeItems.BARS[id]?.createItemStack() ?: return
+		val shift = when {
+			!fluidDial -> 0.0
+			lava -> TWIN_BAR_SHIFT
+			else -> -TWIN_BAR_SHIFT
+		}
 
-		bar = FakeItemDisplay(facePoint(spec.pivotX.toDouble(), spec.pivotY.toDouble(), NEEDLE_LIFT)) { _, meta ->
+		val display = FakeItemDisplay(facePoint(spec.pivotX + shift, spec.pivotY.toDouble(), NEEDLE_LIFT)) { _, meta ->
 			meta.itemStack = item
 			meta.itemDisplay = ItemDisplayTransform.NONE
 			meta.scale = Vector3f(width, height, 1f)
 			meta.transformationInterpolationDelay = 0
 			meta.transformationInterpolationDuration = 16
 			meta.brightness = Display.Brightness(15, 15)
+		}
+
+		if (lava) {
+			bar2 = display
+		} else {
+			bar = display
 		}
 	}
 
@@ -944,7 +1245,7 @@ class GaugeTile(
 		} else {
 			Component.text()
 				.append(Component.text(text, NamedTextColor.WHITE))
-				.append(Component.text(((totalJoules / 100.0) % 10).toInt().toString(), NamedTextColor.RED))
+				.append(Component.text(meterFraction(), NamedTextColor.RED))
 				.build()
 		}
 
@@ -973,14 +1274,19 @@ class GaugeTile(
 
 	private fun clear() {
 		needle?.remove()
+		needle2?.remove()
 		bar?.remove()
+		bar2?.remove()
 		plate?.remove()
 		digits?.remove()
 		needle = null
+		needle2 = null
 		bar = null
+		bar2 = null
 		plate = null
 		digits = null
 		shownFrac = Double.NaN
+		shownSecond = Double.NaN
 		shownPlate = null
 		shownDigits = null
 	}
@@ -1068,32 +1374,62 @@ class GaugeTile(
 				)
 
 				if (spec.metric == GaugeCatalog.Metric.ENERGY_TOTAL) {
-					lines += "<gray>Tổng đã ghi:</gray> <white>${fmt(totalJoules)} J</white>"
+					lines += "<gray>Tổng đã ghi:</gray> <white>${fmt(total)} J</white>"
 				}
 
 				lines
 			}
 
-			GaugeCatalog.Metric.FLUID_STORED, GaugeCatalog.Metric.FLUID_FLOW -> {
+			GaugeCatalog.Metric.FLUID_STORED, GaugeCatalog.Metric.FLUID_FLOW,
+			GaugeCatalog.Metric.FLUID_IN, GaugeCatalog.Metric.FLUID_OUT, GaugeCatalog.Metric.FLUID_TOTAL,
+			-> {
 				val stats = GaugeSources.fluid(anchors)
 					?: return listOf("<gray>Không tìm thấy đường ống nào quanh đồng hồ.</gray>")
 
-				listOf(
+				val lines = mutableListOf(
 					"<aqua>🪣 Chất lỏng:</aqua> <white>${fmt(stats.amount.toDouble())} mB</white>"
 						+ " / ${fmt(stats.capacity.toDouble())} mB"
 						+ " <gray>(${percent(stats.amount, stats.capacity)})</gray>",
-					"<gray>Tốc độ (bơm/xả ròng):</gray> <white>${signed(smoothedRate)} mB/s</white>",
+					"<blue>Nước:</blue> <white>${fmt(stats.water.toDouble())} mB</white>"
+						+ " <gray>·</gray> <red>Dung nham:</red> <white>${fmt(stats.lava.toDouble())} mB</white>",
 				)
+
+				if (spec.metric == GaugeCatalog.Metric.FLUID_TOTAL) {
+					lines += "<gray>Tổng đã ghi:</gray> <white>${fmt(total)} mB</white>"
+				}
+
+				if (intakeDial != null) {
+					lines += ("<gray>Bơm vào:</gray> <white>${fmt(ledger.intake)} mB/s</white>"
+						+ " <gray>· xả ra:</gray> <white>${fmt(ledger.output)} mB/s</white>")
+				} else {
+					lines += "<gray>Tốc độ (bơm/xả ròng):</gray> <white>${signed(smoothedRate)} mB/s</white>"
+				}
+
+				lines
 			}
 
-			GaugeCatalog.Metric.ITEM_FLOW, GaugeCatalog.Metric.ITEM_STORED -> {
+			GaugeCatalog.Metric.ITEM_FLOW, GaugeCatalog.Metric.ITEM_STORED,
+			GaugeCatalog.Metric.ITEM_IN, GaugeCatalog.Metric.ITEM_OUT, GaugeCatalog.Metric.ITEM_TOTAL,
+			-> {
 				val count = GaugeSources.items(anchors)
 					?: return listOf("<gray>Không tìm thấy mạng vật phẩm nào quanh đồng hồ.</gray>")
 
-				listOf(
+				val lines = mutableListOf(
 					"<gold>📦 Vật phẩm trong mạng:</gold> <white>${fmt(count.toDouble())}</white>",
-					"<gray>Tốc độ (vào/ra ròng):</gray> <white>${signed(smoothedRate)} /s</white>",
 				)
+
+				if (spec.metric == GaugeCatalog.Metric.ITEM_TOTAL) {
+					lines += "<gray>Tổng đã ghi:</gray> <white>${fmt(total)}</white>"
+				}
+
+				if (intakeDial != null) {
+					lines += ("<gray>Nhận vào:</gray> <white>${fmt(ledger.intake)} /s</white>"
+						+ " <gray>· lấy ra:</gray> <white>${fmt(ledger.output)} /s</white>")
+				} else {
+					lines += "<gray>Tốc độ (vào/ra ròng):</gray> <white>${signed(smoothedRate)} /s</white>"
+				}
+
+				lines
 			}
 
 			GaugeCatalog.Metric.MULTI, GaugeCatalog.Metric.MULTI_FLOW -> {
@@ -1352,7 +1688,7 @@ class GaugeTile(
 	private companion object {
 
 		/** Key the totaliser's joules are stored under. */
-		const val TOTAL = "totalJoules"
+		const val TOTAL = "total"
 
 		/** Key the hand-pinned full scale is stored under; 0 = auto. */
 		const val FIXED_RANGE = "fixedRange"
@@ -1407,6 +1743,19 @@ class GaugeTile(
 		const val FLOOR_ENERGY = 200.0
 		const val FLOOR_ITEMS = 4.0
 		const val FLOOR_FLUID = 100.0
+
+		/** The one key a host-reading intake/output meter keeps its books under. */
+		const val HOST_STOCK = "host"
+
+		/**
+		 * How far the water needle stands off the lava needle on a fluid
+		 * dial, in blocks: a fifth of a pixel, which is more than the depth
+		 * buffer needs and less than the eye notices as a gap.
+		 */
+		const val WATER_LAYER = 0.0125
+
+		/** How far each of a fluid column's two bars sits off the slot centre, in face pixels. */
+		const val TWIN_BAR_SHIFT = 1.5
 
 		const val IDLE_PLATE = "---"
 		const val PLUS_MINUS = "±"

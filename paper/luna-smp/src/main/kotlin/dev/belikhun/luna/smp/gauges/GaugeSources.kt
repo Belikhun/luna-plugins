@@ -10,6 +10,8 @@ import xyz.xenondevs.nova.world.block.tileentity.network.type.DefaultNetworkType
 import xyz.xenondevs.nova.world.block.tileentity.network.type.NetworkConnectionType
 import xyz.xenondevs.nova.world.block.tileentity.network.type.NetworkType
 import xyz.xenondevs.nova.world.block.tileentity.network.type.energy.holder.DefaultEnergyHolder
+import xyz.xenondevs.nova.world.block.tileentity.network.type.fluid.FluidType
+import xyz.xenondevs.nova.world.block.tileentity.network.type.fluid.container.NetworkedFluidContainer
 import xyz.xenondevs.nova.world.block.tileentity.network.type.fluid.holder.FluidHolder
 import xyz.xenondevs.nova.world.block.tileentity.network.type.item.holder.ItemHolder
 import xyz.xenondevs.nova.world.block.tileentity.network.type.item.inventory.NetworkedInventory
@@ -47,10 +49,35 @@ object GaugeSources {
 		val gen: Long,
 	)
 
+	/**
+	 * A fluid reading, split by what it is: every fluid dial swings a blue
+	 * needle for the water and a red one for the lava, on one shared range.
+	 * [amount] is the two together, for the meters that do not care.
+	 */
 	data class FluidStats(
 		val amount: Long,
 		val capacity: Long,
+		val water: Long = amount,
+		val lava: Long = 0L,
 	)
+
+	/** Sums a set of tanks into one reading, water and lava told apart. */
+	private fun fluidStatsOf(containers: Collection<NetworkedFluidContainer>): FluidStats {
+		var water = 0L
+		var lava = 0L
+		var capacity = 0L
+
+		for (container in containers) {
+			when (container.type) {
+				FluidType.LAVA -> lava += container.amount
+				else -> water += container.amount
+			}
+
+			capacity = saturating(capacity, container.capacity)
+		}
+
+		return FluidStats(water + lava, capacity, water, lava)
+	}
 
 	/**
 	 * What one host block offers a multipurpose meter, in priority order:
@@ -158,10 +185,7 @@ object GaugeSources {
 			return null
 		}
 
-		return FluidStats(
-			containers.sumOf { it.amount },
-			containers.fold(0L) { total, container -> saturating(total, container.capacity) },
-		)
+		return fluidStatsOf(containers)
 	}
 
 	data class ItemStats(
@@ -187,6 +211,122 @@ object GaugeSources {
 			inventories.sumOf { countOf(it) },
 			inventories.fold(0L) { total, inventory -> saturating(total, inventory.size * 64L) },
 		)
+	}
+
+	/**
+	 * Every inventory in the item networks touching the anchors, with its
+	 * count: the per-container picture the inflow and outflow meters need.
+	 *
+	 * The net flow gauge differentiates the TOTAL, so a chest emptying into
+	 * another chest on the same network reads as nothing moving. The
+	 * intake/output pair differentiates each container on its own and sums
+	 * the gains and the losses separately, so that same transfer reads as
+	 * intake and output of the same rate - which is what "produce" and
+	 * "consume" mean for goods. Keys are the inventories themselves; see
+	 * [StockLedger] for why the key set matters.
+	 */
+	fun itemStocks(anchors: Collection<BlockPos>): Map<Any, Long>? {
+		val inventories = holdersAt(anchors, DefaultNetworkTypes.ITEM) { endpoint ->
+			endpoint.holders.filterIsInstance<ItemHolder>().flatMap { it.containers.keys }
+		}
+
+		if (inventories.isEmpty()) {
+			return null
+		}
+
+		val stocks = LinkedHashMap<Any, Long>()
+
+		for (inventory in inventories) {
+			stocks[inventory] = countOf(inventory)
+		}
+
+		return stocks
+	}
+
+	/**
+	 * Every tank in the fluid networks touching the anchors, with its fill;
+	 * see [itemStocks]. With a [type], a tank holding anything else counts
+	 * as empty - so a tank that switches from water to lava reads as its
+	 * water leaving and its lava arriving, which is what happened.
+	 */
+	fun fluidStocks(anchors: Collection<BlockPos>, type: FluidType? = null): Map<Any, Long>? {
+		val containers = holdersAt(anchors, DefaultNetworkTypes.FLUID) { endpoint ->
+			endpoint.holders.filterIsInstance<FluidHolder>().flatMap { it.containers.keys }
+		}
+
+		if (containers.isEmpty()) {
+			return null
+		}
+
+		val stocks = LinkedHashMap<Any, Long>()
+
+		for (container in containers) {
+			stocks[container] = if (type == null || container.type == type) container.amount else 0L
+		}
+
+		return stocks
+	}
+
+	/**
+	 * Turns successive per-container stock snapshots into two rates: what
+	 * arrived and what left, per second, smoothed the way [GaugeTile]'s net
+	 * rate is.
+	 *
+	 * A snapshot whose set of containers differs from the last one is taken
+	 * as a fresh start rather than differentiated: a network that was just
+	 * rebuilt hands out new inventory objects, and reading every one of them
+	 * as having arrived from nowhere would throw the intake needle to the
+	 * peg for a second. One missed sample is the cheaper mistake.
+	 */
+	class StockLedger {
+
+		data class Rates(val intake: Double, val output: Double)
+
+		private var last: Map<Any, Long> = emptyMap()
+		private var lastAt = 0L
+
+		/** The smoothed rates as of the last update, for a readout. */
+		var intake = 0.0
+			private set
+		var output = 0.0
+			private set
+
+		/** Feeds one snapshot; null when there was nothing to read. */
+		fun update(stocks: Map<Any, Long>?, now: Long): Rates? {
+			if (stocks == null) {
+				last = emptyMap()
+
+				return null
+			}
+
+			if (last.isEmpty() || now <= lastAt || last.keys != stocks.keys) {
+				last = stocks
+				lastAt = now
+
+				return Rates(intake, output)
+			}
+
+			val seconds = (now - lastAt) / 1000.0
+			var gained = 0L
+			var lost = 0L
+
+			for ((key, count) in stocks) {
+				val delta = count - (last[key] ?: count)
+
+				if (delta > 0L) {
+					gained += delta
+				} else {
+					lost -= delta
+				}
+			}
+
+			last = stocks
+			lastAt = now
+			intake = intake * 0.5 + (gained / seconds) * 0.5
+			output = output * 0.5 + (lost / seconds) * 0.5
+
+			return Rates(intake, output)
+		}
 	}
 
 	/** Counts every item sitting in the item networks touching the anchors. */
@@ -226,6 +366,7 @@ object GaugeSources {
 		var hasEnergy = false
 
 		var fluidAmount = 0L
+		var fluidLava = 0L
 		var fluidCapacity = 0L
 		var hasFluid = false
 
@@ -248,6 +389,10 @@ object GaugeSources {
 					hasFluid = true
 					fluidAmount += container.amount
 					fluidCapacity = saturating(fluidCapacity, container.capacity)
+
+					if (container.type == FluidType.LAVA) {
+						fluidLava += container.amount
+					}
 				}
 
 				for (inventory in tile.holders.filterIsInstance<ItemHolder>().flatMap { it.containers.keys }.toSet()) {
@@ -283,7 +428,7 @@ object GaugeSources {
 			energyCapacity,
 			energyFlux * 20,
 			hasEnergy,
-			if (hasFluid) FluidStats(fluidAmount, fluidCapacity) else null,
+			if (hasFluid) FluidStats(fluidAmount, fluidCapacity, fluidAmount - fluidLava, fluidLava) else null,
 			if (hasItems) itemCount else null,
 			if (hasItems) itemCapacity else null,
 		)
@@ -304,10 +449,7 @@ object GaugeSources {
 			val fluid = if (containers.isEmpty()) {
 				null
 			} else {
-				FluidStats(
-					containers.sumOf { it.amount },
-					containers.fold(0L) { total, container -> saturating(total, container.capacity) },
-				)
+				fluidStatsOf(containers)
 			}
 
 			val inventories = tile.holders

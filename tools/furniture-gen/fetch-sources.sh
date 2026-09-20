@@ -76,6 +76,13 @@ mkdir -p bbounty
 unzip -oq bbounty.zip -d bbounty 'assets/*'
 rm bbounty.zip
 
+# Create: Electro Energetics (George VI) is MIT over the whole tree, LICENSE
+# file included. Only its power-line art is read: the concrete pole segments,
+# the crossarm mount and the insulator stacks, plus the wire and grip
+# textures. Its wires themselves are drawn in code upstream, so the hanging
+# line here is our own geometry over its wire sprite.
+fetch_tarball ee https://github.com/george8188625/Create-Electro-Energetics/archive/refs/heads/1.21.1.tar.gz
+
 # Tables & Chairs 2 ships as a resource pack on Modrinth rather than a repo, so
 # its newest file for the server's Minecraft version is resolved through the API
 echo "-> tac"

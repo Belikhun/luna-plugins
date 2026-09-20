@@ -238,6 +238,7 @@ const METALS: Array<[string, string, string, string]> = [
 const LANTERNS: Piece[] = METALS.flatMap(([key, suffix, en, vi]): Piece[] => [
 	{
 		id: `${key}_lantern`,
+		wireless: true,
 		models: [`${RUSTIC}/lantern_up${suffix}`],
 		textures: lanternTextures(suffix),
 		en: `${en} Lantern`,
@@ -248,6 +249,7 @@ const LANTERNS: Piece[] = METALS.flatMap(([key, suffix, en, vi]): Piece[] => [
 	},
 	{
 		id: `hanging_${key}_lantern`,
+		wireless: true,
 		models: [`${RUSTIC}/lantern_down${suffix}`],
 		textures: lanternTextures(suffix),
 		en: `Hanging ${en} Lantern`,
@@ -258,6 +260,7 @@ const LANTERNS: Piece[] = METALS.flatMap(([key, suffix, en, vi]): Piece[] => [
 	},
 	{
 		id: `${key}_wall_lantern`,
+		wireless: true,
 		models: [`${RUSTIC}/lantern_wall${suffix}`],
 		textures: lanternTextures(suffix),
 		en: `${en} Wall Lantern`,
@@ -510,19 +513,36 @@ function lathe(sourcesDir: string, side: string, caps: { top?: string; bottom?: 
  * surfaces the sprite never draws taking its plain staves.
  */
 function crushingTub(): Model {
-	const tub = `${RUSTIC}/crushing_tub`;
-	// the sprite's own bands: the staves start seven rows down, the top hoop
-	// is the two rows below that, and the middle is plain wood
+	// our own sheet, not Rustic's directly: see tubSprite - the source's top
+	// seven rows are transparent, and the atlas mipmaps bled that into every
+	// face sampled near them, which is what made the rim and the bowl look
+	// broken in game while the renderer (no mipmaps) showed them whole
+	const tub = 'lunasmp:block/crushing_tub';
+	// the sheet's bands: seven rows of plain stave (ours), then the source's
+	// stave tops, the top hoop, three rows of stave, a second hoop, one more
 	const outer = (u1: number, u2: number): Window => [u1, 7, u2, 16];
-	const rim: Window = [0, 7, 16, 9];
-	const wood: Window = [0, 10, 16, 14];
+	// the inside of a tub is bare staves, no hoops: the plain rows, one and a
+	// bit stretched onto the nine-pixel wall
+	const inner = (u1: number, u2: number): Window => [u1, 0, u2, 7];
+	const wood: Window = [0, 0, 16, 7];
+	// the rim is one hoop row and nothing else, on every wall: a sixteen-wide
+	// window squeezed onto the two-pixel top of a short wall came out as
+	// stripes, and a plain iron band is what a tub has there anyway
+	const rimLong: Window = [0, 8, 16, 9];
+	const rimShort: Window = [0, 8, 2, 9];
 
 	return composed([
-		panel([0, 0, 0], [16, 2, 16], tub, { up: wood, down: wood }),
-		panel([0, 0, 0], [16, 9, 2], tub, { north: outer(0, 16), south: wood, up: rim, west: outer(0, 2), east: outer(14, 16) }),
-		panel([0, 0, 14], [16, 9, 16], tub, { south: outer(0, 16), north: wood, up: rim, west: outer(14, 16), east: outer(0, 2) }),
-		panel([0, 0, 2], [2, 9, 14], tub, { west: outer(2, 14), east: wood, up: rim }),
-		panel([14, 0, 2], [16, 9, 14], tub, { east: outer(2, 14), west: wood, up: rim }),
+		panel([0, 0, 0], [16, 2, 16], tub, { down: wood }),
+		// the floor of the bowl is planking, not a stretched strip of stave
+		{
+			from: [2, 1.98, 2],
+			to: [14, 2, 14],
+			faces: { up: { uv: [2, 2, 14, 14], texture: 'minecraft:block/oak_planks' } },
+		},
+		panel([0, 0, 0], [16, 9, 2], tub, { north: outer(0, 16), south: inner(0, 16), up: rimLong, west: outer(0, 2), east: outer(14, 16) }),
+		panel([0, 0, 14], [16, 9, 16], tub, { south: outer(0, 16), north: inner(0, 16), up: rimLong, west: outer(14, 16), east: outer(0, 2) }),
+		panel([0, 0, 2], [2, 9, 14], tub, { west: outer(2, 14), east: inner(2, 14), up: rimShort }),
+		panel([14, 0, 2], [16, 9, 14], tub, { east: outer(2, 14), west: inner(2, 14), up: rimShort }),
 	], tub);
 }
 
@@ -638,6 +658,7 @@ const RUSTIC_SINGLES: Piece[] = [
 	},
 	{
 		id: 'iron_torch',
+		wireless: true,
 		models: [`${RUSTIC}/iron_torch`],
 		en: 'Iron Torch',
 		vi: 'Đuốc Sắt',
@@ -651,6 +672,7 @@ const RUSTIC_SINGLES: Piece[] = [
 	// placer faces
 	{
 		id: 'iron_wall_torch',
+		wireless: true,
 		models: [`${RUSTIC}/iron_torch_wall`],
 		rotateY: 270,
 		en: 'Iron Wall Torch',
@@ -663,6 +685,7 @@ const RUSTIC_SINGLES: Piece[] = [
 	},
 	{
 		id: 'wooden_lantern',
+		wireless: true,
 		models: [`${RUSTIC}/lantern_wood`],
 		en: 'Wooden Lantern',
 		vi: 'Đèn Lồng Gỗ',
@@ -672,6 +695,7 @@ const RUSTIC_SINGLES: Piece[] = [
 	},
 	{
 		id: 'wooden_wall_lantern',
+		wireless: true,
 		models: [`${RUSTIC}/lantern_wood_wall`],
 		en: 'Wooden Wall Lantern',
 		vi: 'Đèn Lồng Gỗ Gắn Tường',
@@ -764,9 +788,32 @@ function frameId(wood: Wood, suffix: string): string {
  * framed panel wherever it is placed. This cuts that tile out of every strip
  * and hands the sprites to the generator to write under our namespace.
  */
+/**
+ * Rustic's crushing tub sheet made opaque. The source is a full-block
+ * texture whose top seven rows are transparent (its own model is a plain
+ * cube that never shows them); ours is an open bowl cut from the same
+ * sheet, and the client's mipmaps averaged those clear pixels into the
+ * rows beside them, so every face sampled near the top of the staves went
+ * ragged at any distance. The clear rows are filled with the plain stave
+ * rows, which is also exactly the texture the inside of the bowl wants.
+ */
+function tubSprite(sourcesDir: string): Uint8Array {
+	const source = decodePng(new Uint8Array(readFileSync(join(sourcesDir, 'rustic/assets/rustic/textures/block/crushing_tub.png'))));
+	const sheet = bitmap(16, 16);
+	const staves = [10, 11, 12, 10, 11, 12, 10];
+
+	for (let y = 0; y < 16; y++) {
+		const from = (y < 7 ? staves[y]! : y) * source.width * 4;
+
+		sheet.data.set(source.data.subarray(from, from + 16 * 4), y * 16 * 4);
+	}
+
+	return encodePng(sheet);
+}
+
 export function frameSprites(sourcesDir: string): Record<string, Uint8Array> {
 	const root = join(sourcesDir, 'aframes/src/main/resources/assets/aestheticframes/textures/block');
-	const sprites: Record<string, Uint8Array> = {};
+	const sprites: Record<string, Uint8Array> = { crushing_tub: tubSprite(sourcesDir) };
 
 	for (const wood of FRAME_WOODS) {
 		for (const [prefix, suffix] of FRAME_PATTERNS) {

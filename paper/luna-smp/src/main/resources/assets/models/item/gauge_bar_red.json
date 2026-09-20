@@ -1,0 +1,68 @@
+{
+	"textures": {
+		"bar": "lunasmp:block/gauge_bar_red",
+		"particle": "lunasmp:block/gauge_bar_red"
+	},
+	"elements": [
+		{
+			"from": [
+				7,
+				8,
+				7.6
+			],
+			"to": [
+				9,
+				16,
+				8.4
+			],
+			"shade": false,
+			"faces": {
+				"north": {
+					"uv": [
+						7,
+						0,
+						9,
+						8
+					],
+					"texture": "#bar"
+				},
+				"south": {
+					"uv": [
+						9,
+						0,
+						7,
+						8
+					],
+					"texture": "#bar"
+				},
+				"east": {
+					"uv": [
+						7,
+						0,
+						9,
+						8
+					],
+					"texture": "#bar"
+				},
+				"west": {
+					"uv": [
+						7,
+						0,
+						9,
+						8
+					],
+					"texture": "#bar"
+				},
+				"up": {
+					"uv": [
+						7,
+						0,
+						9,
+						1
+					],
+					"texture": "#bar"
+				}
+			}
+		}
+	]
+}
