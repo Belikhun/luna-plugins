@@ -1,14 +1,13 @@
 package dev.belikhun.luna.vault.backend;
 
 import dev.belikhun.luna.core.api.config.ConfigStore;
-import dev.belikhun.luna.core.api.database.Database;
-import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.paper.LunaCore;
+import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPublisher;
 import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
-import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
 import dev.belikhun.luna.vault.backend.command.TransactionsCommand;
+import dev.belikhun.luna.vault.backend.command.VaultAdminCommand;
 import dev.belikhun.luna.vault.backend.gui.TransactionHistoryGuiController;
 import dev.belikhun.luna.vault.backend.placeholder.PaperVaultPlaceholderExpansion;
 import dev.belikhun.luna.vault.backend.service.LunaVaultEconomyProvider;
@@ -35,17 +34,13 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 		saveDefaultConfig();
 		logger = PaperPluginBootstrap.initLogger(this, "LunaVaultBackend");
 		ConfigStore coreConfig = LunaCore.services().configStore();
-		Database database = LunaCore.services().databaseManager().getDatabase();
-		try {
-			DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("Migration"));
-			VaultDatabaseMigrations.register(migrator);
-			migrator.migrateNamespace("lunavault");
-		} catch (Exception exception) {
-			logger.error("Không thể chuẩn bị schema cho LunaVaultBackend.", exception);
-		}
 		long timeoutMillis = getConfig().getLong("transport.timeout-millis", 3000L);
 		int pageSize = getConfig().getInt("history.page-size", 45);
-		gateway = new PaperVaultGateway(this, logger, LunaCore.services().pluginMessaging(), database, timeoutMillis);
+		String backendName = PaperHeartbeatPublisher.resolveServerName(this, coreConfig);
+
+		// the proxy is the only writer of the economy tables; a backend never opens
+		// them, whatever database its own LunaCore is pointed at
+		gateway = new PaperVaultGateway(this, logger, LunaCore.services().pluginMessaging(), backendName, timeoutMillis);
 		gateway.registerChannels();
 		historyGui = new TransactionHistoryGuiController(this, gateway, coreConfig, pageSize);
 		economyProvider = new LunaVaultEconomyProvider(this, gateway, coreConfig, timeoutMillis);
@@ -59,9 +54,10 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 			commands.registrar().register("transactions", command);
 			commands.registrar().register("txns", command);
 			commands.registrar().register("lichsu", command);
+			commands.registrar().register("lunavault", new VaultAdminCommand(this, gateway, economyProvider));
 		});
 
-		logger.success("LunaVaultBackend đã đăng ký Vault provider và gateway tới Velocity.");
+		logger.success("LunaVaultBackend đã đăng ký Vault provider và nối tới sổ cái trên Velocity (" + backendName + ").");
 	}
 
 	@Override

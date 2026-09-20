@@ -15,9 +15,9 @@
     (reads the forwarding mod's own config), `BackendHeartbeatPublisher` + `BackendServerProbe`
     (the publish schedule, with only the per-platform facts behind the probe), `SparkMetrics`
     and `Reflect`. A new loader implements `BackendServerProbe` and reuses the rest.
-  - `:luna-vault-api` → shared economy contracts, repositories, RPC payloads, and money types.
-  - `:luna-vault` → Velocity-side economy authority / source of truth for the network.
-  - `:luna-vault-backend` → Paper-side Vault bridge and backend sync adapter.
+  - `:luna-vault-api` → shared economy contracts, the transactional `VaultLedger` (proxy only), the shared backend `VaultClient`, RPC payloads, and money types. See `docs/vault-ledger.md`.
+  - `:luna-vault` → Velocity-side economy authority: the only writer of balances.
+  - `:luna-vault-backend` → Paper-side Vault bridge; a pure client of the proxy, never touches the economy tables.
   - `:luna-pack` → Velocity plugin for server resource-pack management/loading.
   - `:luna-glyph` → Velocity glyph resource-pack generator and placeholder bridge; integrates with `:luna-pack`.
   - `:luna-shop` → shop feature plugin (depends on `:luna-core-api` + `:luna-core-paper`).

@@ -190,16 +190,22 @@ public final class FabricPluginMessagingBus implements PluginMessageBus<ServerPl
 	}
 
 	@Override
+	public void allowAsyncDelivery(PluginMessageChannel channel) {
+		amqpTransport.allowAsyncDelivery(Objects.requireNonNull(channel, "channel"));
+	}
+
+	@Override
 	public boolean send(ServerPlayer target, PluginMessageChannel channel, byte[] payload) {
 		Objects.requireNonNull(channel, "channel");
 		Objects.requireNonNull(payload, "payload");
 
-		if (target == null) {
-			return false;
-		}
-
 		if (!messenger.getOutgoingChannels().contains(channel)) {
 			throw new PluginMessagingException("Outgoing plugin channel chưa được đăng ký: " + channel.value());
+		}
+
+		// no carrier: only the broker can take it, on the server's own behalf
+		if (target == null) {
+			return amqpTransport.send(null, channel, payload);
 		}
 
 		Long boundAt = senderBoundAt.get(target.getUUID());

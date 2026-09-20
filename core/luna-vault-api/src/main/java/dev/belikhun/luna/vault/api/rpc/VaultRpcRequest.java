@@ -5,6 +5,16 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 
 import java.util.UUID;
 
+/**
+ * One question from a backend to the proxy.
+ *
+ * {@code correlationId} pairs the reply with the waiting future and is fresh
+ * per send; {@code operationId} names the business operation and is the same
+ * across every resend of it, which is what lets the proxy apply a deposit once
+ * however many times the frame arrives. {@code backendName} is the server as
+ * the proxy knows it and is informational: replies are routed by where the
+ * frame came from, not by what it claims.
+ */
 public record VaultRpcRequest(
 	UUID correlationId,
 	VaultRpcAction action,
@@ -19,11 +29,11 @@ public record VaultRpcRequest(
 	String details,
 	int page,
 	int pageSize,
-	String backendId,
-	long sessionVersion,
+	String backendName,
 	UUID operationId
 ) {
 	public void writeTo(PluginMessageWriter writer) {
+		writer.writeShort(VaultRpcProtocol.VERSION);
 		writer.writeUuid(correlationId);
 		writer.writeUtf(action.name());
 		writeNullableUuid(writer, actorId);
@@ -35,17 +45,23 @@ public record VaultRpcRequest(
 		writer.writeLong(amountMinor);
 		writer.writeUtf(nullToEmpty(source));
 		writer.writeBoolean(details != null);
+
 		if (details != null) {
 			writer.writeUtf(details);
 		}
+
 		writer.writeInt(page);
 		writer.writeInt(pageSize);
-		writer.writeUtf(nullToEmpty(backendId));
-		writer.writeLong(sessionVersion);
+		writer.writeUtf(nullToEmpty(backendName));
 		writeNullableUuid(writer, operationId);
 	}
 
-	public static VaultRpcRequest readFrom(PluginMessageReader reader) {
+	/**
+	 * Decode a frame whose version has already been read and accepted.
+	 *
+	 * @param reader positioned just after the protocol version
+	 */
+	public static VaultRpcRequest readBody(PluginMessageReader reader) {
 		UUID correlationId = reader.readUuid();
 		VaultRpcAction action = VaultRpcAction.valueOf(reader.readUtf());
 		UUID actorId = readNullableUuid(reader);
@@ -59,14 +75,52 @@ public record VaultRpcRequest(
 		String details = reader.readBoolean() ? reader.readUtf() : null;
 		int page = reader.readInt();
 		int pageSize = reader.readInt();
-		String backendId = emptyToNull(reader.readUtf());
-		long sessionVersion = reader.readLong();
+		String backendName = emptyToNull(reader.readUtf());
 		UUID operationId = readNullableUuid(reader);
-		return new VaultRpcRequest(correlationId, action, actorId, actorName, playerId, playerName, targetId, targetName, amountMinor, source, details, page, pageSize, backendId, sessionVersion, operationId);
+
+		return new VaultRpcRequest(
+			correlationId,
+			action,
+			actorId,
+			actorName,
+			playerId,
+			playerName,
+			targetId,
+			targetName,
+			amountMinor,
+			source,
+			details,
+			page,
+			pageSize,
+			backendName,
+			operationId
+		);
+	}
+
+	/** The same request under a new correlation id, for a resend. */
+	public VaultRpcRequest resend() {
+		return new VaultRpcRequest(
+			UUID.randomUUID(),
+			action,
+			actorId,
+			actorName,
+			playerId,
+			playerName,
+			targetId,
+			targetName,
+			amountMinor,
+			source,
+			details,
+			page,
+			pageSize,
+			backendName,
+			operationId
+		);
 	}
 
 	private static void writeNullableUuid(PluginMessageWriter writer, UUID value) {
 		writer.writeBoolean(value != null);
+
 		if (value != null) {
 			writer.writeUuid(value);
 		}

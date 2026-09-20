@@ -16,23 +16,14 @@ import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
-import dev.belikhun.luna.core.api.messaging.PluginMessageReader;
 import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
-import dev.belikhun.luna.vault.api.VaultChannels;
-import dev.belikhun.luna.vault.api.VaultFailureReason;
-import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
-import dev.belikhun.luna.vault.api.VaultOperationResult;
-import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
-import dev.belikhun.luna.vault.api.rpc.VaultRpcAction;
-import dev.belikhun.luna.vault.api.rpc.VaultRpcRequest;
-import dev.belikhun.luna.vault.api.rpc.VaultRpcResponse;
+import dev.belikhun.luna.vault.api.rpc.VaultRpcProtocol;
 import dev.belikhun.luna.vault.command.BalTopCommand;
 import dev.belikhun.luna.vault.command.BalanceCommand;
 import dev.belikhun.luna.vault.command.EcoAdminCommand;
@@ -40,6 +31,7 @@ import dev.belikhun.luna.vault.command.PayCommand;
 import dev.belikhun.luna.vault.http.VaultHttpEndpoints;
 import dev.belikhun.luna.vault.placeholder.VelocityVaultMiniPlaceholders;
 import dev.belikhun.luna.vault.placeholder.VelocityVaultTabPlaceholders;
+import dev.belikhun.luna.vault.rpc.VaultRpcHandler;
 import dev.belikhun.luna.vault.service.VelocityVaultConfig;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 import me.neznamy.tab.api.TabAPI;
@@ -48,12 +40,8 @@ import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.UUID;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Iterator;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 @Plugin(
@@ -78,12 +66,7 @@ public final class LunaVaultVelocityPlugin {
 	private VelocityVaultMiniPlaceholders miniPlaceholders;
 	private VelocityVaultTabPlaceholders tabPlaceholders;
 	private EventHandler<TabLoadEvent> tabLoadHandler;
-	private final Map<UUID, CachedOperationResult> operationResults = new ConcurrentHashMap<>();
-	private final Map<String, Long> backendSessionVersions = new ConcurrentHashMap<>();
-	private static final int MAX_OPERATION_RESULT_CACHE = 8192;
-	private static final long OPERATION_RESULT_TTL_MILLIS = 5L * 60L * 1000L;
-	private final AtomicLong dedupHitCount = new AtomicLong();
-	private final AtomicLong staleSessionRejectCount = new AtomicLong();
+	private VaultRpcHandler rpcHandler;
 
 	@Inject
 	public LunaVaultVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -109,22 +92,15 @@ public final class LunaVaultVelocityPlugin {
 
 		pluginMessagingBus = LunaCoreVelocity.services().pluginMessagingBus();
 		vaultService = new VelocityVaultService(proxyServer, database, logger, config, pluginMessagingBus);
-		pluginMessagingBus.registerOutgoing(VaultChannels.CACHE_SYNC);
-		pluginMessagingBus.registerOutgoing(VaultChannels.RPC);
-		pluginMessagingBus.registerIncoming(VaultChannels.RPC, context -> {
-			PluginMessageReader reader = PluginMessageReader.of(context.payload());
-			VaultRpcRequest request = VaultRpcRequest.readFrom(reader);
-			VaultRpcResponse response = handleRequest(request);
-			pluginMessagingBus.send(context.source(), VaultChannels.RPC, writer -> response.writeTo(writer));
-			return PluginMessageDispatchResult.HANDLED;
-		});
+		rpcHandler = new VaultRpcHandler(proxyServer, logger, vaultService, pluginMessagingBus);
+		rpcHandler.register();
 
 		dependencyManager.registerSingleton(LunaVaultApi.class, vaultService);
 		registerCommands();
 		registerHttpEndpoints();
 		registerMiniPlaceholders();
 		registerTabPlaceholders();
-		logger.success("LunaVault đã khởi động với vai trò source-of-truth trên Velocity.");
+		logger.success("LunaVault đã khởi động với vai trò sổ cái duy nhất của mạng (giao thức RPC v" + VaultRpcProtocol.VERSION + ").");
 	}
 
 	private void ensureDefaults() {
@@ -161,10 +137,12 @@ public final class LunaVaultVelocityPlugin {
 			tabPlaceholders.unregister();
 			tabPlaceholders = null;
 		}
-		if (pluginMessagingBus != null) {
-			pluginMessagingBus.unregisterIncoming(VaultChannels.RPC);
-			pluginMessagingBus.unregisterOutgoing(VaultChannels.CACHE_SYNC);
-			pluginMessagingBus.unregisterOutgoing(VaultChannels.RPC);
+		if (rpcHandler != null) {
+			rpcHandler.unregister();
+			rpcHandler = null;
+		}
+		if (vaultService != null) {
+			vaultService.shutdown();
 		}
 		if (dependencyManager != null) {
 			dependencyManager.unregister(LunaVaultApi.class);
@@ -298,175 +276,5 @@ public final class LunaVaultVelocityPlugin {
 		}
 
 		tabLoadHandler = null;
-	}
-
-	private VaultRpcResponse handleRequest(VaultRpcRequest request) {
-		try {
-			pruneOperationResults();
-			if (isMutatingAction(request.action())) {
-				UUID operationId = request.operationId();
-				if (operationId != null) {
-					VaultOperationResult cached = readCachedOperation(operationId);
-					if (cached != null) {
-						long dedup = dedupHitCount.incrementAndGet();
-						if (dedup % 50L == 0L) {
-							logger.audit("LunaVault RPC dedup hits=" + dedup + " staleRejects=" + staleSessionRejectCount.get());
-						}
-						return emptyPageResponse(request, cached);
-					}
-				}
-
-				VaultOperationResult staleSession = validateAndTrackSession(request);
-				if (staleSession != null) {
-					long rejects = staleSessionRejectCount.incrementAndGet();
-					if (rejects % 25L == 0L) {
-						logger.warn("LunaVault RPC stale-session rejects=" + rejects + " dedupHits=" + dedupHitCount.get());
-					}
-					return emptyPageResponse(request, staleSession);
-				}
-			}
-
-			VaultRpcResponse response = switch (request.action()) {
-				case SNAPSHOT -> {
-					VaultPlayerSnapshot snapshot = vaultService.snapshot(request.playerId(), request.playerName()).join();
-					yield new VaultRpcResponse(
-						request.correlationId(),
-						VaultOperationResult.success(null, snapshot.balanceMinor(), null),
-						snapshot,
-						VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-					);
-				}
-				case BALANCE -> new VaultRpcResponse(
-					request.correlationId(),
-					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
-					null,
-					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-				);
-				case DEPOSIT -> new VaultRpcResponse(
-					request.correlationId(),
-					vaultService.deposit(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
-					null,
-					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-				);
-				case WITHDRAW -> new VaultRpcResponse(
-					request.correlationId(),
-					vaultService.withdraw(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
-					null,
-					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-				);
-				case TRANSFER -> new VaultRpcResponse(
-					request.correlationId(),
-					vaultService.transfer(request.playerId(), request.playerName(), request.targetId(), request.targetName(), request.amountMinor(), request.source(), request.details()).join(),
-					null,
-					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-				);
-				case SET_BALANCE -> new VaultRpcResponse(
-					request.correlationId(),
-					vaultService.setBalance(request.actorId(), request.actorName(), request.playerId(), request.playerName(), request.amountMinor(), request.source(), request.details()).join(),
-					null,
-					VaultTransactionPage.empty(0, Math.max(1, request.pageSize()))
-				);
-				case HISTORY -> new VaultRpcResponse(
-					request.correlationId(),
-					VaultOperationResult.success(null, vaultService.balance(request.playerId(), request.playerName()).join(), null),
-					null,
-					vaultService.history(request.playerId(), request.page(), request.pageSize()).join()
-				);
-			};
-
-			if (isMutatingAction(request.action()) && request.operationId() != null) {
-				cacheOperationResult(request.operationId(), response.result());
-			}
-
-			return response;
-		} catch (Exception exception) {
-			logger.error("Xử lý RPC của LunaVault thất bại.", exception);
-			return new VaultRpcResponse(
-				request.correlationId(),
-				VaultOperationResult.failed(VaultFailureReason.INTERNAL_ERROR, "Yêu cầu kinh tế thất bại ở proxy.", 0L),
-				null,
-				VaultTransactionPage.empty(request.page(), Math.max(1, request.pageSize()))
-			);
-		}
-	}
-
-	private VaultRpcResponse emptyPageResponse(VaultRpcRequest request, VaultOperationResult result) {
-		return new VaultRpcResponse(
-			request.correlationId(),
-			result,
-			null,
-			VaultTransactionPage.empty(request.page(), Math.max(1, request.pageSize()))
-		);
-	}
-
-	private boolean isMutatingAction(VaultRpcAction action) {
-		return action == VaultRpcAction.DEPOSIT
-			|| action == VaultRpcAction.WITHDRAW
-			|| action == VaultRpcAction.TRANSFER
-			|| action == VaultRpcAction.SET_BALANCE;
-	}
-
-	private VaultOperationResult validateAndTrackSession(VaultRpcRequest request) {
-		if (request.source() != null && "backend-sync".equalsIgnoreCase(request.source().trim())) {
-			return null;
-		}
-
-		if (request.playerId() == null || request.sessionVersion() <= 0L || request.backendId() == null || request.backendId().isBlank()) {
-			return null;
-		}
-
-		String sessionKey = request.backendId() + "|" + request.playerId();
-		Long known = backendSessionVersions.get(sessionKey);
-		if (known != null && request.sessionVersion() < known) {
-			return VaultOperationResult.failed(
-				VaultFailureReason.STALE_SESSION,
-				"Phiên backend đã hết hạn, vui lòng đồng bộ lại snapshot.",
-				0L
-			);
-		}
-
-		backendSessionVersions.put(sessionKey, request.sessionVersion());
-		return null;
-	}
-
-	private void cacheOperationResult(UUID operationId, VaultOperationResult result) {
-		if (operationId == null || result == null) {
-			return;
-		}
-
-		operationResults.put(operationId, new CachedOperationResult(result, System.currentTimeMillis() + OPERATION_RESULT_TTL_MILLIS));
-		if (operationResults.size() > MAX_OPERATION_RESULT_CACHE) {
-			Iterator<UUID> iterator = operationResults.keySet().iterator();
-			while (operationResults.size() > MAX_OPERATION_RESULT_CACHE && iterator.hasNext()) {
-				iterator.next();
-				iterator.remove();
-			}
-		}
-	}
-
-	private VaultOperationResult readCachedOperation(UUID operationId) {
-		CachedOperationResult cached = operationResults.get(operationId);
-		if (cached == null) {
-			return null;
-		}
-
-		if (cached.expiresAtEpochMillis() < System.currentTimeMillis()) {
-			operationResults.remove(operationId, cached);
-			return null;
-		}
-
-		return cached.result();
-	}
-
-	private void pruneOperationResults() {
-		if (operationResults.isEmpty()) {
-			return;
-		}
-
-		long now = System.currentTimeMillis();
-		operationResults.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochMillis() < now);
-	}
-
-	private record CachedOperationResult(VaultOperationResult result, long expiresAtEpochMillis) {
 	}
 }

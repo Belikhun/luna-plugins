@@ -19,5 +19,9 @@ public interface FabricAmqpTransport {
 
 	boolean send(ServerPlayer target, PluginMessageChannel channel, byte[] payload);
 
+	/** Handle this channel's frames on the delivering thread; see {@code PluginMessageBus#allowAsyncDelivery}. */
+	default void allowAsyncDelivery(PluginMessageChannel channel) {
+	}
+
 	void close();
 }

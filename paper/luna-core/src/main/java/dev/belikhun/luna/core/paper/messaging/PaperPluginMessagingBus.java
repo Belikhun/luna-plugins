@@ -200,6 +200,11 @@ public final class PaperPluginMessagingBus implements PluginMessageBus<Player, P
 	}
 
 	@Override
+	public void allowAsyncDelivery(PluginMessageChannel channel) {
+		amqpTransport.allowAsyncDelivery(java.util.Objects.requireNonNull(channel, "channel"));
+	}
+
+	@Override
 	public boolean send(Player target, PluginMessageChannel channel, byte[] payload) {
 		if (amqpTransport.send(target, channel, payload)) {
 			return true;

@@ -80,6 +80,11 @@ final class PaperBungeePluginMessagingBus implements PluginMessageListener {
 			throw new PluginMessagingException("Outgoing plugin channel chưa được đăng ký: " + bukkitChannel);
 		}
 
+		// a plugin message needs a connection to ride; with no player there is none
+		if (target == null) {
+			return false;
+		}
+
 		if (loggingEnabled) {
 			logger.audit("[TX] backend->proxy channel=" + toApiChannel(bukkitChannel)
 				+ " target=" + target.getName()

@@ -183,6 +183,7 @@ public final class VaultHttpEndpoints {
 		Map<String, Object> payload = new LinkedHashMap<>();
 
 		payload.put("id", record.transactionId() == null ? "" : record.transactionId());
+		payload.put("kind", record.kind().name().toLowerCase());
 		payload.put("direction", incoming && outgoing ? "self" : incoming ? "in" : "out");
 		payload.put("counterpartyUuid", counterpartyId == null ? "" : counterpartyId.toString());
 		payload.put("counterpartyName", counterpartyName == null ? "" : counterpartyName);
@@ -192,6 +193,10 @@ public final class VaultHttpEndpoints {
 		payload.put("source", record.source() == null ? "" : record.source());
 		payload.put("details", record.details() == null ? "" : record.details());
 		payload.put("atEpochMillis", record.completedAt());
+
+		Long balanceAfter = record.balanceAfterFor(playerId);
+		payload.put("balanceAfterMinor", balanceAfter == null ? null : balanceAfter);
+		payload.put("balanceAfterFormatted", balanceAfter == null ? "" : format(balanceAfter));
 
 		return payload;
 	}

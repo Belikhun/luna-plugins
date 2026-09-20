@@ -3,19 +3,18 @@ package dev.belikhun.luna.vault.backend.fabric.bootstrap;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import dev.belikhun.luna.core.api.config.YamlConfigFile;
-import dev.belikhun.luna.core.api.database.Database;
-import dev.belikhun.luna.core.api.database.NoopDatabase;
-import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.profile.PermissionService;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.fabric.LunaCoreFabric;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
-import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
+import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.backend.mc.command.VaultAdminCommands;
 import dev.belikhun.luna.vault.backend.mc.gui.TransactionHistoryScreen;
 import dev.belikhun.luna.vault.backend.mc.placeholder.VaultPlaceholders;
 import dev.belikhun.luna.vault.backend.mc.service.VaultGateway;
@@ -39,8 +38,8 @@ import java.util.UUID;
  * Bukkit service and the mod loaders have no equivalent registry. What the Paper
  * plugin publishes as a {@code Economy} provider, this publishes as the
  * {@link LunaVaultApi} singleton in the core's dependency manager, which is what
- * LunaShop and anything else asks for. The wire protocol, the database schema and
- * every screen are unchanged.
+ * LunaShop and anything else asks for. The wire protocol and every screen are
+ * the Paper build's; the money itself stays on the proxy.
  */
 public final class LunaVaultBackendFabricMod implements DedicatedServerModInitializer {
 	/** This mod's own default config inside its jar; see the note on the name. */
@@ -105,8 +104,6 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 	private void onServerStarted(MinecraftServer server) {
 		DependencyManager dependencyManager = LunaCoreFabric.services().dependencyManager();
 		YamlConfigFile coreConfig = LunaCoreFabric.services().config();
-		Database database = LunaCoreFabric.services().database();
-
 		permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
 
 		Path configPath = FabricLoader.getInstance().getConfigDir().toAbsolutePath().normalize()
@@ -114,18 +111,6 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
 
 		logger = FabricLunaLoggers.create("LunaVaultBackend", true);
-
-		// only the direct-database mode owns these tables; in rpc mode the proxy is
-		// the one that has already migrated them
-		if (!(database instanceof NoopDatabase)) {
-			try {
-				DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("Migration"));
-				VaultDatabaseMigrations.register(migrator);
-				migrator.migrateNamespace("lunavault");
-			} catch (Exception exception) {
-				logger.error("Không thể chuẩn bị schema cho LunaVaultBackend.", exception);
-			}
-		}
 
 		long timeoutMillis = config.getLong("transport.timeout-millis", 3000L);
 		int pageSize = config.getInt("history.page-size", 45);
@@ -139,7 +124,7 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 			return;
 		}
 
-		gateway = new VaultGateway(server, MOD_ID, logger, bus, database, timeoutMillis);
+		gateway = new VaultGateway(server, MOD_ID, logger, bus, timeoutMillis);
 		gateway.registerChannels();
 
 		historyScreen = new TransactionHistoryScreen(server, gateway, coreConfig, pageSize);
@@ -190,6 +175,23 @@ public final class LunaVaultBackendFabricMod implements DedicatedServerModInitia
 		registerTransactionsCommand(dispatcher, "transactions");
 		registerTransactionsCommand(dispatcher, "txns");
 		registerTransactionsCommand(dispatcher, "lichsu");
+		VaultAdminCommands.register(
+			dispatcher,
+			() -> gateway,
+			minor -> Formatters.money(LunaCoreFabric.services().config(), minor, VaultMoney.SCALE),
+			this::mayAdminister
+		);
+	}
+
+	/** The console always may; a player needs the same node the Paper build asks for. */
+	private boolean mayAdminister(CommandSourceStack source) {
+		if (!(source.getEntity() instanceof ServerPlayer player)) {
+			return true;
+		}
+
+		return permissionService != null
+			&& permissionService.isAvailable()
+			&& permissionService.hasPermission(player.getUUID(), "lunavault.admin");
 	}
 
 	private void registerTransactionsCommand(CommandDispatcher<CommandSourceStack> dispatcher, String root) {

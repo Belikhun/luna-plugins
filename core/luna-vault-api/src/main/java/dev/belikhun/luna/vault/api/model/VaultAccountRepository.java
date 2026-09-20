@@ -8,7 +8,6 @@ import dev.belikhun.luna.vault.api.VaultLeaderboardEntry;
 import dev.belikhun.luna.vault.api.VaultLeaderboardPage;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -16,6 +15,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Read side of the accounts table.
+ *
+ * Balances are written only by {@code VaultLedger}, inside its transactions;
+ * everything here is a query, and nothing here creates a row.
+ */
 public final class VaultAccountRepository {
 	public static final int PLAYER_NAME_MAX_LENGTH = 32;
 
@@ -63,18 +68,6 @@ public final class VaultAccountRepository {
 		return matches;
 	}
 
-	public VaultAccountModel findOrCreate(UUID playerId, String playerName) {
-		return find(playerId).orElseGet(() -> {
-			long now = Instant.now().toEpochMilli();
-			return repository.newModel()
-				.set("player_uuid", playerId.toString())
-				.set("player_name", normalizePlayerName(playerName))
-				.set("balance_minor", 0L)
-				.set("created_at", now)
-				.set("updated_at", now)
-				.save();
-		});
-	}
 
 	public Optional<VaultPlayerSnapshot> snapshot(UUID playerId) {
 		if (playerId == null) {
@@ -156,11 +149,5 @@ public final class VaultAccountRepository {
 		return normalized.substring(0, PLAYER_NAME_MAX_LENGTH);
 	}
 
-	public static String temporaryPlayerName() {
-		return "tmp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
-	}
 
-	public long balance(UUID playerId, String playerName) {
-		return findOrCreate(playerId, playerName).getLong("balance_minor", 0L);
-	}
 }

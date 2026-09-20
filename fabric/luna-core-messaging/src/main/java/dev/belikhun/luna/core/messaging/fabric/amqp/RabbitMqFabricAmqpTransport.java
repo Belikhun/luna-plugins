@@ -12,6 +12,8 @@ import dev.belikhun.luna.core.fabric.LunaCoreFabric;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 
 /**
@@ -27,9 +29,11 @@ public final class RabbitMqFabricAmqpTransport implements FabricAmqpTransport, A
 	private final boolean loggingEnabled;
 	private final LunaLogger logger;
 	private final AmqpConnection connection;
+	private final Set<String> asyncChannels;
 
 	public RabbitMqFabricAmqpTransport(IncomingMessageSink sink, BackendIdentity backendIdentity, LunaLogger logger, boolean loggingEnabled) {
 		this.sink = sink;
+		this.asyncChannels = ConcurrentHashMap.newKeySet();
 		this.backendIdentity = backendIdentity;
 		this.loggingEnabled = loggingEnabled;
 		this.logger = logger.scope("PluginMessaging").scope("AMQP");
@@ -57,8 +61,8 @@ public final class RabbitMqFabricAmqpTransport implements FabricAmqpTransport, A
 			AmqpPluginMessageEnvelope.CURRENT_PROTOCOL,
 			channel.value(),
 			resolveLocalServerName(currentConfig),
-			target.getUUID().toString(),
-			target.getScoreboardName(),
+			target == null ? "" : target.getUUID().toString(),
+			target == null ? "" : target.getScoreboardName(),
 			"",
 			payload
 		);
@@ -69,7 +73,7 @@ public final class RabbitMqFabricAmqpTransport implements FabricAmqpTransport, A
 
 		if (loggingEnabled) {
 			logger.audit("[TX:AMQP] backend->proxy channel=" + channel.value()
-				+ " source=" + target.getScoreboardName()
+				+ " source=" + (target == null ? "<server>" : target.getScoreboardName())
 				+ " queue=" + currentConfig.proxyQueue()
 				+ " bytes=" + payload.length);
 		}
@@ -95,14 +99,32 @@ public final class RabbitMqFabricAmqpTransport implements FabricAmqpTransport, A
 	/** Deliveries arrive on the client's own thread; listeners expect the server's. */
 	@Override
 	public void onDelivery(byte[] body) {
+		AmqpPluginMessageEnvelope envelope;
+
+		try {
+			envelope = AmqpPluginMessageEnvelope.decode(body);
+		} catch (RuntimeException exception) {
+			logger.warn("Không thể đọc AMQP payload: " + exception.getMessage());
+			return;
+		}
+
+		if (asyncChannels.contains(envelope.channel())) {
+			dispatch(envelope);
+			return;
+		}
+
 		MinecraftServer server = LunaCoreFabric.services().server();
 
-		server.execute(() -> dispatch(body));
+		server.execute(() -> dispatch(envelope));
 	}
 
-	private void dispatch(byte[] body) {
+	@Override
+	public void allowAsyncDelivery(PluginMessageChannel channel) {
+		asyncChannels.add(channel.value());
+	}
+
+	private void dispatch(AmqpPluginMessageEnvelope envelope) {
 		try {
-			AmqpPluginMessageEnvelope envelope = AmqpPluginMessageEnvelope.decode(body);
 			PluginMessageChannel channel = PluginMessageChannel.of(envelope.channel());
 			ServerPlayer source = resolvePlayer(envelope.sourcePlayerId(), envelope.sourcePlayerName());
 			PluginMessageDispatchResult result = sink.dispatch(source, channel, envelope.payload());

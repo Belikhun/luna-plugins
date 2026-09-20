@@ -3,19 +3,18 @@ package dev.belikhun.luna.vault.backend.forge.bootstrap;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.CommandDispatcher;
 import dev.belikhun.luna.core.api.config.YamlConfigFile;
-import dev.belikhun.luna.core.api.database.Database;
-import dev.belikhun.luna.core.api.database.NoopDatabase;
-import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.profile.PermissionService;
+import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.mc.LunaCore;
 import dev.belikhun.luna.core.mc.logging.LunaLoggers;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
-import dev.belikhun.luna.vault.api.model.VaultDatabaseMigrations;
+import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.backend.mc.command.VaultAdminCommands;
 import dev.belikhun.luna.vault.backend.mc.gui.TransactionHistoryScreen;
 import dev.belikhun.luna.vault.backend.mc.placeholder.VaultPlaceholders;
 import dev.belikhun.luna.vault.backend.mc.service.VaultGateway;
@@ -78,24 +77,10 @@ public final class LunaVaultBackendForgeMod {
 		MinecraftServer server = event.getServer();
 		DependencyManager dependencyManager = LunaCore.services().dependencyManager();
 		YamlConfigFile coreConfig = LunaCore.services().config();
-		Database database = LunaCore.services().database();
-
 		permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
 
 		Path configPath = FMLPaths.CONFIGDIR.get().resolve(MOD_ID).resolve("config.yml");
 		YamlConfigFile config = YamlConfigFile.load(configPath, getClass(), CONFIG_RESOURCE);
-
-		// only the direct-database mode owns these tables; in rpc mode the proxy is
-		// the one that has already migrated them
-		if (!(database instanceof NoopDatabase)) {
-			try {
-				DatabaseMigrator migrator = new DatabaseMigrator(database, logger.scope("Migration"));
-				VaultDatabaseMigrations.register(migrator);
-				migrator.migrateNamespace("lunavault");
-			} catch (Exception exception) {
-				logger.error("Không thể chuẩn bị schema cho LunaVaultBackend.", exception);
-			}
-		}
 
 		long timeoutMillis = config.getLong("transport.timeout-millis", 3000L);
 		int pageSize = config.getInt("history.page-size", 45);
@@ -109,7 +94,7 @@ public final class LunaVaultBackendForgeMod {
 			return;
 		}
 
-		gateway = new VaultGateway(server, MOD_ID, logger, bus, database, timeoutMillis);
+		gateway = new VaultGateway(server, MOD_ID, logger, bus, timeoutMillis);
 		gateway.registerChannels();
 
 		historyScreen = new TransactionHistoryScreen(server, gateway, coreConfig, pageSize);
@@ -185,6 +170,23 @@ public final class LunaVaultBackendForgeMod {
 		registerTransactionsCommand(event.getDispatcher(), "transactions");
 		registerTransactionsCommand(event.getDispatcher(), "txns");
 		registerTransactionsCommand(event.getDispatcher(), "lichsu");
+		VaultAdminCommands.register(
+			event.getDispatcher(),
+			() -> gateway,
+			minor -> Formatters.money(LunaCore.services().config(), minor, VaultMoney.SCALE),
+			this::mayAdminister
+		);
+	}
+
+	/** The console always may; a player needs the same node the Paper build asks for. */
+	private boolean mayAdminister(CommandSourceStack source) {
+		if (!(source.getEntity() instanceof ServerPlayer player)) {
+			return true;
+		}
+
+		return permissionService != null
+			&& permissionService.isAvailable()
+			&& permissionService.hasPermission(player.getUUID(), "lunavault.admin");
 	}
 
 	private void registerTransactionsCommand(CommandDispatcher<CommandSourceStack> dispatcher, String root) {

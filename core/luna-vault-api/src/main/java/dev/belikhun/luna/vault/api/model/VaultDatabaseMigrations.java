@@ -3,6 +3,7 @@ package dev.belikhun.luna.vault.api.model;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigration;
 import dev.belikhun.luna.core.api.database.migration.DatabaseMigrator;
+import dev.belikhun.luna.core.api.exception.DatabaseException;
 
 import java.util.List;
 
@@ -42,6 +43,8 @@ public final class VaultDatabaseMigrations {
 			}
 		});
 
+		// Version 2 created the backend sync outbox, which the ledger rewrite
+		// removed; the number stays taken so existing installs do not replay it.
 		migrator.register(new DatabaseMigration() {
 			@Override
 			public String namespace() {
@@ -60,14 +63,55 @@ public final class VaultDatabaseMigrations {
 
 			@Override
 			public void migrate(Database database) {
-				database.update(
-					"CREATE TABLE IF NOT EXISTS vault_sync_outbox (operation_id VARCHAR(36) NOT NULL PRIMARY KEY, actor_uuid VARCHAR(36) NULL, actor_name VARCHAR(32) NULL, player_uuid VARCHAR(36) NOT NULL, player_name VARCHAR(32) NULL, balance_minor BIGINT NOT NULL, source_plugin VARCHAR(80) NOT NULL, details TEXT NULL, state VARCHAR(16) NOT NULL, attempt_count INT NOT NULL, next_retry_at BIGINT NOT NULL, last_error TEXT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, acked_at BIGINT NULL)",
-					List.of()
-				);
-				database.update("CREATE INDEX IF NOT EXISTS vault_sync_outbox_state_retry_idx ON vault_sync_outbox (state, next_retry_at)", List.of());
-				database.update("CREATE INDEX IF NOT EXISTS vault_sync_outbox_player_idx ON vault_sync_outbox (player_uuid, created_at)", List.of());
-				database.update("CREATE INDEX IF NOT EXISTS vault_sync_outbox_acked_idx ON vault_sync_outbox (state, acked_at)", List.of());
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return "lunavault";
+			}
+
+			@Override
+			public int version() {
+				return 3;
+			}
+
+			@Override
+			public String name() {
+				return "ledger_idempotency_and_running_balances";
+			}
+
+			/**
+			 * The columns the ledger writes, each added on its own because SQLite
+			 * takes one per statement and neither engine offers a portable
+			 * "add if missing". A column that already exists (an install that ran
+			 * a partial attempt) is skipped by catching the engine's complaint.
+			 */
+			@Override
+			public void migrate(Database database) {
+				addColumn(database, "vault_transactions", "operation_id VARCHAR(36) NULL");
+				addColumn(database, "vault_transactions", "kind VARCHAR(16) NULL");
+				addColumn(database, "vault_transactions", "sender_balance_after BIGINT NULL");
+				addColumn(database, "vault_transactions", "receiver_balance_after BIGINT NULL");
+				database.update("CREATE UNIQUE INDEX IF NOT EXISTS vault_transactions_operation_idx ON vault_transactions (operation_id)", List.of());
+				database.update("CREATE INDEX IF NOT EXISTS vault_accounts_balance_idx ON vault_accounts (balance_minor, player_uuid)", List.of());
+				database.update("DROP TABLE IF EXISTS vault_sync_outbox", List.of());
+			}
+		});
+	}
+
+	private static void addColumn(Database database, String table, String definition) {
+		try {
+			database.update("ALTER TABLE " + table + " ADD COLUMN " + definition, List.of());
+		} catch (DatabaseException exception) {
+			String message = String.valueOf(exception.getCause() == null ? exception.getMessage() : exception.getCause().getMessage()).toLowerCase();
+
+			if (message.contains("duplicate column") || message.contains("already exists")) {
+				return;
+			}
+
+			throw exception;
+		}
 	}
 }

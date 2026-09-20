@@ -9,11 +9,17 @@ permissions:
   lunavault.transactions:
     default: op
     description: Xem lịch sử giao dịch Luna Vault.
+  lunavault.admin:
+    default: op
+    description: Kiểm tra và thử nghiệm kết nối kinh tế từ backend.
 commands:
   transactions:
     description: Xem lịch sử giao dịch Luna Vault.
     usage: /transactions [trang]
     aliases: [txns, lichsu]
+  lunavault:
+    description: Trạng thái, số dư và bài thử tải của LunaVault trên backend này.
+    usage: /lunavault <status|balance|deposit|withdraw|transfer|history|stress|overdraw>
 dependencies:
   server:
     LunaCore:

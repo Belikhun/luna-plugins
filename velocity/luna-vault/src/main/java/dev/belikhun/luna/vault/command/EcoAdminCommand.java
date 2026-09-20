@@ -6,6 +6,8 @@ import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.string.CommandStrings;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.api.VaultTransactionRecord;
+import dev.belikhun.luna.vault.api.ledger.LedgerAudit;
 import dev.belikhun.luna.vault.service.LegacyBalanceImportService;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
 
@@ -16,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public final class EcoAdminCommand implements SimpleCommand {
 	private static final String PERMISSION_ADMIN = "lunavault.admin";
@@ -24,7 +28,9 @@ public final class EcoAdminCommand implements SimpleCommand {
 	private static final String PERMISSION_ADD = "lunavault.admin.add";
 	private static final String PERMISSION_TAKE = "lunavault.admin.take";
 	private static final String PERMISSION_IMPORT = "lunavault.admin.importbalances";
-	private static final List<String> SUBCOMMANDS = List.of("get", "set", "add", "take", "importbalances");
+	private static final String PERMISSION_AUDIT = "lunavault.admin.audit";
+	private static final List<String> SUBCOMMANDS = List.of("get", "set", "add", "take", "importbalances", "audit", "lookup");
+	private static final int AUDIT_ALL_LIMIT = 2000;
 	private static final Map<String, String> SUBCOMMAND_ALIASES = Map.of(
 		"give", "add",
 		"remove", "take"
@@ -66,6 +72,16 @@ public final class EcoAdminCommand implements SimpleCommand {
 
 		if ("importbalances".equals(subcommand)) {
 			handleImportBalances(source, args);
+			return;
+		}
+
+		if ("audit".equals(subcommand)) {
+			handleAudit(source, args[1]);
+			return;
+		}
+
+		if ("lookup".equals(subcommand)) {
+			handleLookup(source, args[1]);
 			return;
 		}
 
@@ -128,8 +144,17 @@ public final class EcoAdminCommand implements SimpleCommand {
 			return List.of();
 		}
 
+		if (args.length == 2 && "lookup".equals(canonicalSubcommand)) {
+			return List.of();
+		}
 		if (args.length == 2) {
-			return vaultService.suggestTargets(args[1]);
+			List<String> targets = new ArrayList<>(vaultService.suggestTargets(args[1]));
+
+			if ("audit".equals(canonicalSubcommand) && "all".regionMatches(true, 0, args[1], 0, args[1].length())) {
+				targets.add(0, "all");
+			}
+
+			return targets;
 		}
 		if (args.length >= 2 && "importbalances".equals(canonicalSubcommand)) {
 			String partial = args[args.length - 1];
@@ -156,6 +181,91 @@ public final class EcoAdminCommand implements SimpleCommand {
 		source.sendRichMessage("<green>✔ Đã " + action + " số dư của <white>" + target.playerName() + "</white>. Số dư mới: " + LunaCoreVelocity.services().moneyFormat().formatMinor(result.balanceMinor(), VaultMoney.SCALE) + "<green>.</green>");
 	}
 
+	/**
+	 * Reconcile accounts against the ledger and report what disagrees.
+	 *
+	 * "all" walks the accounts richest first up to a fixed limit; a name or a
+	 * UUID checks one. Runs off the command thread, since it is one query per
+	 * account.
+	 */
+	private void handleAudit(CommandSource source, String reference) {
+		if (!vaultService.databaseEnabled()) {
+			source.sendRichMessage("<red>❌ Database của LunaVault chưa sẵn sàng.</red>");
+			return;
+		}
+
+		boolean everyone = "all".equalsIgnoreCase(reference) || "*".equals(reference);
+		Optional<VelocityVaultService.AccountTarget> target = everyone ? Optional.empty() : vaultService.resolveReference(reference);
+
+		if (!everyone && target.isEmpty()) {
+			source.sendRichMessage("<red>❌ Không tìm thấy tài khoản LunaVault cho người chơi này.</red>");
+			return;
+		}
+
+		source.sendRichMessage("<gray>Đang đối soát sổ cái...</gray>");
+
+		CompletableFuture.supplyAsync(() -> everyone
+			? vaultService.ledger().auditAll(AUDIT_ALL_LIMIT)
+			: vaultService.ledger().audit(target.get().playerId())
+		).whenComplete((audit, throwable) -> {
+			if (throwable != null) {
+				source.sendRichMessage("<red>❌ Đối soát thất bại: " + throwable.getMessage() + "</red>");
+				return;
+			}
+
+			String total = LunaCoreVelocity.services().moneyFormat().formatMinor(audit.totalBalanceMinor(), VaultMoney.SCALE);
+			source.sendRichMessage("<green>✔ Đã kiểm tra <white>" + audit.accountsChecked() + "</white> tài khoản, tổng số dư " + total
+				+ "<green>; <white>" + audit.accountsWithoutHistory() + "</white> tài khoản chưa có dòng sổ cái để so.</green>");
+
+			if (audit.clean()) {
+				source.sendRichMessage("<green>✔ Sổ cái khớp với mọi số dư đã kiểm tra.</green>");
+				return;
+			}
+
+			source.sendRichMessage("<red>❌ " + audit.mismatches().size() + " tài khoản lệch so với sổ cái:</red>");
+
+			for (LedgerAudit.Mismatch mismatch : audit.mismatches()) {
+				source.sendRichMessage("<red>  • <white>" + (mismatch.playerName() == null || mismatch.playerName().isBlank() ? mismatch.playerId() : mismatch.playerName())
+					+ "</white>: số dư " + LunaCoreVelocity.services().moneyFormat().formatMinor(mismatch.balanceMinor(), VaultMoney.SCALE)
+					+ "<red>, sổ cái nói " + LunaCoreVelocity.services().moneyFormat().formatMinor(mismatch.expectedMinor(), VaultMoney.SCALE)
+					+ "<red> (giao dịch " + mismatch.lastTransactionId() + ")</red>");
+			}
+		});
+	}
+
+	/** What the ledger recorded for an operation id, for chasing a backend's lost reply. */
+	private void handleLookup(CommandSource source, String rawOperationId) {
+		UUID operationId;
+
+		try {
+			operationId = UUID.fromString(rawOperationId.trim());
+		} catch (IllegalArgumentException notAUuid) {
+			source.sendRichMessage("<red>❌ Mã giao dịch không hợp lệ.</red>");
+			return;
+		}
+
+		vaultService.lookup(operationId, null).thenAccept(found -> {
+			if (found.isEmpty() || found.get().result().transaction() == null) {
+				source.sendRichMessage("<yellow>⚠ Sổ cái không có giao dịch nào mang mã " + operationId + ".</yellow>");
+				return;
+			}
+
+			VaultTransactionRecord record = found.get().result().transaction();
+			source.sendRichMessage("<green>✔ " + record.kind().name() + " <white>" + describe(record.senderName(), record.senderId()) + "</white> → <white>"
+				+ describe(record.receiverName(), record.receiverId()) + "</white> "
+				+ LunaCoreVelocity.services().moneyFormat().formatMinor(record.amountMinor(), VaultMoney.SCALE)
+				+ "<green> (nguồn " + record.source() + ", tx " + record.transactionId() + ")</green>");
+		});
+	}
+
+	private String describe(String name, UUID playerId) {
+		if (name != null && !name.isBlank()) {
+			return name;
+		}
+
+		return playerId == null ? "HỆ THỐNG" : playerId.toString();
+	}
+
 	private void sendUsage(CommandSource source) {
 		if (hasSubcommandPermission(source, "get")) {
 			source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("get"), CommandStrings.required("người_chơi", "text")));
@@ -168,6 +278,10 @@ public final class EcoAdminCommand implements SimpleCommand {
 		}
 		if (hasSubcommandPermission(source, "take")) {
 			source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("take|remove"), CommandStrings.required("người_chơi", "text"), CommandStrings.required("số_tiền", "number")));
+		}
+		if (hasSubcommandPermission(source, "audit")) {
+			source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("audit"), CommandStrings.required("người_chơi|all", "text")));
+			source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("lookup"), CommandStrings.required("mã_giao_dịch", "uuid")));
 		}
 		if (hasSubcommandPermission(source, "importbalances")) {
 			source.sendRichMessage(CommandStrings.usage("/eco", CommandStrings.literal("importbalances"), CommandStrings.required("đường_dẫn_balances.yml", "path"), CommandStrings.optional("--apply", "flag"), CommandStrings.optional("--overwrite", "flag"), CommandStrings.optional("--include-zero", "flag")));
@@ -274,6 +388,10 @@ public final class EcoAdminCommand implements SimpleCommand {
 		if (hasSubcommandPermission(source, "importbalances")) {
 			commands.add("importbalances");
 		}
+		if (hasSubcommandPermission(source, "audit")) {
+			commands.add("audit");
+			commands.add("lookup");
+		}
 		return commands;
 	}
 
@@ -283,7 +401,8 @@ public final class EcoAdminCommand implements SimpleCommand {
 			|| source.hasPermission(PERMISSION_SET)
 			|| source.hasPermission(PERMISSION_ADD)
 			|| source.hasPermission(PERMISSION_TAKE)
-			|| source.hasPermission(PERMISSION_IMPORT);
+			|| source.hasPermission(PERMISSION_IMPORT)
+			|| source.hasPermission(PERMISSION_AUDIT);
 	}
 
 	private boolean hasSubcommandPermission(CommandSource source, String canonicalSubcommand) {
@@ -297,6 +416,7 @@ public final class EcoAdminCommand implements SimpleCommand {
 			case "add" -> source.hasPermission(PERMISSION_ADD);
 			case "take" -> source.hasPermission(PERMISSION_TAKE);
 			case "importbalances" -> source.hasPermission(PERMISSION_IMPORT);
+			case "audit", "lookup" -> source.hasPermission(PERMISSION_AUDIT);
 			default -> false;
 		};
 	}

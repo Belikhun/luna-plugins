@@ -4,172 +4,237 @@ import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import dev.belikhun.luna.core.api.database.Database;
-import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultCacheRefresh;
 import dev.belikhun.luna.vault.api.VaultChannels;
-import dev.belikhun.luna.vault.api.LunaVaultApi;
-import dev.belikhun.luna.vault.api.VaultLeaderboardPage;
 import dev.belikhun.luna.vault.api.VaultFailureReason;
+import dev.belikhun.luna.vault.api.VaultLeaderboardPage;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.api.VaultOperationResult;
 import dev.belikhun.luna.vault.api.VaultPlayerSnapshot;
 import dev.belikhun.luna.vault.api.VaultTransactionPage;
 import dev.belikhun.luna.vault.api.VaultTransactionRecord;
 import dev.belikhun.luna.vault.api.VaultTransactionSummary;
-import dev.belikhun.luna.vault.api.model.VaultAccountModel;
+import dev.belikhun.luna.vault.api.ledger.LedgerResult;
+import dev.belikhun.luna.vault.api.ledger.VaultLedger;
 import dev.belikhun.luna.vault.api.model.VaultAccountRepository;
-import dev.belikhun.luna.vault.api.model.VaultTransactionModel;
-import dev.belikhun.luna.vault.api.model.VaultTransactionRepository;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
+/**
+ * The proxy's economy: the one place money changes hands.
+ *
+ * Every write is a {@link VaultLedger} transaction, run on this service's own
+ * threads so that a proxy event thread never waits on the database. The
+ * ledger answers with the balances it left behind, and those go two ways: back
+ * to whoever asked, and to the backend each affected player is on right now,
+ * so the servers' caches move with the money instead of being emptied and
+ * refilled.
+ *
+ * A second delivery of an operation already in flight joins the first rather
+ * than queuing a copy; one that arrives after the first committed is answered
+ * from the ledger's record. Between the two, the same request can be sent as
+ * often as the transport likes and is applied exactly once.
+ */
 public final class VelocityVaultService implements LunaVaultApi {
+	private static final String MESSAGE_INTERNAL = "Yêu cầu kinh tế thất bại ở proxy.";
+	private static final String MESSAGE_SHUTDOWN = "LunaVault đang tắt.";
+
 	private final ProxyServer proxyServer;
 	private final LunaLogger logger;
-	private final boolean databaseEnabled;
 	private final VelocityVaultConfig config;
 	private final PluginMessageBus<Object, Object> pluginMessagingBus;
 	private final UserProfileRepository userProfileRepository;
-	private final VaultAccountRepository accountRepository;
-	private final VaultTransactionRepository transactionRepository;
+	private final VaultLedger ledger;
 	private final LegacyBalanceImportService legacyBalanceImportService;
+	private final ExecutorService executor;
+	private final Map<UUID, CompletableFuture<LedgerResult>> inFlightOperations;
+	private volatile boolean shuttingDown;
 
 	public VelocityVaultService(ProxyServer proxyServer, Database database, LunaLogger logger, VelocityVaultConfig config, PluginMessageBus<Object, Object> pluginMessagingBus) {
 		this.proxyServer = proxyServer;
 		this.logger = logger.scope("Service");
-		this.databaseEnabled = !(database instanceof NoopDatabase);
 		this.config = config;
 		this.pluginMessagingBus = pluginMessagingBus;
 		this.userProfileRepository = new UserProfileRepository(database);
-		this.accountRepository = new VaultAccountRepository(database);
-		this.transactionRepository = new VaultTransactionRepository(database);
-		this.legacyBalanceImportService = new LegacyBalanceImportService(logger, accountRepository, userProfileRepository);
+		this.ledger = new VaultLedger(database);
+		this.legacyBalanceImportService = new LegacyBalanceImportService(logger, ledger, userProfileRepository);
+		this.inFlightOperations = new ConcurrentHashMap<>();
+		this.shuttingDown = false;
+
+		AtomicInteger threadIndex = new AtomicInteger();
+		this.executor = Executors.newFixedThreadPool(config.ledgerThreads(), runnable -> {
+			Thread thread = new Thread(runnable, "luna-vault-ledger-" + threadIndex.incrementAndGet());
+			thread.setDaemon(true);
+			return thread;
+		});
 	}
 
 	public LegacyBalanceImportService legacyBalanceImportService() {
 		return legacyBalanceImportService;
 	}
 
-	@Override
-	public CompletableFuture<VaultPlayerSnapshot> snapshot(UUID playerId, String playerName) {
-		if (!databaseEnabled || playerId == null) {
-			return CompletableFuture.completedFuture(VaultPlayerSnapshot.empty(playerId, playerName));
-		}
-
-		return CompletableFuture.completedFuture(snapshotNow(playerId, playerName));
-	}
-
-	@Override
-	public CompletableFuture<Long> balance(UUID playerId, String playerName) {
-		if (!databaseEnabled || playerId == null) {
-			return CompletableFuture.completedFuture(0L);
-		}
-
-		return CompletableFuture.completedFuture(balanceNow(playerId, playerName));
-	}
-
-	@Override
-	public CompletableFuture<VaultLeaderboardPage> leaderboard(int page, int pageSize) {
-		if (!databaseEnabled) {
-			return CompletableFuture.completedFuture(VaultLeaderboardPage.empty(page, pageSize));
-		}
-
-		return CompletableFuture.completedFuture(accountRepository.leaderboard(page, pageSize));
-	}
-
-	public void invalidateBackendCaches() {
-		broadcastCacheRefresh(true, List.of());
-	}
-
-	@Override
-	public CompletableFuture<VaultOperationResult> deposit(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		return CompletableFuture.completedFuture(depositNow(actorId, actorName, playerId, playerName, amountMinor, source, details));
-	}
-
-	@Override
-	public CompletableFuture<VaultOperationResult> withdraw(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		return CompletableFuture.completedFuture(withdrawNow(actorId, actorName, playerId, playerName, amountMinor, source, details));
-	}
-
-	@Override
-	public CompletableFuture<VaultOperationResult> transfer(UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
-		return CompletableFuture.completedFuture(transferNow(senderId, senderName, receiverId, receiverName, amountMinor, source, details));
-	}
-
-	@Override
-	public CompletableFuture<VaultOperationResult> setBalance(UUID actorId, String actorName, UUID playerId, String playerName, long newBalanceMinor, String source, String details) {
-		return CompletableFuture.completedFuture(setBalanceNow(actorId, actorName, playerId, playerName, newBalanceMinor, source, details));
-	}
-
-	@Override
-	public CompletableFuture<VaultTransactionPage> history(UUID playerId, int page, int pageSize) {
-		if (!databaseEnabled || playerId == null) {
-			return CompletableFuture.completedFuture(VaultTransactionPage.empty(page, pageSize));
-		}
-
-		return CompletableFuture.completedFuture(transactionRepository.pageForPlayer(playerId, page, pageSize));
+	public VaultLedger ledger() {
+		return ledger;
 	}
 
 	/** Whether a real database is behind this service, or reads are all zeroes. */
 	public boolean databaseEnabled() {
-		return databaseEnabled;
+		return ledger.enabled();
+	}
+
+	/** Stop taking work; operations already running finish. */
+	public void shutdown() {
+		shuttingDown = true;
+		executor.shutdown();
+
+		try {
+			if (!executor.awaitTermination(5L, TimeUnit.SECONDS)) {
+				executor.shutdownNow();
+			}
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			executor.shutdownNow();
+		}
+	}
+
+	// ------------------------------------------------------------------ reads
+
+	@Override
+	public CompletableFuture<VaultPlayerSnapshot> snapshot(UUID playerId, String playerName) {
+		if (!ledger.enabled() || playerId == null) {
+			return CompletableFuture.completedFuture(VaultPlayerSnapshot.empty(playerId, playerName));
+		}
+
+		return read(() -> ledger.snapshot(playerId, resolveName(playerId, playerName)), VaultPlayerSnapshot.empty(playerId, playerName));
+	}
+
+	@Override
+	public CompletableFuture<Long> balance(UUID playerId, String playerName) {
+		return snapshot(playerId, playerName).thenApply(VaultPlayerSnapshot::balanceMinor);
+	}
+
+	@Override
+	public CompletableFuture<VaultLeaderboardPage> leaderboard(int page, int pageSize) {
+		return read(() -> ledger.leaderboard(page, pageSize), VaultLeaderboardPage.empty(page, pageSize));
+	}
+
+	@Override
+	public CompletableFuture<VaultTransactionPage> history(UUID playerId, int page, int pageSize) {
+		return read(() -> ledger.history(playerId, page, pageSize), VaultTransactionPage.empty(page, pageSize));
 	}
 
 	/**
 	 * Read a player's account without creating one.
 	 *
-	 * {@link #snapshot(UUID, String)} goes through {@code findOrCreate}, which is
-	 * right for a player who is about to spend money and wrong for a console that
-	 * is merely looking: browsing the player directory must not leave a trail of
-	 * empty accounts behind it.
+	 * {@link #snapshot(UUID, String)} creates a missing row, which is right for a
+	 * player who is about to spend money and wrong for a console that is merely
+	 * looking: browsing the player directory must not leave a trail of empty
+	 * accounts behind it.
 	 */
 	public Optional<VaultPlayerSnapshot> findSnapshot(UUID playerId) {
-		if (!databaseEnabled || playerId == null) {
-			return Optional.empty();
-		}
-
-		return accountRepository.snapshot(playerId);
+		return ledger.find(playerId);
 	}
 
 	/** Lifetime transaction totals for a player. */
 	public VaultTransactionSummary summary(UUID playerId) {
-		if (!databaseEnabled || playerId == null) {
-			return VaultTransactionSummary.empty();
-		}
-
-		return transactionRepository.summaryForPlayer(playerId);
+		return ledger.summary(playerId);
 	}
 
 	/** How many accounts exist, so a rank can be shown as "3 of 19". */
 	public int accountCount() {
-		if (!databaseEnabled) {
-			return 0;
+		return ledger.accountCount();
+	}
+
+	/** The recorded outcome of an operation, for a backend settling a lost reply. */
+	public CompletableFuture<Optional<LedgerResult>> lookup(UUID operationId, UUID subjectId) {
+		if (!ledger.enabled() || operationId == null) {
+			return CompletableFuture.completedFuture(Optional.empty());
 		}
 
-		return accountRepository.accountCount();
+		CompletableFuture<LedgerResult> running = inFlightOperations.get(operationId);
+
+		if (running != null) {
+			return running.thenApply(Optional::of);
+		}
+
+		return read(() -> ledger.replay(operationId, subjectId), Optional.empty());
 	}
+
+	// ----------------------------------------------------------------- writes
+
+	@Override
+	public CompletableFuture<VaultOperationResult> deposit(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
+		return deposit(UUID.randomUUID(), actorId, actorName, playerId, playerName, amountMinor, source, details).thenApply(LedgerResult::result);
+	}
+
+	@Override
+	public CompletableFuture<VaultOperationResult> withdraw(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
+		return withdraw(UUID.randomUUID(), actorId, actorName, playerId, playerName, amountMinor, source, details).thenApply(LedgerResult::result);
+	}
+
+	@Override
+	public CompletableFuture<VaultOperationResult> transfer(UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
+		return transfer(UUID.randomUUID(), senderId, senderName, receiverId, receiverName, amountMinor, source, details).thenApply(LedgerResult::result);
+	}
+
+	@Override
+	public CompletableFuture<VaultOperationResult> setBalance(UUID actorId, String actorName, UUID playerId, String playerName, long newBalanceMinor, String source, String details) {
+		return setBalance(UUID.randomUUID(), actorId, actorName, playerId, playerName, newBalanceMinor, source, details).thenApply(LedgerResult::result);
+	}
+
+	public CompletableFuture<LedgerResult> deposit(UUID operationId, UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
+		return perform(operationId, () -> ledger.deposit(operationId, actorId, actorName, playerId, resolveName(playerId, playerName), amountMinor, source, details));
+	}
+
+	public CompletableFuture<LedgerResult> withdraw(UUID operationId, UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
+		return perform(operationId, () -> ledger.withdraw(operationId, actorId, actorName, playerId, resolveName(playerId, playerName), amountMinor, source, details));
+	}
+
+	public CompletableFuture<LedgerResult> transfer(UUID operationId, UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
+		return perform(operationId, () -> ledger.transfer(operationId, senderId, resolveName(senderId, senderName), receiverId, resolveName(receiverId, receiverName), amountMinor, source, details));
+	}
+
+	public CompletableFuture<LedgerResult> setBalance(UUID operationId, UUID actorId, String actorName, UUID playerId, String playerName, long newBalanceMinor, String source, String details) {
+		return perform(operationId, () -> ledger.setBalance(operationId, actorId, actorName, playerId, resolveName(playerId, playerName), newBalanceMinor, source, details));
+	}
+
+	/** Tell every backend that what it holds may be wrong; used after a bulk import. */
+	public void invalidateBackendCaches() {
+		broadcastRefresh(new VaultCacheRefresh(true, List.of()), proxyServer.getAllServers());
+	}
+
+	// ------------------------------------------------------------- resolution
 
 	/**
 	 * Resolve a UUID or a username to an account target.
 	 *
 	 * The console addresses players by UUID and the commands by name. A UUID
-	 * always resolves — to a name off the live roster, the account table or the
-	 * profile directory, and to an empty one when none of them knows it — because
-	 * a player who has never held money has no row anywhere here, and "no account,
-	 * balance zero" is a truthful answer to a caller who already knows who they
-	 * are asking about. A name has no such fallback: without a row there is
-	 * nothing to turn it into a UUID, so it stays unresolved.
+	 * always resolves, to a name off the live roster, the account table or the
+	 * profile directory, and to an empty one when none of them knows it, because
+	 * a player who has never held money has no row anywhere here, and "no
+	 * account, balance zero" is a truthful answer to a caller who already knows
+	 * who they are asking about. A name has no such fallback: without a row
+	 * there is nothing to turn it into a UUID, so it stays unresolved.
 	 */
 	public Optional<AccountTarget> resolveReference(String reference) {
 		String trimmed = reference == null ? "" : reference.trim();
@@ -205,13 +270,17 @@ public final class VelocityVaultService implements LunaVaultApi {
 		}
 
 		Optional<Player> online = findOnlinePlayer(username);
+
 		if (online.isPresent()) {
 			Player player = online.get();
-			accountRepository.find(player.getUniqueId()).ifPresent(account -> refreshKnownName(account, player.getUsername()));
 			return Optional.of(new AccountTarget(player.getUniqueId(), player.getUsername()));
 		}
 
-		return accountRepository.findByName(username)
+		if (!ledger.enabled()) {
+			return Optional.empty();
+		}
+
+		return ledger.accounts().findByName(username)
 			.map(model -> new AccountTarget(
 				UUID.fromString(model.getString("player_uuid", "")),
 				model.getString("player_name", username)
@@ -221,190 +290,168 @@ public final class VelocityVaultService implements LunaVaultApi {
 	public List<String> suggestTargets(String partial) {
 		String token = partial == null ? "" : partial.trim();
 		LinkedHashSet<String> suggestions = new LinkedHashSet<>();
+
 		proxyServer.getAllPlayers().stream()
 			.map(Player::getUsername)
 			.filter(name -> token.isBlank() || name.regionMatches(true, 0, token, 0, token.length()))
 			.sorted(String.CASE_INSENSITIVE_ORDER)
 			.limit(20)
 			.forEach(suggestions::add);
-		accountRepository.searchNamesByPrefix(token, 20).forEach(suggestions::add);
+
+		if (ledger.enabled()) {
+			ledger.accounts().searchNamesByPrefix(token, 20).forEach(suggestions::add);
+		}
+
 		return suggestions.stream().limit(20).toList();
 	}
 
-	private synchronized long balanceNow(UUID playerId, String playerName) {
-		return snapshotNow(playerId, playerName).balanceMinor();
+	// ----------------------------------------------------------------- engine
+
+	private <T> CompletableFuture<T> read(Supplier<T> work, T fallback) {
+		if (shuttingDown) {
+			return CompletableFuture.completedFuture(fallback);
+		}
+
+		CompletableFuture<T> future = new CompletableFuture<>();
+
+		try {
+			executor.execute(() -> {
+				try {
+					future.complete(work.get());
+				} catch (Throwable throwable) {
+					logger.error("Đọc sổ cái LunaVault thất bại.", throwable);
+					future.complete(fallback);
+				}
+			});
+		} catch (RejectedExecutionException rejected) {
+			future.complete(fallback);
+		}
+
+		return future;
 	}
 
-	private synchronized VaultPlayerSnapshot snapshotNow(UUID playerId, String playerName) {
-		String resolvedName = resolveName(playerId, playerName);
-		VaultAccountModel account = accountRepository.findOrCreate(playerId, resolvedName);
-		refreshKnownName(account, resolvedName);
-		return accountRepository.snapshot(playerId)
-			.orElse(new VaultPlayerSnapshot(
-				playerId,
-				VaultAccountRepository.normalizePlayerName(account.getString("player_name", resolvedName)),
-				account.getLong("balance_minor", 0L),
-				0
-			));
+	/**
+	 * Run one write on the ledger threads and fan its outcome out.
+	 *
+	 * A second call with an operation id already running joins that run, so a
+	 * frame delivered twice within the same few milliseconds produces one
+	 * transaction and two identical replies.
+	 */
+	private CompletableFuture<LedgerResult> perform(UUID operationId, Supplier<LedgerResult> work) {
+		if (shuttingDown) {
+			return CompletableFuture.completedFuture(LedgerResult.failed(VaultFailureReason.UNAVAILABLE, MESSAGE_SHUTDOWN, 0L));
+		}
+
+		CompletableFuture<LedgerResult> future = new CompletableFuture<>();
+
+		if (operationId != null) {
+			CompletableFuture<LedgerResult> running = inFlightOperations.putIfAbsent(operationId, future);
+
+			if (running != null) {
+				return running;
+			}
+		}
+
+		Runnable task = () -> {
+			try {
+				LedgerResult outcome = work.get();
+
+				if (outcome.success()) {
+					announce(outcome);
+					pushSnapshots(outcome.snapshots());
+				}
+
+				future.complete(outcome);
+			} catch (Throwable throwable) {
+				logger.error("Ghi sổ cái LunaVault thất bại.", throwable);
+				future.complete(LedgerResult.failed(VaultFailureReason.INTERNAL_ERROR, MESSAGE_INTERNAL, 0L));
+			} finally {
+				if (operationId != null) {
+					inFlightOperations.remove(operationId, future);
+				}
+			}
+		};
+
+		try {
+			executor.execute(task);
+		} catch (RejectedExecutionException rejected) {
+			if (operationId != null) {
+				inFlightOperations.remove(operationId, future);
+			}
+
+			future.complete(LedgerResult.failed(VaultFailureReason.UNAVAILABLE, MESSAGE_SHUTDOWN, 0L));
+		}
+
+		return future;
 	}
 
-	private synchronized VaultOperationResult depositNow(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		if (!databaseEnabled) {
-			return VaultOperationResult.failed(VaultFailureReason.DATABASE_DISABLED, "Database của LunaVault chưa sẵn sàng.", 0L);
-		}
-		if (playerId == null || amountMinor <= 0L) {
-			return VaultOperationResult.failed(VaultFailureReason.INVALID_AMOUNT, "Số tiền không hợp lệ.", 0L);
-		}
+	// -------------------------------------------------------------- fan-out
 
-		String resolvedPlayerName = resolveName(playerId, playerName);
-		VaultAccountModel account = accountRepository.findOrCreate(playerId, resolvedPlayerName);
-		long newBalance = account.getLong("balance_minor", 0L) + amountMinor;
-		touchAccount(account, resolvedPlayerName, newBalance);
-		VaultTransactionRecord transaction = recordTransaction(actorId, actorName, playerId, resolvedPlayerName, amountMinor, source, details);
-		VaultPlayerSnapshot snapshot = snapshotNow(playerId, resolvedPlayerName);
-		broadcastCacheRefresh(true, List.of(snapshot));
-		return VaultOperationResult.success("Đã cộng tiền thành công.", newBalance, transaction);
-	}
-
-	private synchronized VaultOperationResult withdrawNow(UUID actorId, String actorName, UUID playerId, String playerName, long amountMinor, String source, String details) {
-		if (!databaseEnabled) {
-			return VaultOperationResult.failed(VaultFailureReason.DATABASE_DISABLED, "Database của LunaVault chưa sẵn sàng.", 0L);
-		}
-		if (playerId == null || amountMinor <= 0L) {
-			return VaultOperationResult.failed(VaultFailureReason.INVALID_AMOUNT, "Số tiền không hợp lệ.", 0L);
-		}
-
-		String resolvedPlayerName = resolveName(playerId, playerName);
-		VaultAccountModel account = accountRepository.findOrCreate(playerId, resolvedPlayerName);
-		long currentBalance = account.getLong("balance_minor", 0L);
-		if (currentBalance < amountMinor) {
-			return VaultOperationResult.failed(VaultFailureReason.INSUFFICIENT_FUNDS, "Số dư không đủ.", currentBalance);
-		}
-
-		long newBalance = currentBalance - amountMinor;
-		touchAccount(account, resolvedPlayerName, newBalance);
-		VaultTransactionRecord transaction = recordTransaction(playerId, resolvedPlayerName, actorId, actorName, amountMinor, source, details);
-		VaultPlayerSnapshot snapshot = snapshotNow(playerId, resolvedPlayerName);
-		broadcastCacheRefresh(true, List.of(snapshot));
-		return VaultOperationResult.success("Đã trừ tiền thành công.", newBalance, transaction);
-	}
-
-	private synchronized VaultOperationResult transferNow(UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
-		if (!databaseEnabled) {
-			return VaultOperationResult.failed(VaultFailureReason.DATABASE_DISABLED, "Database của LunaVault chưa sẵn sàng.", 0L);
-		}
-		if (senderId == null || receiverId == null || amountMinor <= 0L) {
-			return VaultOperationResult.failed(VaultFailureReason.INVALID_AMOUNT, "Số tiền hoặc người chơi không hợp lệ.", 0L);
-		}
-		if (senderId.equals(receiverId)) {
-			return VaultOperationResult.failed(VaultFailureReason.SELF_TRANSFER, "Không thể chuyển tiền cho chính mình.", balanceNow(senderId, senderName));
-		}
-
-		String resolvedSenderName = resolveName(senderId, senderName);
-		String resolvedReceiverName = resolveName(receiverId, receiverName);
-		VaultAccountModel senderAccount = accountRepository.findOrCreate(senderId, resolvedSenderName);
-		VaultAccountModel receiverAccount = accountRepository.findOrCreate(receiverId, resolvedReceiverName);
-		long senderBalance = senderAccount.getLong("balance_minor", 0L);
-		if (senderBalance < amountMinor) {
-			return VaultOperationResult.failed(VaultFailureReason.INSUFFICIENT_FUNDS, "Số dư không đủ để chuyển tiền.", senderBalance);
-		}
-
-		touchAccount(senderAccount, resolvedSenderName, senderBalance - amountMinor);
-		touchAccount(receiverAccount, resolvedReceiverName, receiverAccount.getLong("balance_minor", 0L) + amountMinor);
-		VaultTransactionRecord transaction = recordTransaction(senderId, resolvedSenderName, receiverId, resolvedReceiverName, amountMinor, source, details);
-		VaultPlayerSnapshot senderSnapshot = snapshotNow(senderId, resolvedSenderName);
-		VaultPlayerSnapshot receiverSnapshot = snapshotNow(receiverId, resolvedReceiverName);
-		broadcastCacheRefresh(true, List.of(senderSnapshot, receiverSnapshot));
-		return VaultOperationResult.success("Đã chuyển tiền thành công.", senderBalance - amountMinor, transaction);
-	}
-
-	private synchronized VaultOperationResult setBalanceNow(UUID actorId, String actorName, UUID playerId, String playerName, long newBalanceMinor, String source, String details) {
-		if (!databaseEnabled) {
-			return VaultOperationResult.failed(VaultFailureReason.DATABASE_DISABLED, "Database của LunaVault chưa sẵn sàng.", 0L);
-		}
-		if (playerId == null || newBalanceMinor < 0L) {
-			return VaultOperationResult.failed(VaultFailureReason.INVALID_AMOUNT, "Số dư mới không hợp lệ.", 0L);
-		}
-
-		String resolvedPlayerName = resolveName(playerId, playerName);
-		VaultAccountModel account = accountRepository.findOrCreate(playerId, resolvedPlayerName);
-		long oldBalance = account.getLong("balance_minor", 0L);
-		touchAccount(account, resolvedPlayerName, newBalanceMinor);
-		boolean backendSync = isBackendSyncSource(source);
-		long delta = Math.abs(newBalanceMinor - oldBalance);
-		VaultTransactionRecord transaction = null;
-		if (!backendSync && delta > 0L) {
-			UUID senderId = newBalanceMinor >= oldBalance ? actorId : playerId;
-			String senderName = newBalanceMinor >= oldBalance ? actorName : resolvedPlayerName;
-			UUID receiverId = newBalanceMinor >= oldBalance ? playerId : actorId;
-			String receiverName = newBalanceMinor >= oldBalance ? resolvedPlayerName : actorName;
-			transaction = recordTransaction(senderId, senderName, receiverId, receiverName, delta, source, details);
-		}
-		if (delta > 0L || backendSync) {
-			broadcastCacheRefresh(true, List.of(snapshotNow(playerId, resolvedPlayerName)));
-		}
-		return VaultOperationResult.success("Đã cập nhật số dư.", newBalanceMinor, transaction);
-	}
-
-	private boolean isBackendSyncSource(String source) {
-		return source != null && "backend-sync".equalsIgnoreCase(source.trim());
-	}
-
-	private void touchAccount(VaultAccountModel account, String playerName, long newBalance) {
-		long now = Instant.now().toEpochMilli();
-		account
-			.set("player_name", VaultAccountRepository.normalizePlayerName(playerName))
-			.set("balance_minor", newBalance)
-			.set("updated_at", now)
-			.save();
-	}
-
-	private void refreshKnownName(VaultAccountModel account, String playerName) {
-		String normalizedName = VaultAccountRepository.normalizePlayerName(playerName);
-		if (normalizedName.isBlank()) {
+	/**
+	 * Deliver fresh snapshots to the servers holding the affected players.
+	 *
+	 * Only those servers: a backend that has never seen the player has nothing
+	 * to correct, and telling every server to forget everything is exactly the
+	 * behaviour this service replaced.
+	 */
+	private void pushSnapshots(Collection<VaultPlayerSnapshot> snapshots) {
+		if (pluginMessagingBus == null || snapshots == null || snapshots.isEmpty()) {
 			return;
 		}
 
-		String currentName = VaultAccountRepository.normalizePlayerName(account.getString("player_name", ""));
-		if (normalizedName.equals(currentName)) {
+		Map<RegisteredServer, List<VaultPlayerSnapshot>> byServer = new LinkedHashMap<>();
+
+		for (VaultPlayerSnapshot snapshot : snapshots) {
+			if (snapshot == null || snapshot.playerId() == null) {
+				continue;
+			}
+
+			Optional<RegisteredServer> server = proxyServer.getPlayer(snapshot.playerId())
+				.flatMap(Player::getCurrentServer)
+				.map(connection -> connection.getServer());
+
+			if (server.isEmpty()) {
+				continue;
+			}
+
+			byServer.computeIfAbsent(server.get(), ignored -> new ArrayList<>()).add(snapshot);
+		}
+
+		for (Map.Entry<RegisteredServer, List<VaultPlayerSnapshot>> entry : byServer.entrySet()) {
+			broadcastRefresh(new VaultCacheRefresh(false, entry.getValue()), List.of(entry.getKey()));
+		}
+	}
+
+	private void broadcastRefresh(VaultCacheRefresh refresh, Collection<RegisteredServer> servers) {
+		if (pluginMessagingBus == null) {
 			return;
 		}
 
-		account
-			.set("player_name", normalizedName)
-			.set("updated_at", Instant.now().toEpochMilli())
-			.save();
+		for (RegisteredServer server : servers) {
+			try {
+				pluginMessagingBus.send(server, VaultChannels.CACHE_SYNC, writer -> {
+					writer.writeUtf("refresh");
+					refresh.writeTo(writer);
+				});
+			} catch (RuntimeException exception) {
+				logger.warn("Không gửi được cache refresh tới " + server.getServerInfo().getName() + ": " + exception.getMessage());
+			}
+		}
 	}
 
-	private VaultTransactionRecord recordTransaction(UUID senderId, String senderName, UUID receiverId, String receiverName, long amountMinor, String source, String details) {
-		long completedAt = Instant.now().toEpochMilli();
-		String normalizedSource = source == null || source.isBlank() ? "lunavault" : source;
-		String transactionId = UUID.randomUUID().toString();
-		VaultTransactionModel model = transactionRepository.newModel();
-		String normalizedSenderName = nullableStoredName(senderName);
-		String normalizedReceiverName = nullableStoredName(receiverName);
-		model
-			.set("transaction_id", transactionId)
-			.set("sender_uuid", senderId == null ? null : senderId.toString())
-			.set("sender_name", normalizedSenderName)
-			.set("receiver_uuid", receiverId == null ? null : receiverId.toString())
-			.set("receiver_name", normalizedReceiverName)
-			.set("amount_minor", amountMinor)
-			.set("source_plugin", normalizedSource)
-			.set("details", details)
-			.set("completed_at", completedAt)
-			.save();
-		VaultTransactionRecord transaction = new VaultTransactionRecord(transactionId, senderId, normalizedSenderName, receiverId, normalizedReceiverName, amountMinor, normalizedSource, details, completedAt);
-		announceTransaction(transaction);
-		return transaction;
-	}
+	private void announce(LedgerResult outcome) {
+		VaultTransactionRecord transaction = outcome.result().transaction();
 
-	private void announceTransaction(VaultTransactionRecord transaction) {
+		if (outcome.replayed() || transaction == null) {
+			return;
+		}
+
 		if (config.transactionLoggingEnabled()) {
 			logger.audit(formatTransactionAudit(transaction));
 		}
 
 		VelocityVaultConfig.LargeTransactionAlertConfig alertConfig = config.largeTransactionAlert();
+
 		if (!alertConfig.enabled() || transaction.amountMinor() < alertConfig.thresholdMinor()) {
 			return;
 		}
@@ -413,6 +460,7 @@ public final class VelocityVaultService implements LunaVaultApi {
 			+ "</white> " + LunaCoreVelocity.services().moneyFormat().formatMinor(transaction.amountMinor(), VaultMoney.SCALE) + " <white>"
 			+ describeActor(transaction.receiverName(), transaction.receiverId()) + "</white> <gray>(nguồn: "
 			+ transaction.source() + ")</gray></yellow>";
+
 		proxyServer.getAllPlayers().stream()
 			.filter(player -> player.hasPermission(alertConfig.permission()))
 			.forEach(player -> player.sendRichMessage(message));
@@ -423,6 +471,8 @@ public final class VelocityVaultService implements LunaVaultApi {
 		StringBuilder builder = new StringBuilder("TX ")
 			.append(transaction.transactionId())
 			.append(" | ")
+			.append(transaction.kind().name())
+			.append(" | ")
 			.append(describeActor(transaction.senderName(), transaction.senderId()))
 			.append(" -> ")
 			.append(describeActor(transaction.receiverName(), transaction.receiverId()))
@@ -430,9 +480,15 @@ public final class VelocityVaultService implements LunaVaultApi {
 			.append(stripMiniMessage(LunaCoreVelocity.services().moneyFormat().formatMinor(transaction.amountMinor(), VaultMoney.SCALE)))
 			.append(" | source=")
 			.append(transaction.source());
+
+		if (transaction.operationId() != null) {
+			builder.append(" | op=").append(transaction.operationId());
+		}
+
 		if (transaction.details() != null && !transaction.details().isBlank()) {
 			builder.append(" | details=").append(transaction.details());
 		}
+
 		return builder.toString();
 	}
 
@@ -440,6 +496,7 @@ public final class VelocityVaultService implements LunaVaultApi {
 		if (name != null && !name.isBlank()) {
 			return name;
 		}
+
 		return playerId == null ? "HỆ THỐNG" : playerId.toString();
 	}
 
@@ -452,80 +509,26 @@ public final class VelocityVaultService implements LunaVaultApi {
 			return VaultAccountRepository.normalizePlayerName(providedName);
 		}
 
+		if (playerId == null) {
+			return "";
+		}
+
 		Optional<Player> player = proxyServer.getPlayer(playerId);
+
 		if (player.isPresent()) {
 			return VaultAccountRepository.normalizePlayerName(player.get().getUsername());
 		}
 
-		return accountRepository.find(playerId)
+		if (!ledger.enabled()) {
+			return "";
+		}
+
+		return ledger.accounts().find(playerId)
 			.map(model -> VaultAccountRepository.normalizePlayerName(model.getString("player_name", "")))
 			.filter(name -> !name.isBlank())
 			.or(() -> userProfileRepository.findByUuid(playerId)
 				.map(profile -> VaultAccountRepository.normalizePlayerName(profile.name())))
 			.orElse("");
-	}
-
-	private String nullableStoredName(String playerName) {
-		String normalized = VaultAccountRepository.normalizePlayerName(playerName);
-		return normalized.isBlank() ? null : normalized;
-	}
-
-	private void broadcastCacheRefresh(boolean clearAll, Collection<VaultPlayerSnapshot> snapshots) {
-		if (pluginMessagingBus == null) {
-			return;
-		}
-
-		List<VaultPlayerSnapshot> payloadSnapshots = uniqueSnapshots(snapshots);
-		if (!clearAll && payloadSnapshots.isEmpty()) {
-			return;
-		}
-
-		VaultCacheRefresh refresh = new VaultCacheRefresh(clearAll, payloadSnapshots);
-		for (RegisteredServer server : targetServersForRefresh(clearAll, payloadSnapshots)) {
-			pluginMessagingBus.send(server, VaultChannels.CACHE_SYNC, writer -> {
-				writer.writeUtf("refresh");
-				refresh.writeTo(writer);
-			});
-		}
-	}
-
-	private Collection<RegisteredServer> targetServersForRefresh(boolean clearAll, List<VaultPlayerSnapshot> payloadSnapshots) {
-		if (clearAll) {
-			return proxyServer.getAllServers();
-		}
-
-		LinkedHashSet<RegisteredServer> targets = new LinkedHashSet<>();
-		for (VaultPlayerSnapshot snapshot : payloadSnapshots) {
-			if (snapshot == null || snapshot.playerId() == null) {
-				continue;
-			}
-
-			proxyServer.getPlayer(snapshot.playerId())
-				.flatMap(Player::getCurrentServer)
-				.ifPresent(connection -> targets.add(connection.getServer()));
-		}
-
-		if (!targets.isEmpty()) {
-			return targets;
-		}
-
-		return proxyServer.getAllServers();
-	}
-
-	private List<VaultPlayerSnapshot> uniqueSnapshots(Collection<VaultPlayerSnapshot> snapshots) {
-		if (snapshots == null || snapshots.isEmpty()) {
-			return List.of();
-		}
-
-		LinkedHashSet<UUID> seen = new LinkedHashSet<>();
-		List<VaultPlayerSnapshot> values = new ArrayList<>();
-		for (VaultPlayerSnapshot snapshot : snapshots) {
-			if (snapshot == null || snapshot.playerId() == null || !seen.add(snapshot.playerId())) {
-				continue;
-			}
-			values.add(snapshot);
-		}
-		return values;
 	}
 
 	public record AccountTarget(UUID playerId, String playerName) {

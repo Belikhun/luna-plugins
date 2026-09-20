@@ -6,6 +6,15 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * The proxy telling a backend that some balances moved.
+ *
+ * {@code snapshots} are the new values and are applied as they arrive.
+ * {@code clearAll} means "everything you hold may be wrong" and is sent after a
+ * bulk import; a backend answers it by marking its entries stale and fetching
+ * again, never by forgetting them, because a forgotten balance renders as zero
+ * and a stale one renders as the last true value.
+ */
 public record VaultCacheRefresh(
 	boolean clearAll,
 	List<VaultPlayerSnapshot> snapshots
@@ -13,6 +22,7 @@ public record VaultCacheRefresh(
 	public void writeTo(PluginMessageWriter writer) {
 		writer.writeBoolean(clearAll);
 		writer.writeInt(snapshots == null ? 0 : snapshots.size());
+
 		if (snapshots == null) {
 			return;
 		}
@@ -26,9 +36,11 @@ public record VaultCacheRefresh(
 		boolean clearAll = reader.readBoolean();
 		int count = Math.max(0, reader.readInt());
 		List<VaultPlayerSnapshot> snapshots = new ArrayList<>();
+
 		for (int index = 0; index < count; index++) {
 			snapshots.add(VaultPlayerSnapshot.readFrom(reader));
 		}
+
 		return new VaultCacheRefresh(clearAll, snapshots);
 	}
 }

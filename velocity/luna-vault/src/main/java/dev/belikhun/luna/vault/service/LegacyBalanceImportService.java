@@ -4,6 +4,7 @@ import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.profile.UserProfileRepository;
 import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.api.ledger.VaultLedger;
 import dev.belikhun.luna.vault.api.model.VaultAccountModel;
 import dev.belikhun.luna.vault.api.model.VaultAccountRepository;
 
@@ -18,12 +19,14 @@ import java.util.UUID;
 
 public final class LegacyBalanceImportService {
 	private final LunaLogger logger;
+	private final VaultLedger ledger;
 	private final VaultAccountRepository accountRepository;
 	private final UserProfileRepository userProfileRepository;
 
-	public LegacyBalanceImportService(LunaLogger logger, VaultAccountRepository accountRepository, UserProfileRepository userProfileRepository) {
+	public LegacyBalanceImportService(LunaLogger logger, VaultLedger ledger, UserProfileRepository userProfileRepository) {
 		this.logger = logger.scope("LegacyImport");
-		this.accountRepository = accountRepository;
+		this.ledger = ledger;
+		this.accountRepository = ledger.accounts();
 		this.userProfileRepository = userProfileRepository;
 	}
 
@@ -72,18 +75,12 @@ public final class LegacyBalanceImportService {
 			}
 
 			String resolvedImportedName = resolveProfileName(playerId);
-			String fallbackImportedName = resolvedImportedName.isBlank() ? VaultAccountRepository.temporaryPlayerName() : resolvedImportedName;
-			VaultAccountModel account = existingOptional.orElseGet(() -> accountRepository.findOrCreate(playerId, fallbackImportedName));
-			long previousBalance = account.getLong("balance_minor", 0L);
-			String currentName = account.getString("player_name", "");
-			String importedName = selectImportedName(currentName, resolvedImportedName, fallbackImportedName);
-			long createdAt = account.getLong("created_at", now);
-			account
-				.set("player_name", importedName)
-				.set("balance_minor", balanceMinor)
-				.set("created_at", createdAt <= 0L ? now : createdAt)
-				.set("updated_at", now)
-				.save();
+			VaultAccountModel account = existingOptional.orElse(null);
+			long previousBalance = account == null ? 0L : account.getLong("balance_minor", 0L);
+			String currentName = account == null ? "" : account.getString("player_name", "");
+			String importedName = selectImportedName(currentName, resolvedImportedName, temporaryPlayerName());
+			long createdAt = account == null ? now : account.getLong("created_at", now);
+			ledger.importBalance(playerId, importedName, balanceMinor, createdAt <= 0L ? now : createdAt);
 
 			if (existingOptional.isPresent()) {
 				summary.updatedEntries++;
@@ -113,6 +110,11 @@ public final class LegacyBalanceImportService {
 		}
 
 		return VaultAccountRepository.normalizePlayerName(fallbackImportedName);
+	}
+
+	/** A placeholder name for an imported account whose owner no profile knows. */
+	private static String temporaryPlayerName() {
+		return "tmp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
 	}
 
 	private String resolveProfileName(UUID playerId) {

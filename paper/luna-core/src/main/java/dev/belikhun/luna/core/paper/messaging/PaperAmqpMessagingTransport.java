@@ -34,6 +34,7 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 	private final Supplier<BackendMetadata> localBackendMetadataSupplier;
 	private final Map<String, PluginMessageHandler<Player>> incomingHandlers;
 	private final Set<String> outgoingChannels;
+	private final Set<String> asyncChannels;
 	private final AmqpConnection connection;
 
 	PaperAmqpMessagingTransport(Plugin plugin, LunaLogger logger, boolean loggingEnabled, Supplier<BackendMetadata> localBackendMetadataSupplier) {
@@ -43,6 +44,7 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 		this.localBackendMetadataSupplier = localBackendMetadataSupplier;
 		this.incomingHandlers = new ConcurrentHashMap<>();
 		this.outgoingChannels = ConcurrentHashMap.newKeySet();
+		this.asyncChannels = ConcurrentHashMap.newKeySet();
 		this.connection = new AmqpConnection(this, logger, "backend");
 	}
 
@@ -62,6 +64,10 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 		outgoingChannels.add(channel.value());
 	}
 
+	void allowAsyncDelivery(PluginMessageChannel channel) {
+		asyncChannels.add(channel.value());
+	}
+
 	void unregisterOutgoing(PluginMessageChannel channel) {
 		outgoingChannels.remove(channel.value());
 	}
@@ -75,13 +81,16 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 			return false;
 		}
 
+		// a null target is a frame the server sends on its own behalf, with nobody
+		// online to carry it; the broker does not need a player, only the proxy's
+		// resolveSource does, and it falls back to the server name below
 		AmqpMessagingConfig currentConfig = connection.config();
 		AmqpPluginMessageEnvelope envelope = new AmqpPluginMessageEnvelope(
 			AmqpPluginMessageEnvelope.CURRENT_PROTOCOL,
 			channel.value(),
 			localServerName(currentConfig),
-			target.getUniqueId().toString(),
-			target.getName(),
+			target == null ? "" : target.getUniqueId().toString(),
+			target == null ? "" : target.getName(),
 			"",
 			payload
 		);
@@ -92,7 +101,7 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 
 		if (loggingEnabled) {
 			logger.audit("[TX:AMQP] backend->proxy channel=" + channel.value()
-				+ " source=" + target.getName()
+				+ " source=" + (target == null ? "<server>" : target.getName())
 				+ " queue=" + currentConfig.proxyQueue()
 				+ " bytes=" + payload.length);
 		}
@@ -108,6 +117,7 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 		connection.close();
 		incomingHandlers.clear();
 		outgoingChannels.clear();
+		asyncChannels.clear();
 	}
 
 	@Override
@@ -120,15 +130,32 @@ final class PaperAmqpMessagingTransport implements AmqpEndpoint {
 		return config.backendQueue(localServerName(config));
 	}
 
-	/** Deliveries arrive on the client's own thread; handlers expect the server's. */
+	/**
+	 * Deliveries arrive on the client's own thread; handlers expect the server's,
+	 * except the channels that asked to be handled where they land (see
+	 * {@code PluginMessageBus#allowAsyncDelivery}).
+	 */
 	@Override
 	public void onDelivery(byte[] body) {
-		plugin.getServer().getScheduler().runTask(plugin, () -> dispatch(body));
+		AmqpPluginMessageEnvelope envelope;
+
+		try {
+			envelope = AmqpPluginMessageEnvelope.decode(body);
+		} catch (RuntimeException exception) {
+			logger.warn("Không thể đọc AMQP payload cho backend: " + exception.getMessage());
+			return;
+		}
+
+		if (asyncChannels.contains(envelope.channel())) {
+			dispatch(envelope);
+			return;
+		}
+
+		plugin.getServer().getScheduler().runTask(plugin, () -> dispatch(envelope));
 	}
 
-	private void dispatch(byte[] body) {
+	private void dispatch(AmqpPluginMessageEnvelope envelope) {
 		try {
-			AmqpPluginMessageEnvelope envelope = AmqpPluginMessageEnvelope.decode(body);
 			PluginMessageHandler<Player> handler = incomingHandlers.get(envelope.channel());
 
 			if (handler == null) {

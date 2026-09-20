@@ -5,3 +5,8 @@ logging:
       enabled: true
       threshold: "10000.00"
       permission: "lunavault.alert"
+
+ledger:
+  # Database work never runs on a proxy event thread; this is how many ledger
+  # operations may be in flight at once.
+  threads: 4
