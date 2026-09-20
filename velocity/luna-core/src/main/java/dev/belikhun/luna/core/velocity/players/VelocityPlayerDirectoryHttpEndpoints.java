@@ -120,11 +120,12 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 		router.get("/players/registered/{player}/sessions", request -> {
 			return withProfile(request, "sessions", (profile, startedAt) -> {
 				String uuid = stringOf(profile.get("uuid"));
+				String server = normalize(request.queryParam("server", ""));
 				int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
 				int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
 
 				List<Map<String, Object>> sessions = new ArrayList<>();
-				for (Map<String, Object> row : recordStore.sessions(uuid, offset, limit)) {
+				for (Map<String, Object> row : recordStore.sessions(uuid, server, offset, limit)) {
 					Map<String, Object> entry = new LinkedHashMap<>();
 					entry.put("id", longOf(row.get("id")));
 					entry.put("server", stringOf(row.get("server")));
@@ -136,7 +137,7 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				}
 
 				Map<String, Object> payload = new LinkedHashMap<>();
-				payload.put("total", recordStore.sessionCount(uuid));
+				payload.put("total", recordStore.sessionCount(uuid, server));
 				payload.put("offset", offset);
 				payload.put("limit", limit);
 				payload.put("sessions", sessions);
@@ -148,11 +149,12 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 			return withProfile(request, "chat", (profile, startedAt) -> {
 				String uuid = stringOf(profile.get("uuid"));
 				String type = normalizeType(request.queryParam("type", ""));
+				String server = normalize(request.queryParam("server", ""));
 				int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
 				int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
 
 				List<Map<String, Object>> entries = new ArrayList<>();
-				for (Map<String, Object> row : recordStore.chat(uuid, type, offset, limit)) {
+				for (Map<String, Object> row : recordStore.chat(uuid, type, server, offset, limit)) {
 					Map<String, Object> entry = new LinkedHashMap<>();
 					entry.put("id", longOf(row.get("id")));
 					entry.put("server", stringOf(row.get("server")));
@@ -163,7 +165,7 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				}
 
 				Map<String, Object> payload = new LinkedHashMap<>();
-				payload.put("total", recordStore.chatCount(uuid, type));
+				payload.put("total", recordStore.chatCount(uuid, type, server));
 				payload.put("offset", offset);
 				payload.put("limit", limit);
 				payload.put("entries", entries);
@@ -184,6 +186,50 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				payload.put("entries", moderationEntries(uuid, offset, limit));
 				return LunaJson.envelope(200, payload, startedAt);
 			});
+		});
+
+		// One backend's chat and command log across every player (the whole
+		// network's without ?server=), newest first. Lives beside the per-player log
+		// because the console's instance screen asks "what was said here", which no
+		// per-player page can answer.
+		router.get("/players/chat", request -> {
+			if (!authorizer.authorized(request)) {
+				logger.warn("Từ chối truy vấn /players/chat do sai token hoặc thiếu token.");
+				return authorizer.unauthorized();
+			}
+
+			long startedAt = System.nanoTime();
+
+			if (!recordStore.available()) {
+				return LunaJson.error(503, "player directory database is not available");
+			}
+
+			String server = normalize(request.queryParam("server", ""));
+			String type = normalizeType(request.queryParam("type", ""));
+			String search = request.queryParam("search", "");
+			int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
+			int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
+
+			List<Map<String, Object>> entries = new ArrayList<>();
+			for (Map<String, Object> row : recordStore.serverChat(server, type, search, offset, limit)) {
+				Map<String, Object> entry = new LinkedHashMap<>();
+				entry.put("id", longOf(row.get("id")));
+				entry.put("uuid", stringOf(row.get("uuid")));
+				entry.put("username", stringOf(row.get("username")));
+				entry.put("server", stringOf(row.get("server")));
+				entry.put("type", stringOf(row.get("type")));
+				entry.put("content", stringOf(row.get("content")));
+				entry.put("atEpochMillis", longOf(row.get("at")));
+				entries.add(entry);
+			}
+
+			Map<String, Object> payload = new LinkedHashMap<>();
+			payload.put("total", recordStore.serverChatCount(server, type, search));
+			payload.put("offset", offset);
+			payload.put("limit", limit);
+			payload.put("server", server);
+			payload.put("entries", entries);
+			return LunaJson.envelope(200, payload, startedAt);
 		});
 
 		// The whole network's moderation history, newest first, across every

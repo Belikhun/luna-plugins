@@ -438,39 +438,127 @@ public final class VelocityPlayerRecordStore {
 
 	/** Page of play sessions, newest first. */
 	public List<Map<String, Object>> sessions(String uuid, int offset, int limit) {
-		return database.query(
-			"SELECT * FROM luna_player_sessions WHERE uuid = ? ORDER BY connected_at DESC LIMIT ? OFFSET ?",
-			List.of(uuid, limit, offset)
-		);
+		return sessions(uuid, "", offset, limit);
+	}
+
+	/** Page of play sessions, newest first; {@code server} narrows to one backend when non-blank. */
+	public List<Map<String, Object>> sessions(String uuid, String server, int offset, int limit) {
+		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_sessions WHERE uuid = ?");
+		List<Object> bindings = new ArrayList<>();
+		bindings.add(uuid);
+
+		appendServerFilter(sql, bindings, server);
+
+		sql.append(" ORDER BY connected_at DESC LIMIT ? OFFSET ?");
+		bindings.add(limit);
+		bindings.add(offset);
+
+		return database.query(sql.toString(), bindings);
 	}
 
 	/** Total number of recorded sessions for a player. */
 	public long sessionCount(String uuid) {
-		return scalar("SELECT COUNT(*) AS n FROM luna_player_sessions WHERE uuid = ?", List.of(uuid));
+		return sessionCount(uuid, "");
+	}
+
+	/** Total number of recorded sessions for a player, on one backend when {@code server} is non-blank. */
+	public long sessionCount(String uuid, String server) {
+		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_sessions WHERE uuid = ?");
+		List<Object> bindings = new ArrayList<>();
+		bindings.add(uuid);
+
+		appendServerFilter(sql, bindings, server);
+
+		return scalar(sql.toString(), bindings);
 	}
 
 	/** Page of chat/command entries, newest first; {@code type} filters when non-blank. */
 	public List<Map<String, Object>> chat(String uuid, String type, int offset, int limit) {
-		if (blankIfNull(type).isBlank()) {
-			return database.query(
-				"SELECT * FROM luna_player_chat WHERE uuid = ? ORDER BY at DESC LIMIT ? OFFSET ?",
-				List.of(uuid, limit, offset)
-			);
-		}
+		return chat(uuid, type, "", offset, limit);
+	}
 
-		return database.query(
-			"SELECT * FROM luna_player_chat WHERE uuid = ? AND type = ? ORDER BY at DESC LIMIT ? OFFSET ?",
-			List.of(uuid, type, limit, offset)
-		);
+	/** Page of a player's chat/command entries, optionally one type and one backend only. */
+	public List<Map<String, Object>> chat(String uuid, String type, String server, int offset, int limit) {
+		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_chat WHERE uuid = ?");
+		List<Object> bindings = new ArrayList<>();
+		bindings.add(uuid);
+
+		appendChatFilter(sql, bindings, type, server, "");
+
+		sql.append(" ORDER BY at DESC LIMIT ? OFFSET ?");
+		bindings.add(limit);
+		bindings.add(offset);
+
+		return database.query(sql.toString(), bindings);
 	}
 
 	/** Total chat/command entries for a player, optionally one type only. */
 	public long chatCount(String uuid, String type) {
-		if (blankIfNull(type).isBlank()) {
-			return scalar("SELECT COUNT(*) AS n FROM luna_player_chat WHERE uuid = ?", List.of(uuid));
+		return chatCount(uuid, type, "");
+	}
+
+	/** Total chat/command entries for a player, optionally one type and one backend only. */
+	public long chatCount(String uuid, String type, String server) {
+		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_chat WHERE uuid = ?");
+		List<Object> bindings = new ArrayList<>();
+		bindings.add(uuid);
+
+		appendChatFilter(sql, bindings, type, server, "");
+
+		return scalar(sql.toString(), bindings);
+	}
+
+	/**
+	 * Page of everyone's chat/command entries, newest first: one backend's when
+	 * {@code server} is non-blank, the whole network's otherwise. {@code search}
+	 * matches the content and the username.
+	 */
+	public List<Map<String, Object>> serverChat(String server, String type, String search, int offset, int limit) {
+		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_chat WHERE 1 = 1");
+		List<Object> bindings = new ArrayList<>();
+
+		appendChatFilter(sql, bindings, type, server, search);
+
+		sql.append(" ORDER BY at DESC LIMIT ? OFFSET ?");
+		bindings.add(limit);
+		bindings.add(offset);
+
+		return database.query(sql.toString(), bindings);
+	}
+
+	/** Total entries matching the same filters as {@link #serverChat}. */
+	public long serverChatCount(String server, String type, String search) {
+		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_chat WHERE 1 = 1");
+		List<Object> bindings = new ArrayList<>();
+
+		appendChatFilter(sql, bindings, type, server, search);
+
+		return scalar(sql.toString(), bindings);
+	}
+
+	private void appendServerFilter(StringBuilder sql, List<Object> bindings, String server) {
+		String normalized = normalize(server);
+
+		if (!normalized.isBlank()) {
+			sql.append(" AND server = ?");
+			bindings.add(normalized);
+		}
+	}
+
+	private void appendChatFilter(StringBuilder sql, List<Object> bindings, String type, String server, String search) {
+		if (!blankIfNull(type).isBlank()) {
+			sql.append(" AND type = ?");
+			bindings.add(type);
 		}
 
-		return scalar("SELECT COUNT(*) AS n FROM luna_player_chat WHERE uuid = ? AND type = ?", List.of(uuid, type));
+		appendServerFilter(sql, bindings, server);
+
+		if (!blankIfNull(search).isBlank()) {
+			String term = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
+			sql.append(" AND (LOWER(content) LIKE ? OR LOWER(username) LIKE ?)");
+			bindings.add(term);
+			bindings.add(term);
+		}
 	}
 
 	/** Page of moderation entries for a target, newest first. */

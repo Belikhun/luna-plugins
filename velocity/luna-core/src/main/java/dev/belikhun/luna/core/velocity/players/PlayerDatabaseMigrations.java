@@ -141,5 +141,32 @@ public final class PlayerDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return NAMESPACE;
+			}
+
+			@Override
+			public int version() {
+				return 3;
+			}
+
+			@Override
+			public String name() {
+				return "index_chat_by_server";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				// the per-backend chat log reads newest-first within one server, which
+				// the (uuid, at) and (at) keys cannot serve without a full scan
+				database.update(
+					"CREATE INDEX IF NOT EXISTS idx_chat_server ON luna_player_chat (server, at)",
+					List.of()
+				);
+			}
+		});
 	}
 }
