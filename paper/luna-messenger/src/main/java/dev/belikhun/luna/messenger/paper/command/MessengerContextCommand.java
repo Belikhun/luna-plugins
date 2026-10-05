@@ -35,8 +35,8 @@ public final class MessengerContextCommand implements BasicCommand {
 		}
 
 		switch (contextType) {
-			case NETWORK -> gateway.switchNetwork(player);
-			case SERVER -> gateway.switchServer(player);
+			case NETWORK -> gateway.switchNetwork(player, String.join(" ", args));
+			case SERVER -> gateway.switchServer(player, String.join(" ", args));
 			case DIRECT -> {
 				if (args.length < 1) {
 					player.sendRichMessage(MessengerMessages.directUsage());

@@ -28,12 +28,14 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -74,6 +76,7 @@ public final class VelocityMessengerRouter {
 	private final ArrayDeque<UUID> seenPlayersOrder;
 	private final Map<String, Long> recentDiscordOutboundFingerprints;
 	private final Map<UUID, PresenceFingerprint> recentPresenceFingerprints;
+	private volatile Consumer<Map<String, Object>> chatObserver;
 
 	public VelocityMessengerRouter(
 		ProxyServer proxyServer,
@@ -255,6 +258,17 @@ public final class VelocityMessengerRouter {
 		}
 	}
 
+	/**
+	 * Hand every network chat line (players and inbound Discord) to an observer
+	 * as plain data, which is how the chat bridge streams chat out. Server and
+	 * direct channels are never observed: the bridge only takes part in the
+	 * network channel. The observer runs on the routing
+	 * thread, so it must only enqueue.
+	 */
+	public void observeChat(Consumer<Map<String, Object>> observer) {
+		this.chatObserver = observer;
+	}
+
 	public void reloadRuntime(VelocityMessengerConfig newConfig, DiscordBridgeGateway newDiscordBridge) {
 		this.config = newConfig;
 		this.discordBridge = newDiscordBridge;
@@ -291,10 +305,20 @@ public final class VelocityMessengerRouter {
 
 		switch (request.commandType()) {
 			case SWITCH_NETWORK -> {
+				if (hasText(request.argument())) {
+					routeOnce(sender, MessagingContextType.NETWORK, request.argument(), request.resolvedValues(), correlationId);
+					return;
+				}
+
 				contextByPlayer.put(sender.getUniqueId(), MessagingContext.network());
 				sendInfo(sender, "<green>✔ Đã chuyển sang kênh <white>mạng</white>.</green>", correlationId);
 			}
 			case SWITCH_SERVER -> {
+				if (hasText(request.argument())) {
+					routeOnce(sender, MessagingContextType.SERVER, request.argument(), request.resolvedValues(), correlationId);
+					return;
+				}
+
 				contextByPlayer.put(sender.getUniqueId(), MessagingContext.server());
 				sendInfo(sender, "<green>✔ Đã chuyển sang kênh <white>máy chủ</white>.</green>", correlationId);
 			}
@@ -525,6 +549,31 @@ public final class VelocityMessengerRouter {
 		sendDirect(sender, target, message, resolvedValues, correlationId, true);
 	}
 
+	private static boolean hasText(String value) {
+		return value != null && !value.isBlank();
+	}
+
+	/**
+	 * `/nw <message>` and `/sv <message>`: one message to that channel, with the
+	 * same rate limit and mute checks as chat, and the player's channel untouched.
+	 */
+	private void routeOnce(Player sender, MessagingContextType channel, String message, Map<String, String> resolvedValues, UUID correlationId) {
+		if (checkRateLimit(sender, correlationId)) {
+			return;
+		}
+
+		if (checkMuted(sender, correlationId)) {
+			return;
+		}
+
+		if (channel == MessagingContextType.SERVER) {
+			routeServer(sender, message.trim(), resolvedValues, correlationId);
+			return;
+		}
+
+		routeNetwork(sender, message.trim(), resolvedValues, correlationId);
+	}
+
 	private void routeChat(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
 		if (checkRateLimit(sender, correlationId)) {
 			return;
@@ -582,9 +631,10 @@ public final class VelocityMessengerRouter {
 		String rendered = renderPlayerMessage(profile.networkFormat(), mention.renderedMessage(), internalValues, resolvedValues, sender, latePlaceholders);
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, correlationId);
-			notifyMentionTarget(sender, player, mention.mentionedById());
+			notifyMentionTarget(sender.getUsername(), player, mention.mentionedById());
 		}
 		logger.audit("CHAT[NETWORK] " + toConsoleText(rendered));
+		observePlayerChat(sender, serverName, serverDisplay, senderPrefix, senderDisplay, message, resolvedValues, recipients, correlationId);
 
 		// Chỉ tin nhắn network mới được bridge ra Discord.
 		Map<String, String> outboundInternalValues = Map.of(
@@ -645,7 +695,7 @@ public final class VelocityMessengerRouter {
 		), resolvedValues, sender, latePlaceholders);
 		for (Player player : recipients) {
 			sendResult(player, MessengerResultType.SERVER_CHAT, rendered, correlationId);
-			notifyMentionTarget(sender, player, mention.mentionedById());
+			notifyMentionTarget(sender.getUsername(), player, mention.mentionedById());
 		}
 		logger.audit("CHAT[SERVER:" + serverName + "] " + toConsoleText(rendered));
 	}
@@ -787,6 +837,8 @@ public final class VelocityMessengerRouter {
 		for (Player player : proxyServer.getAllPlayers()) {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, null);
 		}
+
+		observeDiscordChat(inboundMessage, authorName, authorUsername, authorNickname, message);
 	}
 
 	public void handlePlayerJoin(Player player, String connectedServerName) {
@@ -1452,6 +1504,244 @@ public final class VelocityMessengerRouter {
 		return renderer.render(template, null, values == null ? Map.of() : values);
 	}
 
+	private void observePlayerChat(
+		Player sender,
+		String serverName,
+		String serverDisplay,
+		String senderPrefix,
+		String senderDisplay,
+		String message,
+		Map<String, String> resolvedValues,
+		List<Player> recipients,
+		UUID correlationId
+	) {
+		Consumer<Map<String, Object>> observer = chatObserver;
+		if (observer == null) {
+			return;
+		}
+
+		Map<String, Object> player = new LinkedHashMap<>();
+		player.put("uuid", sender.getUniqueId().toString());
+		player.put("name", sender.getUsername());
+		player.put("display", toConsoleText(senderDisplay));
+		player.put("prefix", toConsoleText(senderPrefix));
+		player.put("group", playerDisplayFormat.playerGroupName(sender));
+		player.put("groupDisplay", toConsoleText(playerDisplayFormat.playerGroupDisplay(sender)));
+		player.put("ping", sender.getPing());
+		player.put("client", sender.getProtocolVersion().getMostRecentSupportedVersion());
+		Long sessionStartedAt = playerSessionStartedAt.get(sender.getUniqueId());
+		if (sessionStartedAt != null) {
+			player.put("sessionMillis", Math.max(0L, System.currentTimeMillis() - sessionStartedAt));
+		}
+
+		// Backend-exported values (dimension, health, position, ...) as plain text;
+		// the identity keys are already in "player" and "server".
+		Map<String, Object> values = new LinkedHashMap<>();
+		if (resolvedValues != null) {
+			for (Map.Entry<String, String> entry : resolvedValues.entrySet()) {
+				String key = entry.getKey();
+				if (key == null || key.startsWith("sender_") || key.equals("player_name") || key.equals("server_name") || key.equals("player_uuid")) {
+					continue;
+				}
+
+				values.put(key, toConsoleText(entry.getValue()));
+			}
+		}
+
+		List<String> audience = new java.util.ArrayList<>();
+		for (Player recipient : recipients) {
+			audience.add(recipient.getUsername());
+		}
+
+		Map<String, Object> event = new LinkedHashMap<>();
+		event.put("id", (correlationId == null ? UUID.randomUUID() : correlationId).toString());
+		event.put("source", "minecraft");
+		event.put("time", System.currentTimeMillis());
+		event.put("player", player);
+		event.put("server", Map.of("name", serverName, "display", toConsoleText(serverDisplay)));
+		event.put("message", Formatters.stripFormats(message));
+		event.put("values", values);
+		event.put("audience", audience);
+		deliverChatEvent(observer, event);
+	}
+
+	private void observeDiscordChat(DiscordInboundMessage inbound, String authorName, String authorUsername, String authorNickname, String message) {
+		Consumer<Map<String, Object>> observer = chatObserver;
+		if (observer == null || !config.chatBridge().forwardDiscord()) {
+			return;
+		}
+
+		Map<String, Object> author = new LinkedHashMap<>();
+		author.put("id", inbound.authorId() == null ? "" : inbound.authorId());
+		author.put("name", authorName);
+		author.put("username", authorUsername);
+		author.put("nickname", authorNickname);
+
+		List<String> audience = new java.util.ArrayList<>();
+		for (Player recipient : proxyServer.getAllPlayers()) {
+			audience.add(recipient.getUsername());
+		}
+
+		Map<String, Object> event = new LinkedHashMap<>();
+		event.put("id", UUID.randomUUID().toString());
+		event.put("source", "discord");
+		event.put("time", System.currentTimeMillis());
+		event.put("author", author);
+		event.put("messageId", inbound.messageId() == null ? "" : inbound.messageId());
+		event.put("message", Formatters.stripFormats(message));
+		event.put("audience", audience);
+		deliverChatEvent(observer, event);
+	}
+
+	private void deliverChatEvent(Consumer<Map<String, Object>> observer, Map<String, Object> event) {
+		try {
+			observer.accept(event);
+		} catch (RuntimeException exception) {
+			logger.warn("Chat bridge không nhận được sự kiện chat: " + exception.getMessage());
+		}
+	}
+
+	/**
+	 * Say something in network chat as the bridge's sender, rendered with the
+	 * player chat format so it reads like anyone else talking. Each line of the
+	 * text is its own chat line, the way a person sends several messages;
+	 * markup in the text is escaped exactly as a player's would be.
+	 *
+	 * @param name the sender's name, or null for the configured one
+	 * @return the number of players reached
+	 */
+	public int routeBridgeChat(String name, String text) {
+		VelocityMessengerConfig.ChatBridgeConfig bridge = config.chatBridge();
+		List<Player> recipients = List.copyOf(proxyServer.getAllPlayers());
+		String senderName = name == null || name.isBlank() ? bridge.senderName() : name.trim();
+		String senderPrefix = bridge.senderPrefix();
+		String nameDisplay = bridge.senderDisplay().replace("%sender_name%", senderName);
+		String senderDisplay = senderPrefix.isBlank() ? nameDisplay : senderPrefix + " " + nameDisplay;
+		String template = bridge.networkFormat().isBlank()
+			? config.profileForServer("").networkFormat()
+			: bridge.networkFormat();
+		String channelName = config.discord().networkChannelName();
+		Map<String, String> internalValues = Map.of(
+			"sender_name", senderName,
+			"server_name", "",
+			"server_display", bridge.serverDisplay(),
+			"channel_name", channelName,
+			"player_avatar_url", bridge.avatarUrl(),
+			"server_color", bridge.serverColor()
+		);
+		Map<String, String> latePlaceholders = Map.ofEntries(
+			Map.entry("server_display", bridge.serverDisplay()),
+			Map.entry("player_prefix", senderPrefix),
+			Map.entry("player_display", senderDisplay),
+			Map.entry("sender_display", senderDisplay),
+			Map.entry("receiver_display", ""),
+			Map.entry("luna_player_name", senderName),
+			Map.entry("luna_player_prefix", senderPrefix),
+			Map.entry("luna_player_suffix", ""),
+			Map.entry("luna_player_group_name", "bot"),
+			Map.entry("luna_player_group_display", ""),
+			Map.entry("luna_player_display", senderDisplay)
+		);
+
+		List<String> lines = bridgeLines(text, bridge.maxLines(), bridge.maxLineLength());
+		for (String line : lines) {
+			MentionProcessing mention = bridgeMentions(line, recipients);
+			String rendered = renderWithBody(template, mention.renderedMessage(), internalValues, Map.of(), null, latePlaceholders);
+			for (Player player : recipients) {
+				sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, null);
+				notifyMentionTarget(senderName, player, mention.mentionedById());
+			}
+
+			logger.audit("CHAT[BRIDGE] " + toConsoleText(rendered));
+		}
+
+		if (bridge.publishDiscord() && !lines.isEmpty()) {
+			String joined = String.join("\n", lines);
+			Map<String, String> outbound = new HashMap<>();
+			outbound.put("sender_name", senderName);
+			outbound.put("player_prefix", senderPrefix);
+			outbound.put("sender_display", toConsoleText(senderDisplay));
+			outbound.put("server_name", "");
+			outbound.put("server_display", toConsoleText(bridge.serverDisplay()));
+			outbound.put("channel_name", channelName);
+			outbound.put("player_avatar_url", bridge.avatarUrl());
+			outbound.put("message", joined);
+			outbound.put("server_color", bridge.serverColor());
+			outbound.put("discord_content", joined);
+			outbound.put("avatar_url_override", bridge.avatarUrl());
+			publishDiscord(config.discord().networkMessage(), outbound, Map.of(), null, DiscordOutboundMessage.DispatchType.PLAYER_CHAT);
+		}
+
+		return lines.isEmpty() ? 0 : recipients.size();
+	}
+
+	/**
+	 * A bridge line as MiniMessage: the text escaped whole (no tags, and unlike a
+	 * player no {@code &} colour codes either, since "R&D" is not a request for
+	 * pink), with only the mentions of online players highlighted.
+	 */
+	private MentionProcessing bridgeMentions(String line, List<Player> recipients) {
+		String escaped = MM.escapeTags(line);
+		VelocityMessengerConfig.MentionConfig mentionConfig = config.mentions();
+		if (!mentionConfig.enabled()) {
+			return new MentionProcessing(escaped, Set.of());
+		}
+
+		Map<String, Player> candidates = new HashMap<>();
+		for (Player player : recipients) {
+			candidates.putIfAbsent(player.getUsername().toLowerCase(), player);
+		}
+
+		Set<UUID> mentionedById = new HashSet<>();
+		Matcher matcher = MENTION_PATTERN.matcher(escaped);
+		StringBuffer output = new StringBuffer();
+		while (matcher.find()) {
+			Player target = candidates.get(matcher.group(1).toLowerCase());
+			if (target == null) {
+				continue;
+			}
+
+			String highlight = legacyToMini(render(mentionConfig.highlightFormat(), Map.of("name", target.getUsername())));
+			matcher.appendReplacement(output, Matcher.quoteReplacement(highlight));
+			mentionedById.add(target.getUniqueId());
+		}
+		matcher.appendTail(output);
+
+		return new MentionProcessing(output.toString(), Set.copyOf(mentionedById));
+	}
+
+	private static List<String> bridgeLines(String text, int maxLines, int maxLineLength) {
+		List<String> lines = new java.util.ArrayList<>();
+		if (text == null) {
+			return lines;
+		}
+
+		for (String raw : text.replace("\r", "").split("\n")) {
+			String line = raw.strip();
+			if (line.isEmpty()) {
+				continue;
+			}
+
+			if (lines.size() >= maxLines) {
+				int last = lines.size() - 1;
+				lines.set(last, ellipsize(lines.get(last), maxLineLength - 2) + " …");
+				break;
+			}
+
+			lines.add(ellipsize(line, maxLineLength));
+		}
+
+		return lines;
+	}
+
+	private static String ellipsize(String line, int max) {
+		if (line.length() <= max) {
+			return line;
+		}
+
+		return line.substring(0, Math.max(1, max - 1)).stripTrailing() + "…";
+	}
+
 	private String renderWithStack(String template, Map<String, String> internalValues, Map<String, String> backendValues, Player player) {
 		return renderer.render(template, player, internalValues == null ? Map.of() : internalValues, backendValues == null ? Map.of() : backendValues);
 	}
@@ -1485,6 +1775,10 @@ public final class VelocityMessengerRouter {
 		Map<String, String> safeBackendValues = normalizeDiscordPlaceholderValues(backendValues);
 		String username = sanitizeDiscordUsername(renderWithStack(config.discord().webhookUsernameFormat(), safeInternalValues, safeBackendValues, player), safeInternalValues);
 		String avatarUrl = sanitizeDiscordUrl(renderWithStack(config.discord().avatarUrlFormat(), safeInternalValues, safeBackendValues, player));
+		String avatarOverride = safeInternalValues.get("avatar_url_override");
+		if (avatarOverride != null && !avatarOverride.isBlank()) {
+			avatarUrl = sanitizeDiscordUrl(avatarOverride);
+		}
 		if (route.mode() == VelocityMessengerConfig.PayloadType.EMBED) {
 			String author = sanitizeDiscordText(renderWithStack(route.embedAuthor(), safeInternalValues, safeBackendValues, player));
 			String authorUrl = sanitizeDiscordUrl(renderWithStack(route.embedAuthorUrl(), safeInternalValues, safeBackendValues, player));
@@ -1722,12 +2016,23 @@ public final class VelocityMessengerRouter {
 		Player player,
 		Map<String, String> unescapedValues
 	) {
+		// %message% is not a layer value on purpose: renderWithBody splices it in
+		// last, so the message body is never treated as template text
+		return renderWithBody(template, legacyToMini(rawMessage), internalValues, backendValues, player, unescapedValues);
+	}
+
+	/** {@link #renderPlayerMessage} with a body that is already MiniMessage. */
+	private String renderWithBody(
+		String template,
+		String messageMini,
+		Map<String, String> internalValues,
+		Map<String, String> backendValues,
+		Player player,
+		Map<String, String> unescapedValues
+	) {
 		Map<String, String> unescapedMap = unescapedValues == null ? Map.of() : unescapedValues;
 		Map<String, String> safeBackendValues = backendValues == null ? Map.of() : backendValues;
-		// %message% is not a layer value on purpose: it is spliced in last, below,
-		// so the message body is never treated as template text
 		String rendered = renderer.render(template, player, internalValues == null ? Map.of() : internalValues, unescapedMap, safeBackendValues);
-		String messageMini = legacyToMini(rawMessage);
 		if (rendered.contains("%message%")) {
 			return rendered.replace("%message%", messageMini);
 		}
@@ -1813,24 +2118,24 @@ public final class VelocityMessengerRouter {
 		return new MentionProcessing(output.toString(), Set.copyOf(mentionedById));
 	}
 
-	private void notifyMentionTarget(Player sender, Player recipient, Set<UUID> mentionedById) {
+	private void notifyMentionTarget(String senderName, Player recipient, Set<UUID> mentionedById) {
 		if (!mentionedById.contains(recipient.getUniqueId())) {
 			return;
 		}
 
 		VelocityMessengerConfig.MentionConfig mentionConfig = config.mentions();
 		String alert = render(mentionConfig.alertFormat(), Map.of(
-			"sender_name", sender.getUsername(),
+			"sender_name", senderName,
 			"target_name", recipient.getUsername()
 		));
 		Map<String, String> metadata = new HashMap<>();
 		metadata.put("toast.enabled", String.valueOf(mentionConfig.toastEnabled()));
 		metadata.put("toast.title", render(mentionConfig.toastTitle(), Map.of(
-			"sender_name", sender.getUsername(),
+			"sender_name", senderName,
 			"target_name", recipient.getUsername()
 		)));
 		metadata.put("toast.subtitle", render(mentionConfig.toastSubtitle(), Map.of(
-			"sender_name", sender.getUsername(),
+			"sender_name", senderName,
 			"target_name", recipient.getUsername()
 		)));
 		metadata.put("toast.fade-in-ms", String.valueOf(mentionConfig.toastFadeInMs()));

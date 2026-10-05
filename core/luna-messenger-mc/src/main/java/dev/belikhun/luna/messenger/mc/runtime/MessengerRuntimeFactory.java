@@ -10,6 +10,25 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 public final class MessengerRuntimeFactory {
+	/**
+	 * Where the player is and how they are doing, sent with every chat line so a
+	 * listener on the proxy (the chat bridge's AI bot) knows the speaker's
+	 * situation. LunaCore answers these on every mod loader with the same names
+	 * Paper's PlaceholderAPI Player expansion uses.
+	 */
+	private static final java.util.List<String> STATUS_EXPORT_KEYS = java.util.List.of(
+		"player_world",
+		"player_x",
+		"player_y",
+		"player_z",
+		"player_health_rounded",
+		"player_max_health_rounded",
+		"player_food_level",
+		"player_level",
+		"player_gamemode",
+		"player_biome"
+	);
+
 	private MessengerRuntimeFactory() {
 	}
 
@@ -30,7 +49,7 @@ public final class MessengerRuntimeFactory {
 			return new NoopMessengerRuntime();
 		}
 
-		BackendPlaceholderResolver placeholderResolver = new CoreBackedPlaceholderResolver(dependencyManager, java.util.List.of());
+		BackendPlaceholderResolver placeholderResolver = new CoreBackedPlaceholderResolver(dependencyManager, STATUS_EXPORT_KEYS);
 		BackendIdentity backendIdentity = dependencyManager.resolveOptional(BackendIdentity.class)
 			.orElseGet(() -> () -> new BackendMetadata("backend", "", "").sanitize());
 

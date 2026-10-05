@@ -243,11 +243,21 @@ public final class PaperMessengerGateway implements Listener {
 	}
 
 	public void switchNetwork(Player player) {
-		send(player, MessengerCommandType.SWITCH_NETWORK, "");
+		switchNetwork(player, "");
+	}
+
+	/** With a message, the proxy sends it to the network once and leaves the channel as it was. */
+	public void switchNetwork(Player player, String message) {
+		send(player, MessengerCommandType.SWITCH_NETWORK, message == null ? "" : message);
 	}
 
 	public void switchServer(Player player) {
-		send(player, MessengerCommandType.SWITCH_SERVER, "");
+		switchServer(player, "");
+	}
+
+	/** With a message, the proxy sends it to this server once and leaves the channel as it was. */
+	public void switchServer(Player player, String message) {
+		send(player, MessengerCommandType.SWITCH_SERVER, message == null ? "" : message);
 	}
 
 	public void switchDirect(Player player, String targetName) {

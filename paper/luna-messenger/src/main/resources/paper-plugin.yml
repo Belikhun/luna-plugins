@@ -7,11 +7,11 @@ authors:
   - Belikhun
 commands:
   nw:
-    description: Chuyển ngữ cảnh chat sang kênh mạng.
-    usage: /nw
+    description: Chuyển ngữ cảnh chat sang kênh mạng, hoặc gửi một tin nhắn lên kênh mạng.
+    usage: /nw [nội_dung]
   sv:
-    description: Chuyển ngữ cảnh chat sang kênh máy chủ hiện tại.
-    usage: /sv
+    description: Chuyển ngữ cảnh chat sang kênh máy chủ hiện tại, hoặc gửi một tin nhắn lên kênh đó.
+    usage: /sv [nội_dung]
   msg:
     description: Chuyển ngữ cảnh chat sang nhắn tin trực tiếp.
     usage: /msg <người_chơi>

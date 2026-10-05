@@ -67,7 +67,15 @@ public final class LunaMessengerForgeMod {
 				"",
 				null,
 				MessengerMessages.networkSwitchFailed()
-			)));
+			))
+			.then(Commands.argument("message", StringArgumentType.greedyString())
+				.executes(context -> executeContextSwitch(
+					context.getSource(),
+					dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_NETWORK,
+					StringArgumentType.getString(context, "message"),
+					null,
+					MessengerMessages.networkSwitchFailed()
+				))));
 
 		event.getDispatcher().register(Commands.literal("sv")
 			.executes(context -> executeContextSwitch(
@@ -76,7 +84,15 @@ public final class LunaMessengerForgeMod {
 				"",
 				null,
 				MessengerMessages.serverSwitchFailed()
-			)));
+			))
+			.then(Commands.argument("message", StringArgumentType.greedyString())
+				.executes(context -> executeContextSwitch(
+					context.getSource(),
+					dev.belikhun.luna.core.api.messenger.MessengerCommandType.SWITCH_SERVER,
+					StringArgumentType.getString(context, "message"),
+					null,
+					MessengerMessages.serverSwitchFailed()
+				))));
 
 		event.getDispatcher().register(Commands.literal("poke")
 			.executes(context -> sendPokeUsage(context.getSource()))

@@ -342,3 +342,36 @@ rate-limit:
   max-messages: 6
   # Người có permission này sẽ bỏ qua giới hạn.
   bypass-permission: "lunamessenger.bypass.ratelimit"
+
+# Chat bridge: một chương trình bên ngoài (bot AI trên Discord) đọc chat kênh mạng
+# qua /api/messenger/bridge/stream và trả lời qua /api/messenger/bridge/chat, hiển thị
+# như tin nhắn của người chơi; boss bar qua /api/messenger/bridge/bossbar cho biết bot
+# đang làm gì. Chỉ kênh mạng, không bao giờ kênh máy chủ hay tin nhắn riêng.
+chat-bridge:
+  enabled: false
+  # Token riêng của bridge (Authorization: Bearer <token>), KHÔNG dùng forwarding secret.
+  token: ""
+  sender:
+    # Tên mặc định khi chương trình không gửi tên.
+    name: "Bụt"
+    # Hiển thị tên trong chat; %sender_name% là tên ở trên (hoặc tên chương trình gửi).
+    display: "<gradient:#7AD7FF:#C38BFF>%sender_name%</gradient>"
+    # Prefix đặt trước display, để trống nếu không cần.
+    prefix: ""
+    server-display: "AI"
+    server-color: "#7AD7FF"
+    # Ảnh đại diện trên Discord; để trống để dùng discord.webhook.avatar-url-format.
+    avatar-url: ""
+  # Format riêng cho tin của bridge; để trống để dùng formats.defaults.channel.network.
+  format: ""
+  # Gửi cả tin nhắn từ Discord (đã relay vào game) cho chương trình.
+  forward-discord: true
+  # Gửi câu trả lời lên Discord như tin nhắn chat mạng.
+  publish-discord: true
+  limits:
+    # Mỗi dòng là một tin nhắn chat; dòng thừa bị cắt.
+    max-lines: 6
+    max-line-length: 400
+  bossbar:
+    # Boss bar tự ẩn nếu chương trình không cập nhật trong khoảng này.
+    ttl-seconds: 90

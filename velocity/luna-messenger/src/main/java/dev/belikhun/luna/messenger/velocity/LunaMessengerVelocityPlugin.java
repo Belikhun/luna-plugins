@@ -19,6 +19,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
 import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
@@ -26,6 +27,7 @@ import dev.belikhun.luna.messenger.velocity.command.MessengerBroadcastCommand;
 import dev.belikhun.luna.messenger.velocity.command.DiscordLinkCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerModerationCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerSpyCommand;
+import dev.belikhun.luna.messenger.velocity.service.ChatBridgeService;
 import dev.belikhun.luna.messenger.velocity.service.DiscordAccountLinkService;
 import dev.belikhun.luna.messenger.velocity.service.DiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.DiscordLinkServerProtectionListener;
@@ -74,6 +76,7 @@ public final class LunaMessengerVelocityPlugin {
 	private DiscordCommandRegistry discordCommandRegistry;
 	private BackendStatusView backendStatusView;
 	private ServerDisplayResolver serverDisplayResolver;
+	private ChatBridgeService chatBridge;
 
 	@Inject
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -118,6 +121,7 @@ public final class LunaMessengerVelocityPlugin {
 		proxyServer.getEventManager().register(this, new MessengerPresenceListener(router));
 		proxyServer.getEventManager().register(this, new DiscordLinkServerProtectionListener(logger, () -> currentConfig, () -> discordAccountLinkService, () -> serverDisplayResolver));
 		router.publishPresenceSnapshot();
+		registerChatBridge();
 		logger.audit("Thư mục dữ liệu messenger: " + dataDirectory.toAbsolutePath());
 		logger.audit("Discord bridge enabled: " + config.discord().enabled());
 		logger.success("LunaMessenger (Velocity) đã khởi động thành công.");
@@ -127,6 +131,9 @@ public final class LunaMessengerVelocityPlugin {
 	public void onProxyShutdown(ProxyShutdownEvent event) {
 		if (router != null && stateStore != null) {
 			stateStore.save(router.snapshotPersistentState());
+		}
+		if (chatBridge != null) {
+			chatBridge.close();
 		}
 		if (router != null) {
 			router.close();
@@ -138,6 +145,22 @@ public final class LunaMessengerVelocityPlugin {
 			discordAccountLinkService.close();
 		}
 		logger.audit("LunaMessenger (Velocity) đã tắt.");
+	}
+
+	/**
+	 * The chat bridge rides LunaCore's HTTP server with its own token, so a proxy
+	 * without the HTTP server still runs chat; it just has no bridge.
+	 */
+	private void registerChatBridge() {
+		VelocityHttpServerManager httpServerManager = LunaCoreVelocity.services().httpServerManager();
+		if (httpServerManager == null) {
+			logger.warn("LunaCore không có HTTP server — bỏ qua chat bridge.");
+			return;
+		}
+
+		chatBridge = new ChatBridgeService(proxyServer, logger, router, () -> currentConfig);
+		chatBridge.register(httpServerManager.router());
+		logger.audit("Đã đăng ký endpoint /messenger/bridge (bật: " + currentConfig.chatBridge().enabled() + ").");
 	}
 
 	private void ensureDefaults() {

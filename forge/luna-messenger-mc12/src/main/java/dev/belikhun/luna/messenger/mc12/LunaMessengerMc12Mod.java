@@ -310,7 +310,7 @@ public final class LunaMessengerMc12Mod {
 
 		@Override
 		public String getUsage(ICommandSender sender) {
-			return "/" + getName();
+			return "/" + getName() + " [nội_dung]";
 		}
 
 		@Override
@@ -321,7 +321,8 @@ public final class LunaMessengerMc12Mod {
 				return;
 			}
 
-			if (!runtime.sendCommand(player, commandType, "")) {
+			// with a message, the proxy sends it once and leaves the channel as it was
+			if (!runtime.sendCommand(player, commandType, String.join(" ", args).trim())) {
 				reply(sender, failureMessage);
 			}
 		}

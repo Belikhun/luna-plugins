@@ -22,3 +22,14 @@ placeholder-api:
     - vault_suffix
     - vault_primary_group
     - player_displayname
+    # Trạng thái người chơi, gửi kèm mỗi tin nhắn chat cho chat bridge (bot AI).
+    - player_world
+    - player_x
+    - player_y
+    - player_z
+    - player_health_rounded
+    - player_max_health_rounded
+    - player_food_level
+    - player_level
+    - player_gamemode
+    - player_biome

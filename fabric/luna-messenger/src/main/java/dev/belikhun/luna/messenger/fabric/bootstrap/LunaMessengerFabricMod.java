@@ -119,7 +119,15 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 				"",
 				null,
 				MessengerMessages.networkSwitchFailed()
-			)));
+			))
+			.then(Commands.argument("message", StringArgumentType.greedyString())
+				.executes(context -> executeContextSwitch(
+					context.getSource(),
+					MessengerCommandType.SWITCH_NETWORK,
+					StringArgumentType.getString(context, "message"),
+					null,
+					MessengerMessages.networkSwitchFailed()
+				))));
 
 		dispatcher.register(Commands.literal("sv")
 			.executes(context -> executeContextSwitch(
@@ -128,7 +136,15 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 				"",
 				null,
 				MessengerMessages.serverSwitchFailed()
-			)));
+			))
+			.then(Commands.argument("message", StringArgumentType.greedyString())
+				.executes(context -> executeContextSwitch(
+					context.getSource(),
+					MessengerCommandType.SWITCH_SERVER,
+					StringArgumentType.getString(context, "message"),
+					null,
+					MessengerMessages.serverSwitchFailed()
+				))));
 
 		dispatcher.register(Commands.literal("poke")
 			.executes(context -> reply(context.getSource(), pokeUsage()))

@@ -20,6 +20,7 @@ public final class VelocityMessengerConfig {
 	private final DiscordConfig discord;
 	private final ServerProtectionConfig serverProtection;
 	private final RateLimitConfig rateLimit;
+	private final ChatBridgeConfig chatBridge;
 
 	private VelocityMessengerConfig(
 		FormatProfile defaults,
@@ -28,7 +29,8 @@ public final class VelocityMessengerConfig {
 		SilentBroadcastConfig silentBroadcast,
 		DiscordConfig discord,
 		ServerProtectionConfig serverProtection,
-		RateLimitConfig rateLimit
+		RateLimitConfig rateLimit,
+		ChatBridgeConfig chatBridge
 	) {
 		this.defaults = defaults;
 		this.perServer = perServer;
@@ -37,6 +39,7 @@ public final class VelocityMessengerConfig {
 		this.discord = discord;
 		this.serverProtection = serverProtection;
 		this.rateLimit = rateLimit;
+		this.chatBridge = chatBridge;
 	}
 
 	public static VelocityMessengerConfig load(Path path) {
@@ -57,6 +60,7 @@ public final class VelocityMessengerConfig {
 		DiscordConfig discord = parseDiscordConfig(map(root.get("discord")));
 		ServerProtectionConfig serverProtection = parseServerProtectionConfig(map(root.get("server-protection")));
 		RateLimitConfig rateLimit = parseRateLimitConfig(map(root.get("rate-limit")));
+		ChatBridgeConfig chatBridge = parseChatBridgeConfig(map(root.get("chat-bridge")));
 		return new VelocityMessengerConfig(
 			defaults,
 			Map.copyOf(perServer),
@@ -64,7 +68,8 @@ public final class VelocityMessengerConfig {
 			silentBroadcast,
 			discord,
 			serverProtection,
-			rateLimit
+			rateLimit,
+			chatBridge
 		);
 	}
 
@@ -93,6 +98,10 @@ public final class VelocityMessengerConfig {
 
 	public ServerProtectionConfig serverProtection() {
 		return serverProtection;
+	}
+
+	public ChatBridgeConfig chatBridge() {
+		return chatBridge;
 	}
 
 	private static MentionConfig parseMentionConfig(Map<String, Object> mentions) {
@@ -203,6 +212,28 @@ public final class VelocityMessengerConfig {
 			integer(rateLimit.get("window-ms"), 5000),
 			integer(rateLimit.get("max-messages"), 6),
 			str(rateLimit.get("bypass-permission"), "lunamessenger.bypass.ratelimit")
+		);
+	}
+
+	private static ChatBridgeConfig parseChatBridgeConfig(Map<String, Object> bridge) {
+		Map<String, Object> sender = map(bridge.get("sender"));
+		Map<String, Object> limits = map(bridge.get("limits"));
+		Map<String, Object> bossbar = map(bridge.get("bossbar"));
+		return new ChatBridgeConfig(
+			bool(bridge.get("enabled"), false),
+			str(bridge.get("token"), ""),
+			str(sender.get("name"), "Bụt"),
+			str(sender.get("display"), "<gradient:#7AD7FF:#C38BFF>%sender_name%</gradient>"),
+			strPreserveWhitespace(sender.get("prefix"), ""),
+			str(sender.get("server-display"), "AI"),
+			str(sender.get("server-color"), "#7AD7FF"),
+			str(sender.get("avatar-url"), ""),
+			str(bridge.get("format"), ""),
+			bool(bridge.get("forward-discord"), true),
+			bool(bridge.get("publish-discord"), true),
+			Math.max(1, integer(limits.get("max-lines"), 6)),
+			Math.max(32, integer(limits.get("max-line-length"), 400)),
+			Math.max(10, integer(bossbar.get("ttl-seconds"), 90))
 		);
 	}
 
@@ -622,6 +653,30 @@ public final class VelocityMessengerConfig {
 		Integer windowMs,
 		Integer maxMessages,
 		String bypassPermission
+	) {
+	}
+
+	/**
+	 * The chat bridge: an outside program (the Discord AI bot) that reads chat off
+	 * an event stream and answers as a named sender rendered like a player. The
+	 * token is its own, never the forwarding secret, because the forwarding
+	 * secret is what lets a process impersonate any player to a backend.
+	 */
+	public record ChatBridgeConfig(
+		boolean enabled,
+		String token,
+		String senderName,
+		String senderDisplay,
+		String senderPrefix,
+		String serverDisplay,
+		String serverColor,
+		String avatarUrl,
+		String networkFormat,
+		boolean forwardDiscord,
+		boolean publishDiscord,
+		int maxLines,
+		int maxLineLength,
+		int bossbarTtlSeconds
 	) {
 	}
 
