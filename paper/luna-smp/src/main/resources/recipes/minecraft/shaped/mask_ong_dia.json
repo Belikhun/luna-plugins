@@ -1,0 +1,14 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mask_ong_dia",
+	"shape": [
+		"SPS",
+		"PKP",
+		"PPP"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"P": "minecraft:paper",
+		"K": "minecraft:pink_dye"
+	}
+}

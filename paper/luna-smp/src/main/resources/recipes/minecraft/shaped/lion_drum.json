@@ -1,0 +1,16 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lion_drum",
+	"shape": [
+		"SLS",
+		"RNR",
+		"WWW"
+	],
+	"ingredients": {
+		"S": "minecraft:stick",
+		"L": "minecraft:leather",
+		"R": "minecraft:red_dye",
+		"N": "minecraft:note_block",
+		"W": "minecraft:oak_planks"
+	}
+}

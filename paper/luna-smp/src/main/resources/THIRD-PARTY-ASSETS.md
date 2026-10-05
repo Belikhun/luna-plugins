@@ -515,3 +515,22 @@ Two rules are ours rather than the game's, both written down in
 it, and a crop that does not regrow returns a seed when it is picked. The
 game's answers there (no growth at all, and a seed maker) both lose a player's
 farm to something they cannot see from inside Minecraft.
+
+## The Tết Trung Thu set (ours)
+
+Every model and every sheet of the Mid-Autumn set (the mooncakes and their
+plate, the lanterns, the masks, the lion drum, the pomelo dog, the fruit and
+the tea) is composed and painted in `tools/furniture-gen/trungthu.ts`,
+including the LabPBR `_s` specular sheets beside the glowing textures. Nothing
+is taken from any pack or mod; the shapes follow the real objects.
+
+The toy tunes in `ToyTunes.kt` are melodies written out as note-block notes,
+not recordings. "Rước Đèn Tháng Tám", "Chiếc Đèn Ông Sao", "Đêm Trung Thu" and
+"Một Con Vịt" are Vietnamese children's songs, transcribed from the solfège
+(cảm âm) published on tiengsao.com and the snippets on hocthoisao.com and
+harmonicachonguoivietnam.wordpress.com; their composers' rights are not
+cleared, and they are recorded here as provenance only. "Frère Jacques"
+(sung in Vietnam as "Kìa Con Bướm Vàng"), "Twinkle, Twinkle, Little Star",
+"Jingle Bells" and "Happy Birthday to You" are public domain. The toy noises
+(sirens, laser gun, toy phone, animal board) are arrangements of vanilla
+sound events.

@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mask_ngo_khong",
+	"shape": [
+		"SGS",
+		"PRP",
+		"PPP"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"G": "minecraft:gold_nugget",
+		"P": "minecraft:paper",
+		"R": "minecraft:red_dye"
+	}
+}

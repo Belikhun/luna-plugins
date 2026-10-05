@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_hoian_yellow",
+	"shape": [
+		"BSB",
+		"SDS",
+		" C "
+	],
+	"ingredients": {
+		"B": "minecraft:bamboo",
+		"S": "minecraft:string",
+		"D": "minecraft:yellow_dye",
+		"C": "minecraft:candle"
+	}
+}

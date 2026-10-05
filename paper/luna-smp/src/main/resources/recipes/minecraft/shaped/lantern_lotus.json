@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_lotus",
+	"shape": [
+		"KPK",
+		"PLP",
+		" C "
+	],
+	"ingredients": {
+		"K": "minecraft:pink_dye",
+		"P": "minecraft:paper",
+		"L": "minecraft:lily_pad",
+		"C": "minecraft:candle"
+	}
+}

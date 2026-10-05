@@ -1,0 +1,30 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mooncake_thap_cam",
+	"ingredients": [
+		{
+			"item": "minecraft:wheat",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:egg",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:pumpkin_seeds",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:melon_seeds",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:cooked_porkchop",
+			"amount": 1
+		}
+	]
+}

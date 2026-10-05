@@ -1,0 +1,18 @@
+{
+	"category": "misc",
+	"result": "lunasmp:tra_nong",
+	"ingredients": [
+		{
+			"item": "lunasmp:tea_leaves",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:water_bucket",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:bowl",
+			"amount": 1
+		}
+	]
+}

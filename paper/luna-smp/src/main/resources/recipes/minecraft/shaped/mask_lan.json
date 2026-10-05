@@ -1,0 +1,16 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mask_lan",
+	"shape": [
+		"SWS",
+		"RPY",
+		"PPP"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"W": "minecraft:white_wool",
+		"R": "minecraft:red_dye",
+		"Y": "minecraft:yellow_dye",
+		"P": "minecraft:paper"
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"category": "misc",
+	"result": "lunasmp:banh_deo_la_dua",
+	"ingredients": [
+		{
+			"item": "lunasmp:unmilled_rice",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:fern",
+			"amount": 1
+		},
+		{
+			"item": "lunasmp:green_bean",
+			"amount": 1
+		}
+	]
+}

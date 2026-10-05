@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_star_blue",
+	"shape": [
+		" B ",
+		"PDP",
+		" C "
+	],
+	"ingredients": {
+		"B": "minecraft:bamboo",
+		"P": "minecraft:paper",
+		"D": "minecraft:blue_dye",
+		"C": "minecraft:candle"
+	}
+}

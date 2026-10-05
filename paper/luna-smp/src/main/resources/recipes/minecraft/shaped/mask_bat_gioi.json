@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mask_bat_gioi",
+	"shape": [
+		"SPS",
+		"PKP",
+		"PHP"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"P": "minecraft:paper",
+		"K": "minecraft:pink_dye",
+		"H": "minecraft:porkchop"
+	}
+}

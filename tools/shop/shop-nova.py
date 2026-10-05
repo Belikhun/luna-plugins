@@ -23,11 +23,13 @@ import re
 import shutil
 import struct
 import sys
+import time
 import zipfile
 import zlib
 
 PATH = '/mnt/shulker/mrds/survival/plugins/LunaShop/items.yml'
-BACKUP = PATH + '.pre-nova'
+# each run keeps its own backup, so a later merge never overwrites the first one
+BACKUP = PATH + '.pre-nova-' + time.strftime('%Y%m%d-%H%M%S')
 PLUGINS = '/mnt/shulker/mrds/survival/plugins'
 DATA_VERSION = 4671
 # every offline-written entry shares one added-date, so a category page reads
@@ -394,7 +396,7 @@ MACHINES = (
 	'mob_duplicator', 'planter', 'harvester', 'fertilizer', 'wireless_charger',
 	'auto_fisher', 'lightning_exchanger', 'tree_factory', 'star_collector',
 	'lava_generator', 'cobblestone_generator', 'pump', 'fluid_infuser', 'freezer',
-	'sprinkler', 'electric_brewing_stand', 'wind_turbine', 'furnace_generator',
+	'sprinkler', 'air_sprinkler', 'electric_brewing_stand', 'wind_turbine', 'furnace_generator',
 	'solar_panel', 'infinite_water_source', 'crystallizer', 'auto_crafter',
 )
 

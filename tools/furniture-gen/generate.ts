@@ -33,6 +33,7 @@ import { POLE_PARTS, TERMINAL_HEIGHT, WIRE_COVERS, WIRE_TIERS, poleItemModels, p
 import { BUTTON, FIELD_DRAW_PER_BLOCK, LAMPS, NODE, NODE_CAPACITY, NODE_RADIUS, RANGE_LEVELS, RANGE_STEP, SWITCH, lampModels, lampSprites } from './lamps';
 import { POST_FACE_Z, SIGNS, WALL_FACE_Z, signModels, signSprites } from './signs';
 import { BIRTHDAY_BLOCKS, BIRTHDAY_ITEMS, birthdayItemModels, birthdayItemSprites, birthdayModels, birthdaySprites } from './birthday';
+import { trungThuBlockEntries, trungThuItemEntries, trungThuItemModels, trungThuItemSprites, trungThuKotlin, trungThuMcmeta, trungThuModels, trungThuRecipes, trungThuSprites } from './trungthu';
 import { BLOCK_FACE, DEVICES, DIODE, DIODE_BLOCK, GAUGES, PANEL_FACE, SWITCHES, UNIT_FACE, alarmBeamModel, barModels, directionalJointLongModels, directionalJointModels, gaugeModels, gaugeSprites, ledChipModels, needleModels } from './gauges';
 import { CROPS, DEAD_CROP, cropBlockId, cropItemSprites, cropModels, cropSprites, maturity, nutritionOf, saturationOf, seedItemId, stageThresholds } from './crops';
 
@@ -1210,6 +1211,10 @@ for (const [name, bytes] of Object.entries(birthdaySprites())) {
 	painted[name] = bytes;
 }
 
+for (const [name, bytes] of Object.entries(trungThuSprites())) {
+	painted[name] = bytes;
+}
+
 for (const [name, bytes] of Object.entries(painted)) {
 	writeFileSync(join(ADDON_TEXTURES, `${name}.png`), bytes);
 	takenNames.add(name);
@@ -2196,6 +2201,66 @@ for (const [name, model] of Object.entries(birthdayItemModels())) {
 for (const [name, bytes] of Object.entries(birthdayItemSprites())) {
 	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png`), bytes);
 }
+
+// ---- tết trung thu -------------------------------------------------------
+//
+// The Mid-Autumn set: mooncakes, lanterns, masks, the lion drum, the pomelo
+// dog. Models, sheets, recipes and the Kotlin id table all come from
+// trungthu.ts; the behaviour is hand-written in trungthu/.
+
+for (const [name, model] of Object.entries(trungThuModels())) {
+	writeModel(name, adoptAll(model as Model));
+}
+
+for (const block of trungThuBlockEntries()) {
+	writeFileSync(
+		join(ADDON_CONFIGS, `${block.id}.yml`),
+		'tool_categories: [axe]\ntool_tier: wood\nrequires_tool_for_drops: false\n',
+	);
+
+	en[`block.lunasmp.${block.id}`] = block.en;
+	vi[`block.lunasmp.${block.id}`] = block.vi;
+}
+
+for (const item of trungThuItemEntries()) {
+	en[`item.lunasmp.${item.id}`] = item.en;
+	vi[`item.lunasmp.${item.id}`] = item.vi;
+}
+
+for (const [name, model] of Object.entries(trungThuItemModels())) {
+	writeFileSync(join(ADDON_ITEMS, `${name}.json`), JSON.stringify(adoptAll(model as Model), null, '\t') + '\n');
+}
+
+for (const [name, bytes] of Object.entries(trungThuItemSprites())) {
+	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png`), bytes);
+}
+
+// the lit swords' blades and slot sprites animate; their metadata sits beside
+// each sheet, the specular and emissive companions included
+const trungThuAnimations = trungThuMcmeta();
+
+for (const [name, meta] of Object.entries(trungThuAnimations.block)) {
+	writeFileSync(join(ADDON_TEXTURES, `${name}.png.mcmeta`), JSON.stringify(meta, null, '\t') + '\n');
+}
+
+for (const [name, meta] of Object.entries(trungThuAnimations.item)) {
+	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png.mcmeta`), JSON.stringify(meta, null, '\t') + '\n');
+}
+
+// the set's recipes are the only ones the addon ships, so the directory is
+// its to rebuild
+const ADDON_RECIPES = join(addonDir, 'recipes/minecraft');
+rmSync(ADDON_RECIPES, { recursive: true, force: true });
+
+for (const [path, recipe] of Object.entries(trungThuRecipes())) {
+	const target = join(ADDON_RECIPES, path);
+	mkdirSync(dirname(target), { recursive: true });
+	writeFileSync(target, JSON.stringify(recipe, null, '\t') + '\n');
+}
+
+const trungThuDir = join(dirname(addonDir), 'kotlin/dev/belikhun/luna/smp/trungthu');
+mkdirSync(trungThuDir, { recursive: true });
+writeFileSync(join(trungThuDir, 'TrungThuTable.kt'), trungThuKotlin());
 
 // ---- flower crowns -------------------------------------------------------
 

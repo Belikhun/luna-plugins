@@ -1,0 +1,14 @@
+{
+	"category": "misc",
+	"result": "lunasmp:plastic_sword_blue",
+	"shape": [
+		"  G",
+		" R ",
+		"O  "
+	],
+	"ingredients": {
+		"G": "minecraft:light_blue_stained_glass_pane",
+		"R": "minecraft:redstone",
+		"O": "minecraft:orange_dye"
+	}
+}

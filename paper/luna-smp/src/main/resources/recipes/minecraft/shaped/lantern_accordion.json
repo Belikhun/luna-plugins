@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_accordion",
+	"shape": [
+		"PRP",
+		"PYP",
+		"PCP"
+	],
+	"ingredients": {
+		"P": "minecraft:paper",
+		"R": "minecraft:red_dye",
+		"Y": "minecraft:yellow_dye",
+		"C": "minecraft:candle"
+	}
+}

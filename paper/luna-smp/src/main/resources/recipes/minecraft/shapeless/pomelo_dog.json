@@ -1,0 +1,14 @@
+{
+	"category": "misc",
+	"result": "lunasmp:pomelo_dog",
+	"ingredients": [
+		{
+			"item": "lunasmp:pomelo",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:black_dye",
+			"amount": 1
+		}
+	]
+}

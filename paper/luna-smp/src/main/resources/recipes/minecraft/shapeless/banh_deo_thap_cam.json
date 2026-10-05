@@ -1,0 +1,22 @@
+{
+	"category": "misc",
+	"result": "lunasmp:banh_deo_thap_cam",
+	"ingredients": [
+		{
+			"item": "lunasmp:unmilled_rice",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:pumpkin_seeds",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:melon_seeds",
+			"amount": 1
+		}
+	]
+}

@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_red",
+	"shape": [
+		"GPG",
+		"PDP",
+		"GCG"
+	],
+	"ingredients": {
+		"G": "minecraft:gold_nugget",
+		"P": "minecraft:paper",
+		"D": "minecraft:red_dye",
+		"C": "minecraft:candle"
+	}
+}

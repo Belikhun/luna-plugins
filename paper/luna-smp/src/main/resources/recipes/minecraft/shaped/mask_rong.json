@@ -1,0 +1,16 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mask_rong",
+	"shape": [
+		"SGS",
+		"YDY",
+		"PPP"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"G": "minecraft:gold_nugget",
+		"Y": "minecraft:yellow_dye",
+		"D": "minecraft:green_dye",
+		"P": "minecraft:paper"
+	}
+}

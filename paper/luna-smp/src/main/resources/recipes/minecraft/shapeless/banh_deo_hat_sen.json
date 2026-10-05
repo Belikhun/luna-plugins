@@ -1,0 +1,22 @@
+{
+	"category": "misc",
+	"result": "lunasmp:banh_deo_hat_sen",
+	"ingredients": [
+		{
+			"item": "lunasmp:unmilled_rice",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:lily_pad",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:egg",
+			"amount": 1
+		}
+	]
+}

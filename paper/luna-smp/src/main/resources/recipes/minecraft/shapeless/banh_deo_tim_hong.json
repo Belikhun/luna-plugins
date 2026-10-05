@@ -1,0 +1,18 @@
+{
+	"category": "misc",
+	"result": "lunasmp:banh_deo_tim_hong",
+	"ingredients": [
+		{
+			"item": "lunasmp:unmilled_rice",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:rose_bush",
+			"amount": 1
+		}
+	]
+}

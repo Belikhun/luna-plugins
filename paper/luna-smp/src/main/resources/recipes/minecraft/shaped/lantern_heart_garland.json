@@ -1,0 +1,13 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_heart_garland",
+	"shape": [
+		"SSS",
+		"KCK"
+	],
+	"ingredients": {
+		"S": "minecraft:string",
+		"K": "minecraft:pink_dye",
+		"C": "minecraft:candle"
+	}
+}

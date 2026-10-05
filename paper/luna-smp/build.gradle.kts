@@ -52,7 +52,7 @@ addon {
 	// the resource pack build and persists it; it only rebuilds when this
 	// version changes. A stateSelector edit is invisible until it moves, so
 	// bump it whenever a backing block changes.
-	version = "0.2.0"
+	version = "0.3.3"
 	main = "dev.belikhun.luna.smp.LunaSmp"
 	pluginMain = "dev.belikhun.luna.smp.LunaSmpPlugin"
 	authors = listOf("Belikhun")
@@ -78,6 +78,27 @@ addon {
 
 	destination = rootProject.layout.projectDirectory.dir("output/paper").asFile
 	fileName = "luna-smp-paper.jar"
+}
+
+// The Mid-Autumn set (mooncakes, lanterns, masks, drum, toys, the fruit and
+// tea) only ships in the event build, `./gradlew :luna-smp:addonJar
+// -Ptrungthu`, which the dedicated trungthu server ran. The default build,
+// the one survival runs, leaves all of it out; survival's mooncakes live in
+// our Farmer's Delight fork instead.
+val trungThuEvent = providers.gradleProperty("trungthu").isPresent
+
+// generated models, sheets, configs and recipes of the set. Lantern ids are
+// named outright: the furniture lanterns own lantern_side/top/wood sheets
+val trungThuAsset = Regex("^(lantern_(accordion|butterfly|carp|heart|hoian|lotus|lovers|rabbit|red|revolving|star)|mooncake|banh_|mc_|tt_|mask_|lion_drum|pomelo|plastic_sword_|mam_co|to_he|coconut|durian|tra_nong).*")
+
+if (!trungThuEvent) {
+	kotlin.sourceSets.named("main") {
+		kotlin.exclude("dev/belikhun/luna/smp/trungthu/**")
+	}
+
+	tasks.named<ProcessResources>("processResources") {
+		exclude { !it.isDirectory && trungThuAsset.matches(it.name) }
+	}
 }
 
 // the addon jar replaces the shadow jar as this module's pooled artifact;

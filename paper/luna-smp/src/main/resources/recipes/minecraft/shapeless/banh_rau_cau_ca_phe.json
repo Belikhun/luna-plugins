@@ -1,0 +1,22 @@
+{
+	"category": "misc",
+	"result": "lunasmp:banh_rau_cau_ca_phe",
+	"ingredients": [
+		{
+			"item": "minecraft:dried_kelp",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "lunasmp:coffee_bean",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:milk_bucket",
+			"amount": 1
+		}
+	]
+}

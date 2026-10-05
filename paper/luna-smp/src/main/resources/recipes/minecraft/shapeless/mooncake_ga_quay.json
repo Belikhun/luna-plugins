@@ -1,0 +1,26 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mooncake_ga_quay",
+	"ingredients": [
+		{
+			"item": "minecraft:wheat",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:egg",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:cooked_chicken",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:pumpkin_seeds",
+			"amount": 1
+		}
+	]
+}

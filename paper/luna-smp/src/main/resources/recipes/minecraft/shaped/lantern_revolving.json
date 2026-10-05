@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_revolving",
+	"shape": [
+		"BPB",
+		"PCP",
+		"BSB"
+	],
+	"ingredients": {
+		"B": "minecraft:bamboo",
+		"P": "minecraft:paper",
+		"C": "minecraft:candle",
+		"S": "minecraft:string"
+	}
+}

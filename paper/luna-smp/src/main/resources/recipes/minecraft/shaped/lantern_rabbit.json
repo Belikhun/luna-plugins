@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_rabbit",
+	"shape": [
+		" P ",
+		"WHW",
+		" C "
+	],
+	"ingredients": {
+		"P": "minecraft:paper",
+		"W": "minecraft:white_dye",
+		"H": "minecraft:rabbit_hide",
+		"C": "minecraft:candle"
+	}
+}

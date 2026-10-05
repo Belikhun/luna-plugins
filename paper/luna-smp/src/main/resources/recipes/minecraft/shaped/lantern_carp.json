@@ -1,0 +1,15 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_carp",
+	"shape": [
+		" P ",
+		"DFD",
+		" C "
+	],
+	"ingredients": {
+		"P": "minecraft:paper",
+		"D": "minecraft:orange_dye",
+		"F": "minecraft:cod",
+		"C": "minecraft:candle"
+	}
+}

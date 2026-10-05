@@ -1,0 +1,14 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_heart_pink",
+	"shape": [
+		"P P",
+		"PDP",
+		" C "
+	],
+	"ingredients": {
+		"P": "minecraft:paper",
+		"D": "minecraft:pink_dye",
+		"C": "minecraft:candle"
+	}
+}

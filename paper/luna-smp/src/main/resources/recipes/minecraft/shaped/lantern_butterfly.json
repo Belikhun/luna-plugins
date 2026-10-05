@@ -1,0 +1,14 @@
+{
+	"category": "misc",
+	"result": "lunasmp:lantern_butterfly",
+	"shape": [
+		"P P",
+		"YCY",
+		"P P"
+	],
+	"ingredients": {
+		"P": "minecraft:paper",
+		"Y": "minecraft:yellow_dye",
+		"C": "minecraft:candle"
+	}
+}

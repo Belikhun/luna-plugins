@@ -1,0 +1,22 @@
+{
+	"category": "misc",
+	"result": "lunasmp:mooncake_sau_rieng",
+	"ingredients": [
+		{
+			"item": "minecraft:wheat",
+			"amount": 2
+		},
+		{
+			"item": "minecraft:sugar",
+			"amount": 1
+		},
+		{
+			"item": "minecraft:egg",
+			"amount": 1
+		},
+		{
+			"item": "lunasmp:durian",
+			"amount": 1
+		}
+	]
+}
