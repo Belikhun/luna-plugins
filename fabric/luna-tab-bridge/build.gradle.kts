@@ -8,8 +8,13 @@ import org.gradle.api.artifacts.Configuration
 
 // One jar serves every game version from 1.20 up; see luna-core-fabric for how
 // that is kept true. The bridge itself is protocol work and touches almost no
-// game API - the world read goes through core/fabric/compat/WorldFacts.
+// game API: the runtime is the shared trunk and reads the world through the
+// core's placeholder samples.
 val fabricApiVersion = libs.versions.fabricapi.get()
+
+sourceSets.named("main") {
+	java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-tab-bridge-mc/src/main/java"))
+}
 
 dependencies {
 	minecraft("com.mojang:minecraft:${libs.versions.fabricminecraft.get()}")

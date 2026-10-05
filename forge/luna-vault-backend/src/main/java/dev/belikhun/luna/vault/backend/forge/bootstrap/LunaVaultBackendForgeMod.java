@@ -11,12 +11,13 @@ import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.mc.LunaCore;
 import dev.belikhun.luna.core.mc.logging.LunaLoggers;
-import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.api.VaultMoney;
 import dev.belikhun.luna.vault.backend.mc.command.VaultAdminCommands;
 import dev.belikhun.luna.vault.backend.mc.gui.TransactionHistoryScreen;
-import dev.belikhun.luna.vault.backend.mc.placeholder.VaultPlaceholders;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.vault.api.placeholder.VaultPlaceholderSpecs;
 import dev.belikhun.luna.vault.backend.mc.service.VaultGateway;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -55,7 +56,7 @@ public final class LunaVaultBackendForgeMod {
 	private LunaLogger logger;
 	private VaultGateway gateway;
 	private TransactionHistoryScreen historyScreen;
-	private VaultPlaceholders placeholders;
+	private PlaceholderRuntime<ServerPlayer> placeholderRuntime;
 	private PermissionService permissionService;
 
 	public LunaVaultBackendForgeMod() {
@@ -102,23 +103,27 @@ public final class LunaVaultBackendForgeMod {
 		dependencyManager.registerSingleton(LunaVaultApi.class, gateway);
 		dependencyManager.registerSingleton(VaultGateway.class, gateway);
 
-		registerPlaceholders(dependencyManager, coreConfig, timeoutMillis);
+		registerPlaceholders(dependencyManager, coreConfig);
 
 		logger.success("LunaVaultBackend Forge đã sẵn sàng và nối tới Velocity.");
 	}
 
-	private void registerPlaceholders(DependencyManager dependencyManager, YamlConfigFile coreConfig, long timeoutMillis) {
-		PlaceholderService placeholderService = dependencyManager
-			.resolveOptional(PlaceholderService.class)
+	@SuppressWarnings("unchecked")
+	private void registerPlaceholders(DependencyManager dependencyManager, YamlConfigFile coreConfig) {
+		placeholderRuntime = dependencyManager
+			.resolveOptional(PlaceholderRuntime.class)
+			.map(runtime -> (PlaceholderRuntime<ServerPlayer>) runtime)
 			.orElse(null);
 
-		if (placeholderService == null) {
-			logger.warn("Không tìm thấy placeholder service. Bỏ qua namespace lunavault.");
+		if (placeholderRuntime == null) {
+			logger.warn("Không tìm thấy placeholder runtime. Bỏ qua namespace lunavault.");
 			return;
 		}
 
-		placeholders = new VaultPlaceholders(gateway, coreConfig, timeoutMillis);
-		placeholderService.registerExtension(placeholders);
+		placeholderRuntime.register(this, VaultPlaceholderSpecs.specs(
+			gateway.client(),
+			minor -> Formatters.money(coreConfig, minor, VaultMoney.SCALE)
+		));
 		logger.success("Đã đăng ký placeholder %lunavault_...%.");
 	}
 
@@ -134,7 +139,10 @@ public final class LunaVaultBackendForgeMod {
 			gateway = null;
 		}
 
-		placeholders = null;
+		if (placeholderRuntime != null) {
+			placeholderRuntime.unregister(this);
+			placeholderRuntime = null;
+		}
 	}
 
 	@SubscribeEvent
@@ -160,9 +168,6 @@ public final class LunaVaultBackendForgeMod {
 			historyScreen.forget(playerId);
 		}
 
-		if (placeholders != null) {
-			placeholders.forget(playerId);
-		}
 	}
 
 	@SubscribeEvent

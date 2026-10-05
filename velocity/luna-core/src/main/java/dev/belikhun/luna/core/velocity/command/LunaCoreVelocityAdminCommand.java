@@ -12,6 +12,7 @@ import net.kyori.adventure.text.minimessage.MiniMessage;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -25,15 +26,21 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 	private static final Pattern SEMVER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+){1,3})");
 	private final BackendStatusView statusView;
 	private final ReloadAction reloadAction;
+	private final VelocityPlaceholderDebugCommand placeholderDebugCommand;
 
 	@FunctionalInterface
 	public interface ReloadAction {
 		void reload() throws Exception;
 	}
 
-	public LunaCoreVelocityAdminCommand(BackendStatusView statusView, ReloadAction reloadAction) {
+	public LunaCoreVelocityAdminCommand(
+		BackendStatusView statusView,
+		ReloadAction reloadAction,
+		VelocityPlaceholderDebugCommand placeholderDebugCommand
+	) {
 		this.statusView = statusView;
 		this.reloadAction = reloadAction;
+		this.placeholderDebugCommand = placeholderDebugCommand;
 	}
 
 	@Override
@@ -61,6 +68,11 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 			return;
 		}
 
+		if (args[0].equalsIgnoreCase("placeholder")) {
+			placeholderDebugCommand.execute(source, Arrays.copyOfRange(args, 1, args.length));
+			return;
+		}
+
 		if (!args[0].equalsIgnoreCase("status")) {
 			sendUsage(source);
 			return;
@@ -78,14 +90,19 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 	public List<String> suggest(Invocation invocation) {
 		String[] args = invocation.arguments();
 		if (args.length == 0) {
-			return List.of("status", "reload");
+			return List.of("status", "reload", "placeholder");
 		}
 
 		if (args.length == 1) {
 			List<String> suggestions = new ArrayList<>();
 			suggestions.addAll(startsWith("status", args[0]));
 			suggestions.addAll(startsWith("reload", args[0]));
+			suggestions.addAll(startsWith("placeholder", args[0]));
 			return suggestions;
+		}
+
+		if (args[0].equalsIgnoreCase("placeholder")) {
+			return placeholderDebugCommand.suggest(Arrays.copyOfRange(args, 1, args.length));
 		}
 
 		if (args.length == 2 && args[0].equalsIgnoreCase("status")) {
@@ -100,6 +117,7 @@ public final class LunaCoreVelocityAdminCommand implements SimpleCommand {
 	private void sendUsage(CommandSource source) {
 		source.sendRichMessage(CommandStrings.usage("/lunacoreproxy", CommandStrings.literal("status"), CommandStrings.optional("server", "text")));
 		source.sendRichMessage(CommandStrings.usage("/lunacoreproxy", CommandStrings.literal("reload")));
+		source.sendRichMessage(CommandStrings.usage("/lunacoreproxy", CommandStrings.literal("placeholder"), CommandStrings.optional("tab|bridge …", "text")));
 	}
 
 	private void showAll(CommandSource source) {

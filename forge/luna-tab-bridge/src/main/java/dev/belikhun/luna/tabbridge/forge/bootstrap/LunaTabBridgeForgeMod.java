@@ -2,13 +2,10 @@ package dev.belikhun.luna.tabbridge.forge.bootstrap;
 
 import dev.belikhun.luna.core.api.dependency.DependencyManager;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.mc.LunaCore;
 import dev.belikhun.luna.core.mc.logging.LunaLoggers;
-import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
-import dev.belikhun.luna.tabbridge.mc.runtime.BuiltInTabBridgeRelationalPlaceholderSource;
 import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgePlaceholderUpdater;
-import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRelationalPlaceholderSource;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderTransportInspector;
 import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRuntime;
 import dev.belikhun.luna.tabbridge.mc.runtime.TabBridgeRuntimeFactory;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -26,7 +23,6 @@ public final class LunaTabBridgeForgeMod {
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
 	private TabBridgeRuntime tabBridgeRuntime;
-	private TabBridgeRelationalPlaceholderSource relationalPlaceholderSource;
 	private TabBridgePlaceholderUpdater placeholderUpdater;
 
 	public LunaTabBridgeForgeMod() {
@@ -42,20 +38,10 @@ public final class LunaTabBridgeForgeMod {
 		}
 
 		dependencyManager = LunaCore.services().dependencyManager();
-		tabBridgeRuntime = TabBridgeRuntimeFactory.create(logger, dependencyManager);
-		PlaceholderService placeholderService = dependencyManager.resolveOptional(PlaceholderService.class)
-			.orElseThrow(() -> new IllegalStateException("Thiếu PlaceholderService từ LunaCore Forge."));
-		PermissionService permissionService = dependencyManager.resolveOptional(PermissionService.class).orElse(null);
-		relationalPlaceholderSource = dependencyManager.resolveOptional(TabBridgeRelationalPlaceholderSource.class)
-			.orElseGet(() -> new BuiltInTabBridgeRelationalPlaceholderSource(event.getServer(), permissionService));
+		tabBridgeRuntime = TabBridgeRuntimeFactory.create(logger, event.getServer(), dependencyManager);
 		dependencyManager.registerSingleton(TabBridgeRuntime.class, tabBridgeRuntime);
-		placeholderUpdater = new TabBridgePlaceholderUpdater(
-			event.getServer(),
-			tabBridgeRuntime,
-			relationalPlaceholderSource,
-			placeholderService
-		);
-		tabBridgeRuntime.bindPlaceholderResolver(placeholderUpdater::resolvePlaceholder);
+		dependencyManager.registerSingleton(PlaceholderTransportInspector.class, tabBridgeRuntime);
+		placeholderUpdater = new TabBridgePlaceholderUpdater(event.getServer(), tabBridgeRuntime);
 		placeholderUpdater.refreshOnlinePlayers();
 		logger.success("Luna TAB Bridge Forge runtime đã sẵn sàng.");
 	}
@@ -87,6 +73,7 @@ public final class LunaTabBridgeForgeMod {
 
 		if (dependencyManager != null) {
 			dependencyManager.unregister(TabBridgeRuntime.class);
+			dependencyManager.unregister(PlaceholderTransportInspector.class);
 		}
 
 		if (tabBridgeRuntime != null) {
@@ -94,7 +81,6 @@ public final class LunaTabBridgeForgeMod {
 			tabBridgeRuntime = null;
 		}
 
-		relationalPlaceholderSource = null;
 		dependencyManager = null;
 	}
 }

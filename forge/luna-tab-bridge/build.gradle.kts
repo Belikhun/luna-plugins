@@ -4,15 +4,12 @@ plugins {
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
-// The trunk is the neoforge module's, taken by reference exactly as the other
+// The runtime is the shared trunk, taken by reference exactly as the other
 // forge builds take theirs: everything under dev.belikhun.luna.tabbridge.mc is
-// plain net.minecraft and compiles identically on both loaders. Only the
-// bootstrap is this module's own, and the exclude keeps the neoforge one out.
-val sharedTrunk = rootProject.layout.projectDirectory.dir("neoforge/luna-tab-bridge/src/main/java")
-
+// plain net.minecraft and compiles identically on every loader. Only the
+// bootstrap is this module's own.
 sourceSets.named("main") {
-	java.srcDir(sharedTrunk)
-	java.exclude("**/tabbridge/neoforge/**")
+	java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-tab-bridge-mc/src/main/java"))
 }
 
 dependencies {

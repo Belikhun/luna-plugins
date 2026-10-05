@@ -20,7 +20,11 @@ import dev.belikhun.luna.core.fabric.compat.GameVersion;
 import dev.belikhun.luna.core.fabric.heartbeat.FabricServerProbe;
 import dev.belikhun.luna.core.fabric.heartbeat.TickRateMonitor;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
-import dev.belikhun.luna.core.fabric.placeholder.BuiltInFabricPlaceholderService;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderTransportInspector;
+import dev.belikhun.luna.core.fabric.placeholder.FabricGameReads;
+import dev.belikhun.luna.core.mc.placeholder.MinecraftPlaceholderModule;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderDebugCommands;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
 import dev.belikhun.luna.core.fabric.serverselector.FabricServerSelectorController;
 import dev.belikhun.luna.core.fabric.ui.FabricChatPrompts;
@@ -56,17 +60,15 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 	private static final String LUCKPERMS_MOD_ID = "luckperms";
 
 	/** Half a second at a healthy tick rate; slower when the server is struggling. */
-	private static final int PLACEHOLDER_REFRESH_TICKS = 10;
 
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
 	private final TickRateMonitor tickRate;
 	private BackendHeartbeatPublisher heartbeatPublisher;
 	private FabricServerSelectorController serverSelectorController;
-	private PlaceholderService placeholderService;
+	private MinecraftPlaceholderModule placeholderModule;
 	private ChatPrompts chatPrompts;
 	private Database database;
-	private int ticksSincePlaceholderRefresh;
 
 	public LunaCoreFabricMod() {
 		this.logger = FabricLunaLoggers.create("LunaCore", true);
@@ -74,10 +76,9 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		this.tickRate = new TickRateMonitor();
 		this.heartbeatPublisher = null;
 		this.serverSelectorController = null;
-		this.placeholderService = null;
+		this.placeholderModule = null;
 		this.chatPrompts = null;
 		this.database = new NoopDatabase();
-		this.ticksSincePlaceholderRefresh = 0;
 	}
 
 	@Override
@@ -101,11 +102,18 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 			}
 
 			tickRate.onTick();
-			refreshPlaceholders();
+
+			MinecraftPlaceholderModule module = placeholderModule;
+
+			if (module != null) {
+				module.onServerTick();
+			}
 		});
 
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-			FabricServerSelectorController.registerCommands(dispatcher, () -> serverSelectorController));
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			FabricServerSelectorController.registerCommands(dispatcher, () -> serverSelectorController);
+			PlaceholderDebugCommands.register(dispatcher, () -> placeholderModule, () -> dependencyManager.resolveOptional(PlaceholderTransportInspector.class).orElse(null));
+		});
 
 		// join/leave only sharpen the reporting: a beat that misses them is late by
 		// one interval rather than wrong
@@ -130,6 +138,10 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		});
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			if (placeholderModule != null && handler.getPlayer() != null) {
+				placeholderModule.forgetPlayer(handler.getPlayer().getUUID());
+			}
+
 			if (serverSelectorController != null && handler.getPlayer() != null) {
 				serverSelectorController.cleanupPlayer(handler.getPlayer().getUUID());
 			}
@@ -201,25 +213,20 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 			serverSelectorController.start(heartbeatPublisher);
 		}
 
-		// the statistics behind a placeholder are sampled on the heartbeat's own
+		// the statistics behind a placeholder are sampled on the core's own tick
 		// cadence rather than per lookup: a tab list asking sixty players for the
 		// same TPS must not count the world's entities sixty times
-		placeholderService = BuiltInFabricPlaceholderService.createDefault(
-			logger,
-			server,
-			tickRate,
-			backendIdentity,
-			permissionService
-		);
-		dependencyManager.registerSingleton(PlaceholderService.class, placeholderService);
-		placeholderService.refreshSharedSnapshot();
+		placeholderModule = new MinecraftPlaceholderModule(server, backendIdentity, backendStatusStore, permissionService, new FabricGameReads(tickRate), logger);
+		placeholderModule.start();
+		dependencyManager.registerSingleton(PlaceholderService.class, placeholderModule.service());
+		dependencyManager.registerSingleton(PlaceholderRuntime.class, placeholderModule.runtime());
 
 		LunaCoreFabric.set(new LunaCoreFabricServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
 		logger.success("LunaCore Fabric đã khởi động bootstrap với heartbeat publisher.");
 	}
 
 	private void onServerStopping(MinecraftServer server) {
-		placeholderService = null;
+		placeholderModule = null;
 		chatPrompts = null;
 
 		if (serverSelectorController != null) {
@@ -240,27 +247,6 @@ public final class LunaCoreFabricMod implements DedicatedServerModInitializer {
 		logger.audit("LunaCore Fabric đã dọn dẹp bootstrap.");
 	}
 
-	/**
-	 * Re-sample the statistics behind the placeholders, twice a second.
-	 *
-	 * The core drives this rather than whoever reads the values: several modules
-	 * resolve placeholders, and each one refreshing on its own cadence would count
-	 * the world's entities once per module instead of once per interval.
-	 */
-	private void refreshPlaceholders() {
-		if (placeholderService == null) {
-			return;
-		}
-
-		ticksSincePlaceholderRefresh++;
-
-		if (ticksSincePlaceholderRefresh < PLACEHOLDER_REFRESH_TICKS) {
-			return;
-		}
-
-		ticksSincePlaceholderRefresh = 0;
-		placeholderService.refreshSharedSnapshot();
-	}
 
 	/**
 	 * The selector gates servers on permissions, so without LuckPerms it would

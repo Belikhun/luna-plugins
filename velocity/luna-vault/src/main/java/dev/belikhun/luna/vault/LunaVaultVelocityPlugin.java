@@ -29,14 +29,11 @@ import dev.belikhun.luna.vault.command.BalanceCommand;
 import dev.belikhun.luna.vault.command.EcoAdminCommand;
 import dev.belikhun.luna.vault.command.PayCommand;
 import dev.belikhun.luna.vault.http.VaultHttpEndpoints;
-import dev.belikhun.luna.vault.placeholder.VelocityVaultMiniPlaceholders;
-import dev.belikhun.luna.vault.placeholder.VelocityVaultTabPlaceholders;
 import dev.belikhun.luna.vault.rpc.VaultRpcHandler;
 import dev.belikhun.luna.vault.service.VelocityVaultConfig;
+import dev.belikhun.luna.vault.placeholder.VelocityVaultPlaceholders;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityPlaceholderModule;
 import dev.belikhun.luna.vault.service.VelocityVaultService;
-import me.neznamy.tab.api.TabAPI;
-import me.neznamy.tab.api.event.EventHandler;
-import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.io.InputStream;
 import java.nio.file.Path;
@@ -63,9 +60,8 @@ public final class LunaVaultVelocityPlugin {
 	private DependencyManager dependencyManager;
 	private VelocityPluginMessagingBus pluginMessagingBus;
 	private VelocityVaultService vaultService;
-	private VelocityVaultMiniPlaceholders miniPlaceholders;
-	private VelocityVaultTabPlaceholders tabPlaceholders;
-	private EventHandler<TabLoadEvent> tabLoadHandler;
+	private VelocityVaultPlaceholders placeholders;
+	private VelocityPlaceholderModule placeholderModule;
 	private VaultRpcHandler rpcHandler;
 
 	@Inject
@@ -78,7 +74,6 @@ public final class LunaVaultVelocityPlugin {
 	@Subscribe
 	public void onProxyInitialize(ProxyInitializeEvent event) {
 		ensureDefaults();
-		ensureTabReloadHookRegistered();
 		dependencyManager = LunaCoreVelocity.services().dependencyManager();
 		VelocityVaultConfig config = VelocityVaultConfig.load(dataDirectory.resolve("config.yml"));
 		Database database = dependencyManager.resolveOptional(Database.class).orElse(new NoopDatabase());
@@ -98,8 +93,7 @@ public final class LunaVaultVelocityPlugin {
 		dependencyManager.registerSingleton(LunaVaultApi.class, vaultService);
 		registerCommands();
 		registerHttpEndpoints();
-		registerMiniPlaceholders();
-		registerTabPlaceholders();
+		registerPlaceholders(dependencyManager);
 		logger.success("LunaVault đã khởi động với vai trò sổ cái duy nhất của mạng (giao thức RPC v" + VaultRpcProtocol.VERSION + ").");
 	}
 
@@ -128,14 +122,9 @@ public final class LunaVaultVelocityPlugin {
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		unregisterTabReloadHook();
-		if (miniPlaceholders != null) {
-			miniPlaceholders.unregister();
-			miniPlaceholders = null;
-		}
-		if (tabPlaceholders != null) {
-			tabPlaceholders.unregister();
-			tabPlaceholders = null;
+		if (placeholders != null && placeholderModule != null) {
+			placeholders.unregister(placeholderModule);
+			placeholders = null;
 		}
 		if (rpcHandler != null) {
 			rpcHandler.unregister();
@@ -203,78 +192,20 @@ public final class LunaVaultVelocityPlugin {
 		logger.audit("Đã đăng ký endpoint /vault/accounts/{player}.");
 	}
 
-	private void registerMiniPlaceholders() {
-		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
-			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunavaultv.");
+
+	@SuppressWarnings("unchecked")
+	private void registerPlaceholders(DependencyManager dependencyManager) {
+		placeholderModule = dependencyManager.resolveOptional(VelocityPlaceholderModule.class).orElse(null);
+
+		if (placeholderModule == null) {
+			logger.warn("LunaCore Velocity chưa có placeholder module. Bỏ qua %lunav_vault_...%.");
 			return;
 		}
 
-		try {
-			miniPlaceholders = new VelocityVaultMiniPlaceholders(logger, vaultService);
-			miniPlaceholders.register();
-		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký MiniPlaceholders namespace lunavaultv: " + throwable.getMessage());
-			miniPlaceholders = null;
-		}
+		placeholders = new VelocityVaultPlaceholders(vaultService);
+		placeholders.register(placeholderModule);
+		logger.success("Đã đăng ký placeholder %lunav_vault_balance% và %lunav_vault_rank%.");
 	}
 
-	private void registerTabPlaceholders() {
-		if (proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholder %lunavaultv-balance%.");
-			return;
-		}
 
-		try {
-			tabPlaceholders = new VelocityVaultTabPlaceholders(logger, vaultService);
-			tabPlaceholders.register();
-		} catch (Throwable throwable) {
-			logger.warn("Không thể đăng ký TAB placeholder %lunavaultv-balance%: " + throwable.getMessage());
-			tabPlaceholders = null;
-		}
-	}
-
-	private void ensureTabReloadHookRegistered() {
-		if (tabLoadHandler != null || proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() == null) {
-				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholder LunaVault sau /tab reload.");
-				return;
-			}
-
-			tabLoadHandler = event -> {
-				if (vaultService == null) {
-					return;
-				}
-
-				try {
-					registerTabPlaceholders();
-					logger.audit("Đã đăng ký lại TAB placeholder của LunaVault sau /tab reload.");
-				} catch (Throwable throwable) {
-					logger.warn("Không thể đăng ký lại TAB placeholder của LunaVault sau /tab reload: " + throwable.getMessage());
-				}
-			};
-			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
-		} catch (Throwable throwable) {
-			tabLoadHandler = null;
-			logger.warn("Không thể gắn listener TabLoadEvent cho LunaVault: " + throwable.getMessage());
-		}
-	}
-
-	private void unregisterTabReloadHook() {
-		if (tabLoadHandler == null) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() != null) {
-				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
-			}
-		} catch (Throwable ignored) {
-		}
-
-		tabLoadHandler = null;
-	}
 }

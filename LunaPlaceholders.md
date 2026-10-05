@@ -1,225 +1,161 @@
 # Luna Placeholders
 
-Complete reference for placeholders currently provided by LunaCore and LunaVault.
+Reference for every placeholder LunaCore, LunaVault and LunaGlyph provide, on every
+platform, after the 2026-09 rewrite (`docs/placeholder-rewrite-plan.md`).
 
-## Paper
+## One model, three surfaces
 
-Luna Core Paper PlaceholderAPI expansion:
+A placeholder is `namespace_key[_arguments]`. The same placeholder can be written in
+any of these forms and means the same thing:
 
-- Identifier: `luna`
-- Format: `%luna_<key>%`
+| Form | Where it is read | Example |
+|---|---|---|
+| `%namespace_key_arg%` | TAB configs, PlaceholderAPI, the tab bridge, messenger formats | `%luna_tps_bar_10%` |
+| `<namespace_key:arg>` | MiniMessage templates (MiniPlaceholders) | `<luna_tps_bar:10>` |
+| `{namespace_key_arg}` | Inside another placeholder's argument | `%luna_mm2l_{luckperms_prefix}%` |
 
-General rules:
+Arguments are the words after the key. In the MiniMessage form they ride after the
+colon because a tag name cannot hold a glyph: `%luna_player_status_⏺%` is
+`<luna_player_status:'⏺'>` there.
 
-- Width placeholders are optional and clamped to `1..120`.
-- Default width is `25` when width is omitted.
-- Any Paper luna placeholder also supports a `_safe` suffix before the closing `%`, for example `%luna_system_cpu_safe%` or `%luna_system_cpu_bar_safe%`.
-- Safe variants escape `%` as `%%` in the returned text so TAB does not parse stray placeholders from values that already contain a percent sign.
-- Use `_safe` variants in TAB whenever the placeholder output may include `%`, especially CPU or progress-bar placeholders.
+Two namespaces carry luna's own facts, and the split has a meaning:
 
-Current server value placeholders:
+- **`luna_*`** is the backend the player is on. Resolved by that backend and carried to
+  the proxy by TAB's bridge, so it exists on Paper, Fabric, NeoForge and Forge alike.
+- **`lunav_*`** is the network as the proxy sees it. Resolved on the proxy from the
+  heartbeat registry, the server list and the proxy's own plugins.
 
-- `%luna_current_server%`
-- `%luna_status%`
-- `%luna_online%`
-- `%luna_max%`
-- `%luna_tps%`
-- `%luna_latency%`
-- `%luna_uptime%`
-- `%luna_uptime_ms%`
-- `%luna_system_cpu%`
-- `%luna_process_cpu%`
-- `%luna_version%`
-- `%luna_display%`
-- `%luna_color%`
-- `%luna_whitelist%`
+On the proxy a `luna_*` key that no backend exported falls back to `lunav_*`, so a
+messenger format written before the split still resolves.
 
-Current player ping placeholders:
+### Rules that hold everywhere
 
-- `%luna_player_ping%`
+- Unknown keys stay as written. A typo shows in the tab list instead of vanishing.
+- `_safe` may end any placeholder in any namespace; the value's `%` signs become `％`
+  so TAB does not read them as another placeholder. Use it for every bar in a TAB
+  header.
+- Bar widths are `1..120`, default `25`. `%luna_ram_bar_only_80%` is the bar alone at
+  80 cells; `%luna_ram_bar_value_only%` is its value text; `%luna_ram_bar%` is both.
+- Values are MiniMessage source. CPU values carry no `%` sign.
 
-BlaceHolder compatibility placeholders now exposed through the `luna` namespace:
+## `luna` (this backend)
 
-- `%luna_world_<world>_weather%`
-- `%luna_world_<world>_weathericon%`
-- `%luna_world_<world>_weathercolor%`
-- `%luna_world_<world>_weatherduration%`
-- `%luna_voicechat_status%`
-- `%luna_voicechat_group%`
-- `%luna_player_level%`
-- `%luna_player_status%`
-- `%luna_player_status_<dot>%`
-- `%luna_stripcolor_legacy_<value>%`
-- `%luna_stripcolor_mm_<value>%`
-- `%luna_mm2l_<value>%`
+Server:
 
-Compatibility notes:
+| Key | Value |
+|---|---|
+| `current_server` | luna's name for this backend |
+| `host_name`, `server_name` | the name the proxy routes to this backend by |
+| `display`, `color` | display name and accent colour from the proxy's server list |
+| `version` | server software version |
+| `status` | `ONLINE`, or `MAINT` while the whitelist is on |
+| `whitelist` | `true` or `false` |
+| `online`, `max` | players and slots |
+| `tps`, `tick_duration` | two decimals; tick duration in ms |
+| `latency` | heartbeat round trip to the proxy in ms |
+| `uptime`, `uptime_long`, `uptime_ms` | compact, long form, milliseconds |
+| `system_cpu`, `process_cpu` | percent, one decimal, no sign |
+| `total_entities`, `total_living_entities`, `total_chunks` | across all worlds |
+| `world_<world>_weather`, `_weathericon`, `_weathercolor`, `_weatherduration` | one world's weather |
 
-- These placeholders replace the old `%bh_*%` namespace in production configs.
-- `%luna_voicechat_*%` degrades safely when Simple Voice Chat is not installed or not active.
-- Flexible Luna arguments keep the raw suffix, so `%luna_player_status_⏺%`, `%luna_player_status_★%`, and similar variants are valid.
-- On the proxy the suffix travels as a MiniMessage argument, not as part of the tag name: `%luna_player_status_⏺%` is rewritten to `<luna_player_status:'⏺'>`. MiniMessage only accepts `[a-zA-Z0-9_-]` in a tag name, so `<luna_player_status_⏺>` is never parsed as a tag at all, and a MiniPlaceholders placeholder is addressed as `<namespace_name>` rather than `<namespace:name>`.
-- `%luna_stripcolor_*%` and `%luna_mm2l_*%` preserve the old embedded-brace input style such as `%luna_mm2l_{luckperms_prefix}%`.
-- NeoForge resolves namespaced placeholders through provider namespaces before the legacy fallback path, matching PlaceholderAPI-style `%namespace_params%` parsing for namespaces such as `luna`, `luckperms`, `vault`, and `spark`.
-- The same imported `luna_*` keys are also resolved by the NeoForge TAB bridge when requested there.
+Player:
 
-Current server bar placeholders:
+| Key | Value |
+|---|---|
+| `player_ping` | ping in ms, `0` when absent |
+| `player_level` | styled level |
+| `player_status[_<glyph>]` | glyph coloured by the player's dimension, `▋` by default |
+| `player_dimension[_<glyph>]` | same colours, `◎` by default |
+| `voicechat_status`, `voicechat_group` | Simple Voice Chat state |
+| `stripcolor_legacy_<text>`, `stripcolor_mm_<text>`, `mm2l_<text>` | text transforms; `{…}` in the argument is expanded first |
 
-Standard bars:
+Bars, each as `X_bar[_<width>]`, `X_bar_only[_<width>]` and `X_bar_value_only`:
+`tps`, `player_ping`, `latency`, `system_cpu`, `process_cpu`, `ram`.
 
-- `%luna_tps_bar%`
-- `%luna_tps_bar_<width>%`
-- `%luna_player_ping_bar%`
-- `%luna_player_ping_bar_<width>%`
-- `%luna_latency_bar%`
-- `%luna_latency_bar_<width>%`
-- `%luna_system_cpu_bar%`
-- `%luna_system_cpu_bar_<width>%`
-- `%luna_process_cpu_bar%`
-- `%luna_process_cpu_bar_<width>%`
-- `%luna_ram_bar%`
-- `%luna_ram_bar_<width>%`
+### Mod-loader stand-ins
 
-Bar-only:
+Paper has PlaceholderAPI expansions for these; Fabric, NeoForge and Forge do not, so
+LunaCore answers them there with the same shapes:
 
-- `%luna_tps_bar_only%`
-- `%luna_tps_bar_only_<width>%`
-- `%luna_player_ping_bar_only%`
-- `%luna_player_ping_bar_only_<width>%`
-- `%luna_latency_bar_only%`
-- `%luna_latency_bar_only_<width>%`
-- `%luna_system_cpu_bar_only%`
-- `%luna_system_cpu_bar_only_<width>%`
-- `%luna_process_cpu_bar_only%`
-- `%luna_process_cpu_bar_only_<width>%`
-- `%luna_ram_bar_only%`
-- `%luna_ram_bar_only_<width>%`
+- `player_name`, `player_displayname`, `player_ping`, `player_world`, `player_biome`,
+  `player_x`, `player_y`, `player_z`, `player_health`, `player_health_rounded`,
+  `player_max_health`, `player_max_health_rounded`, `player_level`, `player_food_level`,
+  `player_gamemode`
+- `world`, `world_time`
+- `server_name`, `server_online`, `server_max_players`, `server_tps`, `server_uptime`,
+  `server_total_entities`, `server_total_living_entities`, `server_total_chunks`,
+  `server_time_<pattern>`
+- `luckperms_prefix`, `luckperms_suffix`, `luckperms_primary_group_name`,
+  `luckperms_primary_group_display_name`; `vault_prefix`, `vault_suffix`,
+  `vault_primary_group`
+- `spark_<key>`: spark's own value, or luna's tick reading when spark is absent
 
-Value-only:
+### `lunavault` (this backend)
 
-- `%luna_tps_bar_value_only%`
-- `%luna_player_ping_bar_value_only%`
-- `%luna_latency_bar_value_only%`
-- `%luna_system_cpu_bar_value_only%`
-- `%luna_process_cpu_bar_value_only%`
-- `%luna_ram_bar_value_only%`
+`lunavault_balance`, `lunavault_rank`: the viewer's balance and leaderboard rank, from
+the backend's cached ledger snapshot.
 
-Return values:
+## `lunav` (the network, proxy only)
 
-- `status` returns `ONLINE`, `OFFLINE`, or `MAINT`.
-- `whitelist` returns `true` or `false`.
-- CPU placeholders return percent number strings.
-- `uptime_ms` returns raw milliseconds.
-- `uptime` returns formatted duration text.
+Network: `online_servers`, `registered_servers`, `total_servers`, `total_players`.
 
-TAB-safe examples:
+Per backend, `server_<field>[_<backend>]`. Without the backend argument the value is
+for the viewer's current server; `%lunav_server_tps_survival%` and
+`<lunav_server_tps:survival>` name one. Fields: `status` (`ONLINE`/`MAINT`/`OFFLINE`),
+`online`, `max`, `tps`, `tick_duration`, `version`, `software`, `motd`, `whitelist`,
+`uptime`, `uptime_long`, `uptime_ms`, `system_cpu`, `process_cpu`, `ram_used_mb`,
+`ram_max_mb`, `ram_percent`, `latency`, `last_heartbeat`, `display`, `color`.
 
-- `%luna_system_cpu_safe%`
-- `%luna_process_cpu_safe%`
-- `%luna_system_cpu_bar_safe%`
-- `%luna_system_cpu_bar_10_safe%`
-- `%luna_tps_bar_25_safe%`
-- `%luna_process_cpu_bar_only_safe%`
-- `%luna_process_cpu_bar_only_32_safe%`
-- `%luna_tps_bar_value_only_safe%`
+Player: `player_name`, `player_server`, `player_group_name`, `player_group_display`,
+`player_prefix`, `player_suffix`, `player_display` (the configured
+`strings.user-display-format`), `player_status[_<glyph>]` (coloured by the current
+server's accent).
 
-LunaVault backend PlaceholderAPI expansion:
+Plugins on the proxy publish under `lunav` too:
 
-- Identifier: `lunavault`
-- Format: `%lunavault_<key>%`
-- Available placeholders:
-	- `%lunavault_balance%`
-	- `%lunavault_rank%`
+- LunaVault: `vault_balance`, `vault_rank`.
+- LunaGlyph: `glyph_<key>` for every key under `glyphs` in `glyphs.yml`.
 
-## Velocity MiniPlaceholders
+TAB ids are the percent form of the same names, `%lunav_server_status_lobby%`. For
+one release the ids from before the rename keep answering: `%lunav-…%` with hyphens,
+`%lunavaultv-balance%`, `%lunavaultv-rank%`, `%lunaglyph-<key>%`, and the
+MiniPlaceholders namespace `<luna_…>` on the proxy. The proxy names every config line
+still using one at startup, and `/luna placeholder migrate apply` rewrites them.
 
-Luna Core Velocity MiniPlaceholders:
+## Server selector templates
 
-- Namespace: `lunav`
-- Format: `<lunav:key>`
+`servers.yml` templates use their own variables, filled by the selector and nothing
+else: `server_name`, `luna_host_name`, `luna_server_name`, `server_display`,
+`server_accent_color`, `server_status`, `server_status_color`, `server_status_icon`,
+`online`, `max`, `version`, `server_version`, `server_version_full`, `software`,
+`server_software`, `motd`, `tps`, `uptime`, `uptime_long`, `cpu_usage`, `ram_used_mb`,
+`ram_max_mb`, `ram_percent`, `latency_ms`, `line`, `player_name`. The validator checks
+against the same list the renderer fills.
 
-Available placeholders:
+## Debugging
 
-- `<lunav:online_servers>`
-- `<lunav:registered_servers>`
-- `<lunav:total_servers>`
-- `<lunav:total_players>`
-- `<lunav:player_name>`
-- `<lunav:player_group_name>`
-- `<lunav:player_group_display>`
-- `<lunav:player_prefix>`
-- `<lunav:player_suffix>`
-- `<lunav:player_display>`
-- `<lunav:server_status_<backend>>`
-- `<lunav:server_online_<backend>>`
-- `<lunav:server_max_<backend>>`
-- `<lunav:server_tps_<backend>>`
-- `<lunav:server_version_<backend>>`
-- `<lunav:server_display_<backend>>`
-- `<lunav:server_color_<backend>>`
-- `<lunav:server_whitelist_<backend>>`
+Every platform has the same three reports, and the output goes to the instance log so
+`luna send` can drive them.
 
-LunaVault Velocity MiniPlaceholders:
+Backends, Paper `/lunacorepaper placeholder …` and mods `/lunacore placeholder …`:
 
-- Namespace: `lunavaultv`
-- Format: `<lunavaultv:key>`
-- Available placeholders:
-	- `<lunavaultv:balance>`
-	- `<lunavaultv:rank>`
+- `parse <text>`: how each token is split and which spec it reaches.
+- `resolve <player|-> <text>`: the rendered text, then each value with its spec, refresh
+  class and time.
+- `list [namespace]`: every registered spec with its owner.
+- mods only: `bridge [player]` shows what TAB asked for, the last value sent and the
+  queue; `trace <player> <seconds>` logs every frame sent.
 
-LunaGlyph Velocity MiniPlaceholders:
+Proxy, `/luna placeholder …`:
 
-- Namespace: `lunaglyph`
-- Formats:
-	- `<lunaglyph:glyph:<key>>`
-	- `<lunaglyph:glyph <key>>`
-- Available placeholders:
-	- Dynamic lookup from `velocity/luna-glyph/glyphs.yml` keys under `glyphs`.
-	- Example key `sample_icon` -> `<lunaglyph:glyph:sample_icon>`
-	- Example key `sample_image` -> `<lunaglyph:glyph:sample_image>`
+- `parse`, `resolve`, `list` as above, over the network registry.
+- `render <player|-> <template>`: a messenger-style template through the proxy renderer.
+- `tab render <player> [plain|mini|legacy]`: the tab list exactly as Velocity holds it
+  for that player, header and footer included.
+- `bridge stats [backend]`, `bridge last <player> [n]`: TAB bridge frames the proxy saw.
+- `tabids`: every id luna registered with TAB.
+- `migrate [apply]`: rewrite pre-rename ids in the proxy configs, with backups.
 
-## Velocity TAB
-
-Luna Core Velocity TAB placeholders:
-
-- `%lunav-online-servers%`
-- `%lunav-registered-servers%`
-- `%lunav-total-servers%`
-- `%lunav-total-players%`
-- `%lunav-player-name%`
-- `%lunav-player-group-name%`
-- `%lunav-player-group-display%`
-- `%lunav-player-prefix%`
-- `%lunav-player-suffix%`
-- `%lunav-player-display%`
-- `%lunav-server-status-<backend>%`
-- `%lunav-server-online-<backend>%`
-- `%lunav-server-max-<backend>%`
-- `%lunav-server-tps-<backend>%`
-- `%lunav-server-version-<backend>%`
-- `%lunav-server-display-<backend>%`
-- `%lunav-server-color-<backend>%`
-- `%lunav-server-whitelist-<backend>%`
-
-LunaVault Velocity TAB placeholder:
-
-- `%lunavaultv-balance%`
-- `%lunavaultv-rank%`
-
-LunaGlyph Velocity TAB placeholders:
-
-- Format: `%lunaglyph-<key>%`
-- Available placeholders:
-	- Dynamic from `velocity/luna-glyph/glyphs.yml` keys under `glyphs`.
-	- Example key `sample_icon` -> `%lunaglyph-sample_icon%`
-	- Example key `sample_image` -> `%lunaglyph-sample_image%`
-	- TAB API requires explicit placeholder identifiers, so each used key is registered as its own TAB placeholder.
-
-## Notes
-
-- Replace `<backend>` with the normalized backend name from the Velocity server selector configuration, for example `survival`.
-- LunaCore Velocity player display placeholders use `strings.user-display-format` from the LunaCore Velocity config.
-- LunaVault balance placeholders use the shared Velocity `strings.money.*` formatting config.
-- LunaVault rank placeholders return the player's current global balance rank as a plain integer string.
-- TAB integration on Velocity is optional and only registers when the `tab` plugin is installed.
-- MiniPlaceholders integration on Velocity is optional and only registers when the `miniplaceholders` plugin is installed.
+Over HTTP on LunaCore's proxy API (`X-Luna-Forwarding-Secret` required):
+`GET /api/tab/<player>[?format=plain|mini|legacy]`, `GET /api/placeholders/bridge`,
+`GET /api/placeholders/bridge/<player>`.

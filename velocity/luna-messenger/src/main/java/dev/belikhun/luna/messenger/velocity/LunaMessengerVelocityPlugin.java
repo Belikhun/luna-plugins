@@ -33,7 +33,7 @@ import dev.belikhun.luna.messenger.velocity.service.JdaDiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.MessengerPresenceListener;
 import dev.belikhun.luna.messenger.velocity.service.NoopDiscordBridgeGateway;
 import dev.belikhun.luna.messenger.velocity.service.RoutingDiscordBridgeGateway;
-import dev.belikhun.luna.messenger.velocity.service.SimpleTemplateRenderer;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityTemplateRenderer;
 import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerConfig;
 import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerRouter;
 import dev.belikhun.luna.messenger.velocity.service.VelocityMessengerStateStore;
@@ -66,6 +66,7 @@ public final class LunaMessengerVelocityPlugin {
 	private final long startedAtEpochMs;
 	private PluginMessageBus<Object, Object> bus;
 	private VelocityMessengerRouter router;
+	private VelocityTemplateRenderer templates;
 	private VelocityMessengerConfig currentConfig;
 	private DiscordBridgeGateway discordBridge;
 	private VelocityMessengerStateStore stateStore;
@@ -107,8 +108,9 @@ public final class LunaMessengerVelocityPlugin {
 				}
 			});
 		bus = LunaCoreVelocity.services().dependencyManager().resolve(VelocityPluginMessagingBus.class);
+		templates = LunaCoreVelocity.services().dependencyManager().resolve(VelocityTemplateRenderer.class);
 		discordBridge = createDiscordGateway(config, discordCommandRegistry);
-		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, new SimpleTemplateRenderer(), playerDisplayFormat, serverDisplayResolver, discordBridge);
+		router = new VelocityMessengerRouter(proxyServer, logger, bus, config, templates, playerDisplayFormat, serverDisplayResolver, discordBridge);
 		stateStore = new VelocityMessengerStateStore(dataDirectory.resolve("state.bin"), logger);
 		router.restorePersistentState(stateStore.load());
 		router.registerChannels();
@@ -242,7 +244,7 @@ public final class LunaMessengerVelocityPlugin {
 					if (router != null) {
 						router.routeInboundDiscordMessage(message);
 					}
-				}, discord.webhookUrls(), this::presencePlaceholders, commandRegistry);
+				}, discord.webhookUrls(), this::presencePlaceholders, commandRegistry, templates);
 				return new RoutingDiscordBridgeGateway(logger, webhookGateway, botGateway);
 			} catch (Exception exception) {
 				logger.warn("Không thể khởi tạo Discord bot gateway: " + exception.getMessage());

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.velocity.serverselector;
 
+import dev.belikhun.luna.core.api.serverselector.ServerSelectorEngine;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 
 import java.util.ArrayList;
@@ -16,34 +17,7 @@ public final class VelocityServerSelectorValidator {
 	private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("%([a-zA-Z0-9_]+)%");
 	private static final Pattern PERMISSION_PATTERN = Pattern.compile("[a-z0-9]+([._-][a-z0-9]+)*");
 	private static final Pattern MATERIAL_PATTERN = Pattern.compile("[A-Z0-9_]+");
-	private static final Set<String> KNOWN_PLACEHOLDERS = Set.of(
-		"server_name",
-		"luna_host_name",
-		"luna_server_name",
-		"server_display",
-		"server_accent_color",
-		"server_status",
-		"server_status_color",
-		"server_status_icon",
-		"online",
-		"max",
-		"uptime",
-		"uptime_long",
-		"tps",
-		"cpu_usage",
-		"ram_used_mb",
-		"ram_max_mb",
-		"ram_percent",
-		"latency_ms",
-		"version",
-		"software",
-		"server_software",
-		"server_version",
-		"server_version_full",
-		"motd",
-		"player_name",
-		"line"
-	);
+	private static final Set<String> KNOWN_PLACEHOLDERS = ServerSelectorEngine.TEMPLATE_KEYS;
 
 	private VelocityServerSelectorValidator() {
 	}

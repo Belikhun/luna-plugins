@@ -1,5 +1,7 @@
 package dev.belikhun.luna.tabbridge.mc.runtime;
 
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.placeholder.PlayerSample;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -8,6 +10,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * The {@code %rel_luna_*%} values: what every other player looks like from a
+ * viewer's seat. Read from the placeholder engine's samples, so a refresh costs
+ * a map walk rather than a LuckPerms lookup per pair.
+ */
 public final class BuiltInTabBridgeRelationalPlaceholderSource implements TabBridgeRelationalPlaceholderSource {
 	private static final String REL_PLAYER_NAME = "%rel_luna_player_name%";
 	private static final String REL_PLAYER_GROUP_NAME = "%rel_luna_player_group_name%";
@@ -15,13 +22,16 @@ public final class BuiltInTabBridgeRelationalPlaceholderSource implements TabBri
 	private static final String REL_PLAYER_PREFIX = "%rel_luna_player_prefix%";
 	private static final String REL_PLAYER_SUFFIX = "%rel_luna_player_suffix%";
 	private static final String REL_PLAYER_DISPLAY = "%rel_luna_player_display%";
+	/** The proxy's default display format; a later phase pushes the configured one down. */
 	private static final String DEFAULT_DISPLAY_TEMPLATE = "%player_prefix% %displayname%";
 
 	private final MinecraftServer server;
+	private final PlaceholderRuntime<ServerPlayer> placeholders;
 	private final PermissionService permissionService;
 
-	public BuiltInTabBridgeRelationalPlaceholderSource(MinecraftServer server, PermissionService permissionService) {
+	public BuiltInTabBridgeRelationalPlaceholderSource(MinecraftServer server, PlaceholderRuntime<ServerPlayer> placeholders, PermissionService permissionService) {
 		this.server = server;
+		this.placeholders = placeholders;
 		this.permissionService = permissionService;
 	}
 
@@ -43,22 +53,22 @@ public final class BuiltInTabBridgeRelationalPlaceholderSource implements TabBri
 				continue;
 			}
 
-			String targetName = safe(target.getGameProfile().getName());
+			String targetName = target.getName().getString();
+
 			if (targetName.isBlank()) {
 				continue;
 			}
 
-			UUID targetId = target.getUUID();
-			String prefix = resolvePlayerPrefix(targetId);
-			String suffix = resolvePlayerSuffix(targetId);
-			String displayName = formatDisplay(targetName, prefix, suffix);
+			PlayerSample sample = placeholders == null ? null : placeholders.engine().viewer(target);
+			String prefix = sample != null ? sample.prefix() : permission(target.getUUID(), PermissionFact.PREFIX);
+			String suffix = sample != null ? sample.suffix() : permission(target.getUUID(), PermissionFact.SUFFIX);
 
 			names.put(targetName, targetName);
-			groupNames.put(targetName, resolveGroupName(targetId));
-			groupDisplays.put(targetName, resolveGroupDisplay(targetId));
+			groupNames.put(targetName, sample != null ? sample.groupName() : permission(target.getUUID(), PermissionFact.GROUP));
+			groupDisplays.put(targetName, sample != null ? sample.groupDisplayName() : permission(target.getUUID(), PermissionFact.GROUP_DISPLAY));
 			prefixes.put(targetName, prefix);
 			suffixes.put(targetName, suffix);
-			displays.put(targetName, displayName);
+			displays.put(targetName, formatDisplay(targetName, prefix, suffix));
 		}
 
 		Map<String, Map<String, String>> values = new LinkedHashMap<>();
@@ -71,61 +81,43 @@ public final class BuiltInTabBridgeRelationalPlaceholderSource implements TabBri
 		return values;
 	}
 
+	private enum PermissionFact {
+		PREFIX,
+		SUFFIX,
+		GROUP,
+		GROUP_DISPLAY
+	}
+
+	private String permission(UUID playerId, PermissionFact fact) {
+		if (permissionService == null || !permissionService.isAvailable()) {
+			return "";
+		}
+
+		String value = switch (fact) {
+			case PREFIX -> permissionService.getPlayerPrefix(playerId);
+			case SUFFIX -> permissionService.getPlayerSuffix(playerId);
+			case GROUP -> permissionService.getGroupName(playerId);
+			case GROUP_DISPLAY -> permissionService.getGroupDisplayName(playerId);
+		};
+
+		return value == null ? "" : value;
+	}
+
 	private void put(Map<String, Map<String, String>> output, String identifier, Map<String, String> values) {
-		if (identifier == null || identifier.isBlank() || values == null || values.isEmpty()) {
+		if (values.isEmpty()) {
 			return;
 		}
 
 		output.put(identifier, Map.copyOf(values));
 	}
 
-	private String resolveGroupName(UUID playerId) {
-		if (playerId == null || permissionService == null) {
-			return "";
-		}
-
-		return safe(permissionService.getGroupName(playerId));
-	}
-
-	private String resolveGroupDisplay(UUID playerId) {
-		if (playerId == null || permissionService == null) {
-			return "";
-		}
-
-		return safe(permissionService.getGroupDisplayName(playerId));
-	}
-
-	private String resolvePlayerPrefix(UUID playerId) {
-		if (playerId == null || permissionService == null) {
-			return "";
-		}
-
-		return safe(permissionService.getPlayerPrefix(playerId));
-	}
-
-	private String resolvePlayerSuffix(UUID playerId) {
-		if (playerId == null || permissionService == null) {
-			return "";
-		}
-
-		return safe(permissionService.getPlayerSuffix(playerId));
-	}
-
 	private String formatDisplay(String playerName, String prefix, String suffix) {
-		Map<String, String> values = new LinkedHashMap<>();
-		values.put("player_prefix", safe(prefix));
-		values.put("player_suffix", safe(suffix));
-		values.put("displayname", safe(playerName));
-		String rendered = DEFAULT_DISPLAY_TEMPLATE;
-		for (Map.Entry<String, String> entry : values.entrySet()) {
-			rendered = rendered.replace("%" + entry.getKey() + "%", entry.getValue());
-		}
+		String rendered = DEFAULT_DISPLAY_TEMPLATE
+			.replace("%player_prefix%", prefix == null ? "" : prefix)
+			.replace("%player_suffix%", suffix == null ? "" : suffix)
+			.replace("%displayname%", playerName)
+			.trim();
 
-		String normalized = rendered.trim();
-		return normalized.isEmpty() ? safe(playerName) : normalized;
-	}
-
-	private String safe(String value) {
-		return value == null ? "" : value;
+		return rendered.isEmpty() ? playerName : rendered;
 	}
 }

@@ -1,5 +1,6 @@
 package dev.belikhun.luna.core.velocity.command;
 
+import dev.belikhun.luna.core.api.serverselector.ServerSelectorEngine;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
@@ -271,11 +272,7 @@ public final class VelocityServerConnectCommand implements SimpleCommand {
 	}
 
 	private String render(String template, Map<String, String> values) {
-		String output = template == null ? "" : template;
-		for (Map.Entry<String, String> entry : values.entrySet()) {
-			output = output.replace("%" + entry.getKey() + "%", entry.getValue() == null ? "" : entry.getValue());
-		}
-		return output;
+		return ServerSelectorEngine.applyTemplate(template, values);
 	}
 
 	private void rememberPrevious(Player player, String targetBackend) {

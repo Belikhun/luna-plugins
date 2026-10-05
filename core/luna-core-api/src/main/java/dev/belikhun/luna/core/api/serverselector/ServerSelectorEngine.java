@@ -334,12 +334,37 @@ public final class ServerSelectorEngine {
 		return SelectorStatusResolver.resolve(status, noPermission);
 	}
 
+	/**
+	 * The template variables {@link #applyTemplate} fills for a server entry, so a
+	 * validator can check a config against the same list the renderer uses.
+	 */
+	public static final java.util.Set<String> TEMPLATE_KEYS = java.util.Set.of(
+		"server_name", "luna_host_name", "luna_server_name", "server_display", "server_accent_color",
+		"server_status", "server_status_color", "server_status_icon", "online", "max",
+		"version", "server_version", "server_version_full", "software", "server_software", "motd", "tps",
+		"uptime", "uptime_long", "cpu_usage", "ram_used_mb", "ram_max_mb", "ram_percent", "latency_ms",
+		"line", "player_name"
+	);
+
+	/**
+	 * Fills a template's {@code %key%} variables from the map, leaving anything
+	 * the map does not hold as written. Templates are parsed once and cached
+	 * because a menu renders the same lines on every refresh.
+	 */
 	public static String applyTemplate(String template, Map<String, String> values) {
-		String output = template == null ? "" : template;
-		for (Map.Entry<String, String> entry : values.entrySet()) {
-			output = output.replace("%" + entry.getKey() + "%", entry.getValue() == null ? "" : entry.getValue());
+		if (template == null || template.isEmpty()) {
+			return "";
 		}
-		return output;
+
+		Map<String, String> safe = new java.util.LinkedHashMap<>();
+
+		for (Map.Entry<String, String> entry : values.entrySet()) {
+			safe.put(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+		}
+
+		return dev.belikhun.luna.core.api.placeholder.PlaceholderTemplate
+			.cached(template, java.util.EnumSet.of(dev.belikhun.luna.core.api.placeholder.PlaceholderSyntax.PERCENT))
+			.renderValues(safe);
 	}
 
 	private static List<ServerRenderEntry> sortedEntries(

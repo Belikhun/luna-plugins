@@ -29,7 +29,8 @@ import dev.belikhun.luna.core.paper.heartbeat.PaperHeartbeatPlayerListener;
 import dev.belikhun.luna.core.paper.migration.CoreConfigMigrations;
 import dev.belikhun.luna.core.paper.migration.CoreDatabaseMigrations;
 import dev.belikhun.luna.core.paper.messaging.PaperPluginMessagingBus;
-import dev.belikhun.luna.core.paper.placeholder.PaperLunaPlaceholderExpansion;
+import dev.belikhun.luna.core.paper.placeholder.PaperPlaceholderModule;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
 import dev.belikhun.luna.core.paper.serverselector.PaperServerSelectorController;
 import dev.belikhun.luna.core.paper.toast.AdvancementToastService;
 import dev.belikhun.luna.core.paper.toast.ToastService;
@@ -40,7 +41,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LunaCorePlugin extends JavaPlugin {
 	private LunaCoreServices services;
-	private PaperLunaPlaceholderExpansion lunaPlaceholderExpansion;
+	private PaperPlaceholderModule placeholderModule;
 
 	@Override
 	public void onEnable() {
@@ -151,12 +152,14 @@ public final class LunaCorePlugin extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(helpCommandListener, this);
 		Bukkit.getPluginManager().registerEvents(new PaperHeartbeatPlayerListener(heartbeatPublisher), this);
 		registerSimpleVoiceChatCompat(coreLogger);
-		registerPlaceholderExpansion(coreLogger, backendStatusStore);
+		placeholderModule = new PaperPlaceholderModule(this, backendStatusStore, configStore, logger);
+		placeholderModule.start();
+		dependencyManager.registerSingleton(PlaceholderRuntime.class, placeholderModule.runtime());
 		this.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands ->
 			{
 				commands.registrar().register("help", new HelpBasicCommand(services, helpCommandListener));
-				commands.registrar().register("lunacorepaper", new LunaCoreCommand(this));
-				commands.registrar().register("lcp", new LunaCoreCommand(this));
+				commands.registrar().register("lunacorepaper", new LunaCoreCommand(this, placeholderModule.inspector()));
+				commands.registrar().register("lcp", new LunaCoreCommand(this, placeholderModule.inspector()));
 			}
 		);
 		coreLogger.audit("Help command API đã được đăng ký theo Paper Command Lifecycle.");
@@ -182,9 +185,9 @@ public final class LunaCorePlugin extends JavaPlugin {
 		logger.audit("Đang tắt Luna Core.");
 		if (services != null) {
 			PaperSimpleVoiceChatBootstrap.unregister();
-			if (lunaPlaceholderExpansion != null && lunaPlaceholderExpansion.isRegistered()) {
-				lunaPlaceholderExpansion.unregister();
-				lunaPlaceholderExpansion = null;
+			if (placeholderModule != null) {
+				placeholderModule.shutdown();
+				placeholderModule = null;
 			}
 			services.heartbeatPublisher().shutdown();
 			services.pluginMessaging().close();
@@ -210,21 +213,6 @@ public final class LunaCorePlugin extends JavaPlugin {
 		}
 	}
 
-	private void registerPlaceholderExpansion(LunaLogger logger, BackendStatusView statusView) {
-		if (!Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
-			logger.warn("PlaceholderAPI không hoạt động. Bỏ qua đăng ký namespace luna.");
-			return;
-		}
-
-		try {
-			lunaPlaceholderExpansion = new PaperLunaPlaceholderExpansion(this, statusView);
-			lunaPlaceholderExpansion.register();
-			logger.success("Đã đăng ký PlaceholderAPI namespace %luna_...%.");
-		} catch (Throwable throwable) {
-			lunaPlaceholderExpansion = null;
-			logger.error("Không thể đăng ký PlaceholderAPI expansion luna.", throwable);
-		}
-	}
 }
 
 

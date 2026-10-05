@@ -11,7 +11,7 @@ import dev.belikhun.luna.core.api.messenger.MessengerChannels;
 import dev.belikhun.luna.core.api.messenger.MessengerCommandRequest;
 import dev.belikhun.luna.core.api.messenger.MessengerPresenceMessage;
 import dev.belikhun.luna.core.api.messenger.MessengerPresenceType;
-import dev.belikhun.luna.core.api.messenger.ProxyMessageTemplateRenderer;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityTemplateRenderer;
 import dev.belikhun.luna.core.api.messenger.MessengerResultMessage;
 import dev.belikhun.luna.core.api.messenger.MessengerResultType;
 import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
@@ -56,8 +56,7 @@ public final class VelocityMessengerRouter {
 	private final LunaLogger logger;
 	private final PluginMessageBus<Object, Object> bus;
 	private volatile VelocityMessengerConfig config;
-	private final ProxyMessageTemplateRenderer renderer;
-	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
+	private final VelocityTemplateRenderer renderer;
 	private final VelocityPlayerDisplayFormat playerDisplayFormat;
 	private final ServerDisplayResolver serverDisplayResolver;
 	private volatile DiscordBridgeGateway discordBridge;
@@ -81,7 +80,7 @@ public final class VelocityMessengerRouter {
 		LunaLogger logger,
 		PluginMessageBus<Object, Object> bus,
 		VelocityMessengerConfig config,
-		ProxyMessageTemplateRenderer renderer,
+		VelocityTemplateRenderer renderer,
 		VelocityPlayerDisplayFormat playerDisplayFormat,
 		ServerDisplayResolver serverDisplayResolver,
 		DiscordBridgeGateway discordBridge
@@ -91,7 +90,6 @@ public final class VelocityMessengerRouter {
 		this.bus = bus;
 		this.config = config;
 		this.renderer = renderer;
-		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver(this.logger);
 		this.playerDisplayFormat = playerDisplayFormat;
 		this.serverDisplayResolver = serverDisplayResolver;
 		this.discordBridge = discordBridge;
@@ -114,6 +112,13 @@ public final class VelocityMessengerRouter {
 	public void registerChannels() {
 		bus.registerIncoming(MessengerChannels.COMMAND, context -> {
 			MessengerCommandRequest request = MessengerCommandRequest.readFrom(context.reader());
+
+			if (request.protocolVersion() != MessengerCommandRequest.CURRENT_PROTOCOL) {
+				logger.warn("Bỏ qua messenger command giao thức v" + request.protocolVersion() + " từ " + request.senderServer()
+					+ " (proxy nói v" + MessengerCommandRequest.CURRENT_PROTOCOL + "); cập nhật luna-messenger trên backend đó.");
+				return PluginMessageDispatchResult.HANDLED;
+			}
+
 			handle(request);
 			return PluginMessageDispatchResult.HANDLED;
 		});
@@ -1444,24 +1449,11 @@ public final class VelocityMessengerRouter {
 	}
 
 	private String render(String template, Map<String, String> values) {
-		return renderer.renderTemplate(template, values);
-	}
-
-	private String renderRaw(String template, Map<String, String> values) {
-		String output = template == null ? "" : template;
-		Map<String, String> safeValues = values == null ? Map.of() : values;
-		for (Map.Entry<String, String> entry : safeValues.entrySet()) {
-			String key = entry.getKey();
-			String replacement = entry.getValue() == null ? "" : entry.getValue();
-			output = output.replace("%" + key + "%", replacement);
-		}
-		return output;
+		return renderer.render(template, null, values == null ? Map.of() : values);
 	}
 
 	private String renderWithStack(String template, Map<String, String> internalValues, Map<String, String> backendValues, Player player) {
-		String internalRendered = render(template, internalValues == null ? Map.of() : internalValues);
-		String miniRendered = miniPlaceholderResolver.resolve(player, internalRendered, rawPlaceholderKeys(backendValues));
-		return renderRaw(miniRendered, backendValues == null ? Map.of() : backendValues);
+		return renderer.render(template, player, internalValues == null ? Map.of() : internalValues, backendValues == null ? Map.of() : backendValues);
 	}
 
 	private String renderWithLatePlaceholders(
@@ -1474,11 +1466,7 @@ public final class VelocityMessengerRouter {
 		Map<String, String> safeInternalValues = internalValues == null ? Map.of() : internalValues;
 		Map<String, String> safeBackendValues = backendValues == null ? Map.of() : backendValues;
 		Map<String, String> safeLatePlaceholders = latePlaceholders == null ? Map.of() : latePlaceholders;
-		String rendered = render(template, safeInternalValues);
-		rendered = injectUnescapedPlaceholders(rendered, safeLatePlaceholders);
-		rendered = miniPlaceholderResolver.resolve(player, rendered, rawPlaceholderKeys(safeBackendValues, safeLatePlaceholders));
-		rendered = renderRaw(rendered, safeBackendValues);
-		return injectUnescapedPlaceholders(rendered, safeLatePlaceholders);
+		return renderer.render(template, player, safeInternalValues, safeLatePlaceholders, safeBackendValues);
 	}
 
 	private void publishDiscord(
@@ -1736,12 +1724,9 @@ public final class VelocityMessengerRouter {
 	) {
 		Map<String, String> unescapedMap = unescapedValues == null ? Map.of() : unescapedValues;
 		Map<String, String> safeBackendValues = backendValues == null ? Map.of() : backendValues;
-		String rendered = render(template, internalValues == null ? Map.of() : internalValues);
-		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
-		rendered = miniPlaceholderResolver.resolve(player, rendered, rawPlaceholderKeys(safeBackendValues, unescapedMap, Map.of("message", "")));
-		rendered = renderRaw(rendered, safeBackendValues);
-		// Safeguard: backend-resolved values may still leave display placeholders unchanged.
-		rendered = injectUnescapedPlaceholders(rendered, unescapedMap);
+		// %message% is not a layer value on purpose: it is spliced in last, below,
+		// so the message body is never treated as template text
+		String rendered = renderer.render(template, player, internalValues == null ? Map.of() : internalValues, unescapedMap, safeBackendValues);
 		String messageMini = legacyToMini(rawMessage);
 		if (rendered.contains("%message%")) {
 			return rendered.replace("%message%", messageMini);
@@ -1758,29 +1743,7 @@ public final class VelocityMessengerRouter {
 		return rendered + " " + messageMini;
 	}
 
-	private String injectUnescapedPlaceholders(String rendered, Map<String, String> values) {
-		String output = rendered;
-		for (Map.Entry<String, String> entry : values.entrySet()) {
-			String value = entry.getValue() == null ? "" : entry.getValue();
-			output = output.replace("%" + entry.getKey() + "%", value);
-		}
-		return output;
-	}
 
-	private Set<String> rawPlaceholderKeys(Map<String, String>... valueMaps) {
-		Set<String> keys = new HashSet<>();
-		if (valueMaps == null) {
-			return keys;
-		}
-
-		for (Map<String, String> valueMap : valueMaps) {
-			if (valueMap == null || valueMap.isEmpty()) {
-				continue;
-			}
-			keys.addAll(valueMap.keySet());
-		}
-		return keys;
-	}
 
 	private String legacyToMini(String input) {
 		Component component = LEGACY.deserialize(normalizeLegacyHex(input));

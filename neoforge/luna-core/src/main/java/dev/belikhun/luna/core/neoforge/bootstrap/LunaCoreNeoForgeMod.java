@@ -19,9 +19,12 @@ import dev.belikhun.luna.core.api.heartbeat.BackendStatusStore;
 import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatPublisher;
 import dev.belikhun.luna.core.mc.heartbeat.ServerProbe;
 import dev.belikhun.luna.core.mc.logging.LunaLoggers;
-import dev.belikhun.luna.core.mc.placeholder.BuiltInPlaceholderService;
-import dev.belikhun.luna.core.mc.placeholder.PlaceholderProviderFactory;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderTransportInspector;
+import dev.belikhun.luna.core.mc.placeholder.MinecraftPlaceholderModule;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderDebugCommands;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.TrunkGameReads;
 import dev.belikhun.luna.core.mc.serverselector.ServerSelectorController;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.minecraft.server.MinecraftServer;
@@ -51,7 +54,7 @@ public final class LunaCoreNeoForgeMod {
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
 	private BackendHeartbeatPublisher heartbeatPublisher;
-	private PlaceholderService placeholderService;
+	private MinecraftPlaceholderModule placeholderModule;
 	private ServerSelectorController serverSelectorController;
 	private Database database = new NoopDatabase();
 	private ChatPrompts chatPrompts;
@@ -60,7 +63,7 @@ public final class LunaCoreNeoForgeMod {
 		this.logger = LunaLoggers.create("LunaCore", true);
 		this.dependencyManager = new DependencyManager();
 		this.heartbeatPublisher = null;
-		this.placeholderService = null;
+		this.placeholderModule = null;
 		this.serverSelectorController = null;
 		NeoForge.EVENT_BUS.register(this);
 		logger.audit("Đã đăng ký LunaCore NeoForge bootstrap.");
@@ -96,12 +99,8 @@ public final class LunaCoreNeoForgeMod {
 			"luna-neoforge-heartbeat"
 		);
 		BackendIdentity backendIdentity = heartbeatPublisher.identity();
-		placeholderService = new BuiltInPlaceholderService(
-			logger,
-			server,
-			backendIdentity,
-			PlaceholderProviderFactory.createDefault(permissionService)
-		);
+		placeholderModule = new MinecraftPlaceholderModule(server, backendIdentity, backendStatusStore, permissionService, new TrunkGameReads(), logger);
+		placeholderModule.start();
 		serverSelectorController = new ServerSelectorController(server, dependencyManager, logger, permissionService);
 		database = DatabaseConnector.connect(config.section("database"), logger);
 		chatPrompts = new ChatPrompts(server);
@@ -118,7 +117,8 @@ public final class LunaCoreNeoForgeMod {
 		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(BackendIdentity.class, backendIdentity);
 		dependencyManager.registerSingleton(BackendHeartbeatPublisher.class, heartbeatPublisher);
-		dependencyManager.registerSingleton(PlaceholderService.class, placeholderService);
+		dependencyManager.registerSingleton(PlaceholderService.class, placeholderModule.service());
+		dependencyManager.registerSingleton(PlaceholderRuntime.class, placeholderModule.runtime());
 		dependencyManager.registerSingleton(ServerSelectorController.class, serverSelectorController);
 		LunaCore.set(new LunaCoreServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
 		heartbeatPublisher.start();
@@ -140,6 +140,10 @@ public final class LunaCoreNeoForgeMod {
 		if (heartbeatPublisher != null) {
 			heartbeatPublisher.tickEnded();
 		}
+
+		if (placeholderModule != null) {
+			placeholderModule.onServerTick();
+		}
 	}
 
 	@SubscribeEvent
@@ -147,6 +151,8 @@ public final class LunaCoreNeoForgeMod {
 		if (serverSelectorController != null) {
 			serverSelectorController.registerCommands(event.getDispatcher());
 		}
+
+		PlaceholderDebugCommands.register(event.getDispatcher(), () -> placeholderModule, () -> dependencyManager.resolveOptional(PlaceholderTransportInspector.class).orElse(null));
 	}
 
 	@SubscribeEvent
@@ -181,6 +187,10 @@ public final class LunaCoreNeoForgeMod {
 
 	@SubscribeEvent
 	public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+		if (placeholderModule != null && event.getEntity() != null) {
+			placeholderModule.forgetPlayer(event.getEntity().getUUID());
+		}
+
 		if (chatPrompts != null && event.getEntity() instanceof net.minecraft.server.level.ServerPlayer leaving) {
 			chatPrompts.cancel(leaving.getUUID());
 		}
@@ -208,7 +218,7 @@ public final class LunaCoreNeoForgeMod {
 			heartbeatPublisher = null;
 		}
 
-		placeholderService = null;
+		placeholderModule = null;
 
 		database.close();
 		database = new NoopDatabase();

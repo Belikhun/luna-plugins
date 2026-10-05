@@ -1,5 +1,6 @@
 package dev.belikhun.luna.messenger.velocity.service;
 
+import dev.belikhun.luna.core.velocity.placeholder.VelocityTemplateRenderer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.messenger.velocity.service.discord.DiscordCommandRegistry;
@@ -65,7 +66,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 	private final List<RelayWebhookEndpoint> relayWebhookEndpoints;
 	private final VelocityMessengerConfig.DiscordPresenceUpdaterConfig presenceUpdaterConfig;
 	private final Supplier<Map<String, String>> presencePlaceholderSupplier;
-	private final VelocityMiniPlaceholderResolver miniPlaceholderResolver;
+	private final VelocityTemplateRenderer templates;
 	private final ScheduledExecutorService presenceExecutor;
 	private final AtomicInteger rotatingPresenceCursor;
 	private final DiscordCommandRegistry commandRegistry;
@@ -77,7 +78,8 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		InboundHandler inboundHandler,
 		List<String> webhookUrls,
 		Supplier<Map<String, String>> presencePlaceholderSupplier,
-		DiscordCommandRegistry commandRegistry
+		DiscordCommandRegistry commandRegistry,
+		VelocityTemplateRenderer templates
 	) throws Exception {
 		this.logger = logger.scope("DiscordBridge");
 		this.config = config;
@@ -92,7 +94,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 		this.relayWebhookEndpoints = resolveRelayWebhookEndpoints(webhookUrls);
 		this.presenceUpdaterConfig = config.presenceUpdater();
 		this.presencePlaceholderSupplier = presencePlaceholderSupplier;
-		this.miniPlaceholderResolver = new VelocityMiniPlaceholderResolver(this.logger);
+		this.templates = templates;
 		this.rotatingPresenceCursor = new AtomicInteger();
 		this.commandRegistry = commandRegistry;
 		this.presenceExecutor = Executors.newSingleThreadScheduledExecutor(task -> {
@@ -198,7 +200,7 @@ public final class JdaDiscordBridgeGateway extends ListenerAdapter implements Di
 
 	private String resolvePresenceTemplate(String template, Map<String, String> placeholders) {
 		String replaced = applyPlaceholders(template, placeholders);
-		String miniResolved = miniPlaceholderResolver.resolve(null, replaced);
+		String miniResolved = templates == null ? replaced : templates.render(replaced, null);
 		return sanitizePresenceText(miniResolved);
 	}
 

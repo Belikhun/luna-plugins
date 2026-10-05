@@ -37,6 +37,7 @@ import dev.belikhun.luna.core.api.profile.LuckPermsService;
 import dev.belikhun.luna.core.api.profile.PermissionService;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.command.LunaCoreVelocityAdminCommand;
+import dev.belikhun.luna.core.velocity.command.VelocityPlaceholderDebugCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
 import dev.belikhun.luna.core.velocity.admin.VelocityAdminHttpEndpoints;
@@ -48,6 +49,12 @@ import dev.belikhun.luna.core.velocity.heartbeat.VelocityHeartbeatHttpEndpoints;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityRegistryStream;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.core.velocity.permissions.VelocityPermissionHttpEndpoints;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityPlaceholderDebugHttpEndpoints;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityPlaceholderModule;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityTemplateRenderer;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.velocity.tabbridge.VelocityTabBridgeObserver;
+import dev.belikhun.luna.core.velocity.tablist.VelocityTabListRenderer;
 import dev.belikhun.luna.core.velocity.skins.VelocitySkinHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanStore;
@@ -56,15 +63,10 @@ import dev.belikhun.luna.core.velocity.players.VelocityPlayerDirectoryHttpEndpoi
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerHttpEndpoints;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerSessionRegistry;
-import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaMiniPlaceholders;
-import dev.belikhun.luna.core.velocity.placeholder.VelocityLunaTabPlaceholders;
 import dev.belikhun.luna.core.velocity.serverselector.VelocitySelectorServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorConfig;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidationReport;
 import dev.belikhun.luna.core.velocity.serverselector.VelocityServerSelectorValidator;
-import me.neznamy.tab.api.TabAPI;
-import me.neznamy.tab.api.event.EventHandler;
-import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -122,9 +124,11 @@ public final class LunaCoreVelocityPlugin {
 	private BackendHeartbeatListener dashboardHeartbeatListener;
 	private VelocityServerSelectorConfig serverSelectorConfig;
 	private VelocityServerConnectCommand selectorConnectCommand;
-	private VelocityLunaMiniPlaceholders lunaMiniPlaceholders;
-	private VelocityLunaTabPlaceholders lunaTabPlaceholders;
-	private EventHandler<TabLoadEvent> tabLoadHandler;
+	/**
+	 * Outlives a reload: other plugins register specs into it once at their own
+	 * startup, and TAB's reload hook lives here for all of them.
+	 */
+	private VelocityPlaceholderModule placeholderModule;
 	private final VelocityPlayerSessionRegistry playerSessionRegistry;
 	private final VelocityPlayerRecordStore playerRecordStore;
 	/**
@@ -134,6 +138,12 @@ public final class LunaCoreVelocityPlugin {
 	private final VelocityNetworkBanStore networkBanStore;
 	private final SseBroadcaster telemetryBroadcaster;
 	private final SseBroadcaster playerBroadcaster;
+	/**
+	 * Both outlive a reload: the observer's counters are the observation window an
+	 * operator compares a backend's trace against, and a reload must not zero it.
+	 */
+	private final VelocityTabBridgeObserver tabBridgeObserver;
+	private final VelocityTabListRenderer tabListRenderer;
 	private Consumer<VelocityPlayerSessionRegistry.Activity> playerActivityListener;
 	/**
 	 * Also outlives a reload, for the same reason: an auth repository holds the
@@ -165,6 +175,8 @@ public final class LunaCoreVelocityPlugin {
 		this.sharedDatabase = new SwappableDatabase(new NoopDatabase());
 		this.telemetryBroadcaster = new SseBroadcaster(this.logger, "telemetry");
 		this.playerBroadcaster = new SseBroadcaster(this.logger, "players");
+		this.tabBridgeObserver = new VelocityTabBridgeObserver(this.logger);
+		this.tabListRenderer = new VelocityTabListRenderer(this.logger);
 		// The timeout is a config value, but the registry itself must exist before
 		// any config is read, so it starts on the default and reload adjusts it.
 		this.backendStatusRegistry = new VelocityBackendStatusRegistry(20_000L, this.logger);
@@ -188,14 +200,19 @@ public final class LunaCoreVelocityPlugin {
 		proxyServer.getEventManager().register(this, playerSessionRegistry);
 		proxyServer.getEventManager().register(this, playerRecordStore);
 		proxyServer.getEventManager().register(this, networkBanStore);
-		ensureTabReloadHookRegistered();
+		proxyServer.getEventManager().register(this, tabBridgeObserver);
+		placeholderModule = new VelocityPlaceholderModule(this, proxyServer, dataDirectory, new LuckPermsService(), logger);
 		reloadModules();
+		placeholderModule.start();
 		logger.success("LunaCore (Velocity) đã khởi động thành công.");
 	}
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		unregisterTabReloadHook();
+		if (placeholderModule != null) {
+			placeholderModule.shutdown();
+		}
+
 		telemetryBroadcaster.close();
 		playerBroadcaster.close();
 		playerRecordStore.shutdown();
@@ -337,6 +354,14 @@ public final class LunaCoreVelocityPlugin {
 			authorizer
 		).register(nextHttpServerManager.router());
 
+		new VelocityPlaceholderDebugHttpEndpoints(
+			logger,
+			proxyServer,
+			tabListRenderer,
+			tabBridgeObserver,
+			authorizer
+		).register(nextHttpServerManager.router());
+
 		// Created once and kept: other plugins register their channels on it at
 		// their own startup, so a reload reconfigures it rather than replacing it.
 		// Only our own handlers are dropped and re-added; anything another plugin
@@ -372,13 +397,17 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(PermissionService.class, permissionService);
 		dependencyManager.registerSingleton(VelocityMoneyFormat.class, moneyFormat);
 		dependencyManager.registerSingleton(VelocityPlayerDisplayFormat.class, playerDisplayFormat);
+		dependencyManager.registerSingleton(VelocityTabListRenderer.class, tabListRenderer);
+		dependencyManager.registerSingleton(VelocityPlaceholderModule.class, placeholderModule);
+		dependencyManager.registerSingleton(PlaceholderRuntime.class, placeholderModule.runtime());
+		dependencyManager.registerSingleton(VelocityTemplateRenderer.class, placeholderModule.templates());
+		dependencyManager.registerSingleton(VelocityTabBridgeObserver.class, tabBridgeObserver);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
 		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, playerDisplayFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
 
 		unregisterOwnedCommands();
 		registerCommands(serverSelectorConfig);
-		registerMiniPlaceholders(nextServerDisplayResolver, playerDisplayFormat);
-		registerTabPlaceholders(nextServerDisplayResolver, playerDisplayFormat);
+		placeholderModule.publishCore(backendStatusRegistry, serverSelectorConfig, nextServerDisplayResolver, playerDisplayFormat);
 		httpServerManager.startIfEnabled(configPath);
 		logger.success("Đã reload LunaCore Velocity: config và modules đã được khởi tạo lại.");
 	}
@@ -550,7 +579,8 @@ public final class LunaCoreVelocityPlugin {
 		CommandMeta meta = manager.metaBuilder("lunacoreproxy")
 			.aliases("lcv", "luna")
 			.build();
-		manager.register(meta, new LunaCoreVelocityAdminCommand(backendStatusRegistry, this::reloadModules));
+		VelocityPlaceholderDebugCommand placeholderDebugCommand = new VelocityPlaceholderDebugCommand(proxyServer, tabListRenderer, tabBridgeObserver, placeholderModule);
+		manager.register(meta, new LunaCoreVelocityAdminCommand(backendStatusRegistry, this::reloadModules, placeholderDebugCommand));
 
 		if (!selectorConfig.enabled()) {
 			logger.warn("Server selector đang tắt trong cấu hình Velocity.");
@@ -608,87 +638,9 @@ public final class LunaCoreVelocityPlugin {
 		}
 	}
 
-	private void registerMiniPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
-		if (proxyServer.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
-			logger.audit("MiniPlaceholders chưa được cài trên proxy. Bỏ qua namespace lunav.");
-			return;
-		}
 
-		try {
-			lunaMiniPlaceholders = new VelocityLunaMiniPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
-			lunaMiniPlaceholders.register();
-		} catch (Throwable throwable) {
-			logger.error("Không thể đăng ký MiniPlaceholders namespace lunav.", throwable);
-			lunaMiniPlaceholders = null;
-		}
-	}
 
-	private void registerTabPlaceholders(ServerDisplayResolver serverDisplayResolver, VelocityPlayerDisplayFormat playerDisplayFormat) {
-		if (proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			logger.audit("TAB chưa được cài trên proxy. Bỏ qua placeholders %lunav-*%.");
-			return;
-		}
 
-		try {
-			lunaTabPlaceholders = new VelocityLunaTabPlaceholders(logger, backendStatusRegistry, serverSelectorConfig, serverDisplayResolver, playerDisplayFormat);
-			lunaTabPlaceholders.register();
-		} catch (Throwable throwable) {
-			logger.error("Không thể đăng ký TAB placeholders %lunav-*%.", throwable);
-			lunaTabPlaceholders = null;
-		}
-	}
-
-	private void ensureTabReloadHookRegistered() {
-		if (tabLoadHandler != null || proxyServer.getPluginManager().getPlugin("tab").isEmpty()) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() == null) {
-				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholders sau /tab reload.");
-				return;
-			}
-
-			tabLoadHandler = event -> {
-				if (dependencyManager == null) {
-					return;
-				}
-
-				ServerDisplayResolver serverDisplayResolver = dependencyManager.resolveOptional(ServerDisplayResolver.class).orElse(null);
-				VelocityPlayerDisplayFormat playerDisplayFormat = dependencyManager.resolveOptional(VelocityPlayerDisplayFormat.class).orElse(null);
-				if (serverDisplayResolver == null || playerDisplayFormat == null) {
-					logger.warn("Bỏ qua đăng ký lại TAB placeholders vì LunaCore Velocity services chưa sẵn sàng.");
-					return;
-				}
-
-				try {
-					registerTabPlaceholders(serverDisplayResolver, playerDisplayFormat);
-					logger.audit("Đã đăng ký lại TAB placeholders của LunaCore sau /tab reload.");
-				} catch (Throwable throwable) {
-					logger.error("Không thể đăng ký lại TAB placeholders của LunaCore sau /tab reload.", throwable);
-				}
-			};
-			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
-		} catch (Throwable throwable) {
-			tabLoadHandler = null;
-			logger.warn("Không thể gắn listener TabLoadEvent cho LunaCore Velocity: " + throwable.getMessage());
-		}
-	}
-
-	private void unregisterTabReloadHook() {
-		if (tabLoadHandler == null) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() != null) {
-				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
-			}
-		} catch (Throwable ignored) {
-		}
-
-		tabLoadHandler = null;
-	}
 
 	// Registry changes used to be announced with a plugin message telling backends
 	// to re-publish. That message rides a player's connection, so a backend with
@@ -771,14 +723,6 @@ public final class LunaCoreVelocityPlugin {
 	}
 
 	private void teardownRuntime() {
-		if (lunaMiniPlaceholders != null) {
-			lunaMiniPlaceholders.unregister();
-			lunaMiniPlaceholders = null;
-		}
-		if (lunaTabPlaceholders != null) {
-			lunaTabPlaceholders.unregister();
-			lunaTabPlaceholders = null;
-		}
 		if (registryStream != null) {
 			registryStream.close();
 			registryStream = null;

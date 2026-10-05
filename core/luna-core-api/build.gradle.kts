@@ -5,4 +5,7 @@ dependencies {
 	compileOnly(libs.adventure.serializer.legacy)
 	compileOnly(libs.luckperms.api)
 	compileOnly(libs.spark.api)
+	testRuntimeOnly(libs.adventure.minimessage)
+	testRuntimeOnly(libs.adventure.serializer.legacy)
+	testRuntimeOnly(libs.adventure.serializer.gson)
 }

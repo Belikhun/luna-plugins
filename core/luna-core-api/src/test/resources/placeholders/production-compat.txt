@@ -1,0 +1,43 @@
+# Placeholders found in production configs on 2026-09-20 that the rewrite must keep
+# resolving to the same shape. One per line; "#" starts a comment.
+# Source: <root>/proxy/plugins/tab/{config,groups}.yml, lunamessenger/config.yml, lunacore/*.yml.
+
+# backend, %luna_*% through TAB and PlaceholderAPI
+%luna_host_name%
+%luna_current_server%
+%luna_uptime_safe%
+%luna_tick_duration_safe%
+%luna_tps_bar_10_safe%
+%luna_tps_bar_20_safe%
+%luna_player_ping_bar_safe%
+%luna_player_ping_bar_10_safe%
+%luna_system_cpu_bar_safe%
+%luna_process_cpu_bar_safe%
+%luna_ram_bar_value_only_safe%
+%luna_ram_bar_only_80_safe%
+%luna_ram_bar_only_120_safe%
+%luna_total_entities_safe%
+%luna_total_living_entities_safe%
+%luna_total_chunks_safe%
+%luna_voicechat_status%
+%luna_player_level%
+%luna_player_dimension%
+%luna_player_status_⏺%
+%luna_world_survival_weather%
+%luna_world_survival_weathericon%
+%luna_world_survival_weathercolor%
+%luna_world_survival_weatherduration%
+
+# proxy, canonical ids after the migration
+%lunav_vault_balance%
+%lunav_vault_rank%
+%lunav_glyph_logo%
+%lunav_glyph_createlogo%
+<lunav_player_status>
+<luna_player_status:'⏺'>
+
+# proxy, deprecated ids that stay as aliases for one release
+%lunavaultv-balance%
+%lunavaultv-rank%
+%lunaglyph-logo%
+%lunaglyph-createlogo%

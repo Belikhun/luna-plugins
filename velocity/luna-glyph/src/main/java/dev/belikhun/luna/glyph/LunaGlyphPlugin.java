@@ -16,15 +16,13 @@ import dev.belikhun.luna.glyph.command.LunaGlyphAdminCommand;
 import dev.belikhun.luna.glyph.config.GlyphConfigService;
 import dev.belikhun.luna.glyph.config.GlyphPackConfig;
 import dev.belikhun.luna.glyph.config.GlyphPluginState;
-import dev.belikhun.luna.glyph.placeholder.GlyphMiniPlaceholders;
-import dev.belikhun.luna.glyph.placeholder.GlyphTabPlaceholders;
+import dev.belikhun.luna.glyph.placeholder.GlyphPlaceholders;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
+import dev.belikhun.luna.core.velocity.placeholder.VelocityPlaceholderModule;
 import dev.belikhun.luna.glyph.service.GlyphPackBuilder;
 import dev.belikhun.luna.pack.api.LunaPackApi;
 import dev.belikhun.luna.pack.api.LunaPackDynamicContext;
 import dev.belikhun.luna.pack.api.LunaPackRegistration;
-import me.neznamy.tab.api.TabAPI;
-import me.neznamy.tab.api.event.EventHandler;
-import me.neznamy.tab.api.event.plugin.TabLoadEvent;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -55,9 +53,7 @@ public final class LunaGlyphPlugin {
 
 	private GlyphPluginState state;
 	private LunaPackApi lunaPackApi;
-	private GlyphMiniPlaceholders miniPlaceholders;
-	private GlyphTabPlaceholders tabPlaceholders;
-	private EventHandler<TabLoadEvent> tabLoadHandler;
+	private GlyphPlaceholders placeholders;
 	private volatile Consumer<String> reloadReporter;
 
 	@Inject
@@ -77,9 +73,7 @@ public final class LunaGlyphPlugin {
 		registerCommand();
 		resolveLunaPackApi();
 		reloadDynamicPackRegistration();
-		registerMiniPlaceholders();
-		registerTabPlaceholders();
-		ensureTabReloadHookRegistered();
+		registerPlaceholders();
 
 		logger.success("LunaGlyph đã khởi động.");
 	}
@@ -105,16 +99,9 @@ public final class LunaGlyphPlugin {
 		state = configService.loadState();
 		report("Đã nạp " + state.glyphs().size() + " glyph từ cấu hình.");
 		reloadDynamicPackRegistration();
-		if (miniPlaceholders != null) {
-			report("Đang đăng ký lại MiniPlaceholders.");
-			miniPlaceholders.register(state.placeholderValues());
-			report("Đã đăng ký lại MiniPlaceholders thành công.");
-		}
-		if (tabPlaceholders != null) {
-			report("Đang đăng ký lại TAB placeholders.");
-			tabPlaceholders.register(state.placeholderValues());
-			report("Đã đăng ký lại TAB placeholders thành công.");
-		}
+		report("Đang đăng ký lại placeholder glyph.");
+		registerPlaceholders();
+		report("Đã đăng ký lại placeholder glyph thành công.");
 		report("Hoàn tất reload LunaGlyph.");
 		reloadReporter = null;
 	}
@@ -173,87 +160,33 @@ public final class LunaGlyphPlugin {
 		}
 	}
 
-	private void registerMiniPlaceholders() {
-		if (server.getPluginManager().getPlugin("miniplaceholders").isEmpty()) {
+
+	private void registerPlaceholders() {
+		VelocityPlaceholderModule module = LunaCoreVelocity.services().dependencyManager()
+			.resolveOptional(VelocityPlaceholderModule.class)
+			.orElse(null);
+
+		if (module == null) {
+			logger.warn("LunaCore Velocity chưa có placeholder module. Bỏ qua %lunav_glyph_...%.");
 			return;
 		}
 
-		try {
-			miniPlaceholders = new GlyphMiniPlaceholders(logger);
-			miniPlaceholders.register(state.placeholderValues());
-		} catch (Throwable throwable) {
-			logger.error("Không thể đăng ký MiniPlaceholders cho LunaGlyph.", throwable);
-			miniPlaceholders = null;
+		if (placeholders == null) {
+			placeholders = new GlyphPlaceholders();
 		}
+
+		placeholders.register(module, state.placeholderValues());
+		logger.success("Đã đăng ký placeholder %lunav_glyph_<key>% cho " + state.placeholderValues().size() + " glyph.");
 	}
 
-	private void registerTabPlaceholders() {
-		if (server.getPluginManager().getPlugin("tab").isEmpty()) {
-			return;
-		}
 
-		try {
-			tabPlaceholders = new GlyphTabPlaceholders(logger);
-			tabPlaceholders.register(state.placeholderValues());
-		} catch (Throwable throwable) {
-			logger.error("Không thể đăng ký TAB placeholders cho LunaGlyph.", throwable);
-			tabPlaceholders = null;
-		}
-	}
-
-	private void ensureTabReloadHookRegistered() {
-		if (tabLoadHandler != null || server.getPluginManager().getPlugin("tab").isEmpty()) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() == null) {
-				logger.warn("TAB API event bus không khả dụng. Không thể tự động đăng ký lại placeholders LunaGlyph sau /tab reload.");
-				return;
-			}
-
-			tabLoadHandler = event -> {
-				if (state == null) {
-					return;
-				}
-
-				try {
-					registerTabPlaceholders();
-					logger.audit("Đã đăng ký lại TAB placeholders của LunaGlyph sau /tab reload.");
-				} catch (Throwable throwable) {
-					logger.error("Không thể đăng ký lại TAB placeholders của LunaGlyph sau /tab reload.", throwable);
-				}
-			};
-			TabAPI.getInstance().getEventBus().register(TabLoadEvent.class, tabLoadHandler);
-		} catch (Throwable throwable) {
-			tabLoadHandler = null;
-			logger.warn("Không thể gắn listener TabLoadEvent cho LunaGlyph: " + throwable.getMessage());
-		}
-	}
-
-	private void unregisterTabReloadHook() {
-		if (tabLoadHandler == null) {
-			return;
-		}
-
-		try {
-			if (TabAPI.getInstance().getEventBus() != null) {
-				TabAPI.getInstance().getEventBus().unregister(tabLoadHandler);
-			}
-		} catch (Throwable ignored) {
-		}
-
-		tabLoadHandler = null;
-	}
 
 	@Subscribe
 	public void onProxyShutdown(ProxyShutdownEvent event) {
-		unregisterTabReloadHook();
-		if (miniPlaceholders != null) {
-			miniPlaceholders.unregister();
-		}
-		if (tabPlaceholders != null) {
-			tabPlaceholders.unregister();
+		if (placeholders != null) {
+			LunaCoreVelocity.services().dependencyManager()
+				.resolveOptional(VelocityPlaceholderModule.class)
+				.ifPresent(placeholders::unregister);
 		}
 		if (lunaPackApi != null) {
 			lunaPackApi.unregisterDynamicProvider(DYNAMIC_PROVIDER_ID);

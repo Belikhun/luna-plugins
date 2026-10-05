@@ -30,7 +30,7 @@ public final class MessengerRuntimeFactory {
 			return new NoopMessengerRuntime();
 		}
 
-		BackendPlaceholderResolver placeholderResolver = new CoreBackedPlaceholderResolver(dependencyManager);
+		BackendPlaceholderResolver placeholderResolver = new CoreBackedPlaceholderResolver(dependencyManager, java.util.List.of());
 		BackendIdentity backendIdentity = dependencyManager.resolveOptional(BackendIdentity.class)
 			.orElseGet(() -> () -> new BackendMetadata("backend", "", "").sanitize());
 

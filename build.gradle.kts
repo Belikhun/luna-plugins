@@ -296,6 +296,10 @@ subprojects {
                     java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-messenger-mc/src/main/java"))
                 }
 
+                if (project.name == "luna-tab-bridge-mc26-fabric") {
+                    java.srcDir(rootProject.layout.projectDirectory.dir("core/luna-tab-bridge-mc/src/main/java"))
+                }
+
                 if (project.name == "luna-auth-backend-mc26-fabric") {
                     val lunaAuthMc = rootProject.layout.projectDirectory.dir("core/luna-auth-backend-mc/src")
 

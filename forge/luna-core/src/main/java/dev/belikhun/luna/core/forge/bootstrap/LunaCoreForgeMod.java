@@ -19,9 +19,12 @@ import dev.belikhun.luna.core.mc.LunaCore;
 import dev.belikhun.luna.core.mc.LunaCoreServices;
 import dev.belikhun.luna.core.mc.heartbeat.ServerProbe;
 import dev.belikhun.luna.core.mc.logging.LunaLoggers;
-import dev.belikhun.luna.core.mc.placeholder.BuiltInPlaceholderService;
-import dev.belikhun.luna.core.mc.placeholder.PlaceholderProviderFactory;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderTransportInspector;
+import dev.belikhun.luna.core.mc.placeholder.MinecraftPlaceholderModule;
+import dev.belikhun.luna.core.mc.placeholder.PlaceholderDebugCommands;
 import dev.belikhun.luna.core.mc.placeholder.PlaceholderService;
+import dev.belikhun.luna.core.mc.placeholder.TrunkGameReads;
 import dev.belikhun.luna.core.mc.serverselector.ServerSelectorController;
 import dev.belikhun.luna.core.mc.ui.ChatPrompts;
 import net.minecraftforge.event.TickEvent;
@@ -79,7 +82,7 @@ public final class LunaCoreForgeMod {
 	private LunaLogger logger;
 	private final DependencyManager dependencyManager;
 	private BackendHeartbeatPublisher heartbeatPublisher;
-	private PlaceholderService placeholderService;
+	private MinecraftPlaceholderModule placeholderModule;
 	private ServerSelectorController serverSelectorController;
 	private Database database = new NoopDatabase();
 	private ChatPrompts chatPrompts;
@@ -88,7 +91,7 @@ public final class LunaCoreForgeMod {
 		this.logger = LunaLoggers.create("LunaCore", true);
 		this.dependencyManager = new DependencyManager();
 		this.heartbeatPublisher = null;
-		this.placeholderService = null;
+		this.placeholderModule = null;
 		this.serverSelectorController = null;
 
 		MinecraftForge.EVENT_BUS.register(this);
@@ -131,12 +134,8 @@ public final class LunaCoreForgeMod {
 		);
 
 		BackendIdentity backendIdentity = heartbeatPublisher.identity();
-		placeholderService = new BuiltInPlaceholderService(
-			logger,
-			server,
-			backendIdentity,
-			PlaceholderProviderFactory.createDefault(permissionService)
-		);
+		placeholderModule = new MinecraftPlaceholderModule(server, backendIdentity, backendStatusStore, permissionService, new TrunkGameReads(), logger);
+		placeholderModule.start();
 		serverSelectorController = new ServerSelectorController(server, dependencyManager, logger, permissionService);
 		database = DatabaseConnector.connect(config.section("database"), logger);
 		chatPrompts = new ChatPrompts(server);
@@ -153,7 +152,8 @@ public final class LunaCoreForgeMod {
 		dependencyManager.registerSingleton(BackendStatusStore.class, backendStatusStore);
 		dependencyManager.registerSingleton(BackendIdentity.class, backendIdentity);
 		dependencyManager.registerSingleton(BackendHeartbeatPublisher.class, heartbeatPublisher);
-		dependencyManager.registerSingleton(PlaceholderService.class, placeholderService);
+		dependencyManager.registerSingleton(PlaceholderService.class, placeholderModule.service());
+		dependencyManager.registerSingleton(PlaceholderRuntime.class, placeholderModule.runtime());
 		dependencyManager.registerSingleton(ServerSelectorController.class, serverSelectorController);
 
 		LunaCore.set(new LunaCoreServices(MOD_ID, server, dependencyManager, logger, heartbeatPublisher, config, database));
@@ -198,6 +198,10 @@ public final class LunaCoreForgeMod {
 			heartbeatPublisher.tickStarted();
 		} else {
 			heartbeatPublisher.tickEnded();
+
+			if (placeholderModule != null) {
+				placeholderModule.onServerTick();
+			}
 		}
 	}
 
@@ -206,6 +210,8 @@ public final class LunaCoreForgeMod {
 		if (serverSelectorController != null) {
 			serverSelectorController.registerCommands(event.getDispatcher());
 		}
+
+		PlaceholderDebugCommands.register(event.getDispatcher(), () -> placeholderModule, () -> dependencyManager.resolveOptional(PlaceholderTransportInspector.class).orElse(null));
 	}
 
 	@SubscribeEvent
@@ -241,6 +247,10 @@ public final class LunaCoreForgeMod {
 
 	@SubscribeEvent
 	public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+		if (placeholderModule != null && event.getEntity() != null) {
+			placeholderModule.forgetPlayer(event.getEntity().getUUID());
+		}
+
 		if (chatPrompts != null && event.getEntity() instanceof ServerPlayer leaving) {
 			chatPrompts.cancel(leaving.getUUID());
 		}

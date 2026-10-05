@@ -1,5 +1,8 @@
 package dev.belikhun.luna.core.velocity;
 
+import dev.belikhun.luna.core.api.placeholder.PlaceholderSyntax;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderTemplate;
+import java.util.EnumSet;
 import com.velocitypowered.api.proxy.Player;
 import dev.belikhun.luna.core.api.config.ConfigValues;
 import dev.belikhun.luna.core.api.profile.PermissionService;
@@ -147,13 +150,7 @@ public final class VelocityPlayerDisplayFormat {
 	}
 
 	private String renderRaw(String template, Map<String, String> values) {
-		String output = template == null ? "" : template;
-		for (Map.Entry<String, String> entry : values.entrySet()) {
-			String percentPlaceholder = "%" + entry.getKey() + "%";
-			String replacement = entry.getValue() == null ? "" : entry.getValue();
-			output = output.replace(percentPlaceholder, replacement);
-		}
-		return output;
+		return PlaceholderTemplate.cached(template, EnumSet.of(PlaceholderSyntax.PERCENT)).renderValues(values);
 	}
 
 	private String normalizeValue(String value) {

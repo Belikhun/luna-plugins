@@ -30,6 +30,11 @@ public final class VaultGateway implements LunaVaultApi, VaultPlatform<ServerPla
 	private final MinecraftServer server;
 	private final VaultClient<ServerPlayer> client;
 
+
+	/** The client behind this gateway, for surfaces that read its cache directly. */
+	public VaultClient<ServerPlayer> client() {
+		return client;
+	}
 	public VaultGateway(
 		MinecraftServer server,
 		String backendName,

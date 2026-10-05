@@ -1,11 +1,15 @@
 package dev.belikhun.luna.tabbridge.mc.runtime;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageChannel;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderGrammar;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRef;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.placeholder.PlayerSample;
+import dev.belikhun.luna.core.api.placeholder.Resolution;
 import dev.belikhun.luna.core.api.profile.PermissionService;
-import dev.belikhun.luna.core.messaging.mc.PluginMessagingBus;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.io.ByteArrayInputStream;
@@ -14,22 +18,44 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayDeque;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 
+/**
+ * TAB's bridge protocol over a plugin-message channel, one instance per server.
+ *
+ * The wire is TAB's own ({@code tab:bridge-6}): inbound frames name an action
+ * with a UTF string, outbound frames start with a byte id and carry positional
+ * fields. What this class adds is bookkeeping: which identifiers TAB asked for
+ * and how often, what was last sent so unchanged values stay quiet, a bounded
+ * queue for frames sent before TAB has said hello for the player, and a record
+ * of what was refused and why, so an operator can ask.
+ *
+ * Every value comes from the core's placeholder engine, which reads samples
+ * only; the refresh therefore stays cheap even for a full tab list.
+ */
 final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 	private static final PluginMessageChannel TAB_BRIDGE_CHANNEL = PluginMessageChannel.of("tab:bridge-6");
+	/** After a join or a new registration, every value is sent once even if unchanged. */
 	private static final long INITIAL_PLACEHOLDER_WARMUP_MILLIS = 10_000L;
+	/** Frames kept per player while TAB has not said hello; older ones are dropped. */
+	private static final int MAX_QUEUED_FRAMES = 256;
+	/** TAB's own minimum, raised: below this the client strobes. */
+	private static final int MIN_REFRESH_MILLIS = 100;
 	private static final int LARGE_PLACEHOLDER_IDENTIFIER_LENGTH = 256;
 	private static final int LARGE_PLACEHOLDER_VALUE_LENGTH = 512;
 	private static final int PLACEHOLDER_PREVIEW_LENGTH = 160;
+	private static final String RELATIONAL_PREFIX = "%rel_";
 	private static final byte UPDATE_GAME_MODE_ID = 1;
 	private static final byte HAS_PERMISSION_ID = 2;
 	private static final byte INVISIBLE_ID = 3;
@@ -39,62 +65,54 @@ final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 	private static final byte VANISHED_ID = 7;
 	private static final byte UPDATE_PLACEHOLDER_ID = 8;
 	private static final byte PLAYER_JOIN_RESPONSE_ID = 9;
+
 	private final LunaLogger logger;
-	private final PluginMessagingBus bus;
+	private final PluginMessageBus<ServerPlayer, ServerPlayer> bus;
 	private final PermissionService permissionService;
 	private final TabBridgePlayerStateSource playerStateSource;
-	private final Map<UUID, Map<String, String>> placeholdersByPlayer;
-	private final Map<UUID, Map<String, Map<String, String>>> relationalPlaceholdersByPlayer;
-	private final Map<UUID, PlayerBridgeState> stateByPlayer;
-	private final Map<UUID, TabBridgePacket> packetsByPlayer;
-	private final Map<UUID, Deque<byte[]>> queuedOutgoingPayloadsByPlayer;
-	private final Map<UUID, Map<String, RequestedPlaceholderState>> requestedPlaceholdersByPlayer;
-	private final Map<UUID, Map<String, String>> lastSentPlaceholderValuesByPlayer;
-	private final Map<UUID, Map<String, Map<String, String>>> lastSentRelationalPlaceholderValuesByPlayer;
-	private final Set<UUID> readyPlayers;
-	private final Map<UUID, Long> placeholderWarmupUntilByPlayer;
-	private volatile TabBridgePlaceholderResolver placeholderResolver;
+	private final PlaceholderRuntime<ServerPlayer> placeholders;
+	private final TabBridgeRelationalPlaceholderSource relationalSource;
+	private final Map<UUID, PlayerBridge> players = new ConcurrentHashMap<>();
+	private final Map<String, String> rejectedIdentifiers = new ConcurrentHashMap<>();
+	private final Set<String> unmatchedIdentifiers = ConcurrentHashMap.newKeySet();
+	private final LongAdder framesSent = new LongAdder();
+	private final LongAdder framesReceived = new LongAdder();
+	private final LongAdder framesDropped = new LongAdder();
+	private final LongAdder placeholderUpdatesSent = new LongAdder();
 
-	RawChannelTabBridgeRuntime(LunaLogger logger, PluginMessagingBus bus, PermissionService permissionService, TabBridgePlayerStateSource playerStateSource) {
+	RawChannelTabBridgeRuntime(
+		LunaLogger logger,
+		PluginMessageBus<ServerPlayer, ServerPlayer> bus,
+		PermissionService permissionService,
+		TabBridgePlayerStateSource playerStateSource,
+		PlaceholderRuntime<ServerPlayer> placeholders,
+		TabBridgeRelationalPlaceholderSource relationalSource
+	) {
 		this.logger = logger.scope("Runtime");
 		this.bus = bus;
 		this.permissionService = permissionService;
 		this.playerStateSource = playerStateSource == null ? new NoopTabBridgePlayerStateSource() : playerStateSource;
-		this.placeholdersByPlayer = new ConcurrentHashMap<>();
-		this.relationalPlaceholdersByPlayer = new ConcurrentHashMap<>();
-		this.stateByPlayer = new ConcurrentHashMap<>();
-		this.packetsByPlayer = new ConcurrentHashMap<>();
-		this.queuedOutgoingPayloadsByPlayer = new ConcurrentHashMap<>();
-		this.requestedPlaceholdersByPlayer = new ConcurrentHashMap<>();
-		this.lastSentPlaceholderValuesByPlayer = new ConcurrentHashMap<>();
-		this.lastSentRelationalPlaceholderValuesByPlayer = new ConcurrentHashMap<>();
-		this.readyPlayers = ConcurrentHashMap.newKeySet();
-		this.placeholderWarmupUntilByPlayer = new ConcurrentHashMap<>();
-		this.placeholderResolver = null;
+		this.placeholders = placeholders;
+		this.relationalSource = relationalSource == null ? new NoopTabBridgeRelationalPlaceholderSource() : relationalSource;
 		this.bus.registerOutgoing(TAB_BRIDGE_CHANNEL);
 		this.bus.registerIncoming(TAB_BRIDGE_CHANNEL, context -> {
 			ServerPlayer source = context.source();
+
 			if (source == null) {
 				return PluginMessageDispatchResult.HANDLED;
 			}
 
-			packetsByPlayer.put(source.getUUID(), new TabBridgePacket(
-				source.getUUID(),
-				source.getGameProfile().getName(),
-				context.payload(),
-				System.currentTimeMillis()
-			));
-			markPlayerReady(source.getUUID());
-			handleIncoming(source, context.payload());
-			flushQueuedMessages(source);
+			framesReceived.increment();
+			PlayerBridge bridge = bridge(source.getUUID());
+			bridge.latestPacket = new TabBridgePacket(source.getUUID(), nameOf(source), context.payload(), System.currentTimeMillis());
+			bridge.ready = true;
+			handleIncoming(source, bridge, context.payload());
+			flushQueue(source, bridge);
 			return PluginMessageDispatchResult.HANDLED;
 		});
 	}
 
-	@Override
-	public void bindPlaceholderResolver(TabBridgePlaceholderResolver placeholderResolver) {
-		this.placeholderResolver = placeholderResolver;
-	}
+	// ------------------------------------------------------------------ public
 
 	@Override
 	public boolean sendRaw(ServerPlayer player, byte[] payload) {
@@ -102,1115 +120,577 @@ final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 			return false;
 		}
 
-		UUID playerId = player.getUUID();
-		if (!isPlayerReady(playerId)) {
-			enqueuePayload(playerId, payload);
+		PlayerBridge bridge = bridge(player.getUUID());
+
+		if (!bridge.ready) {
+			enqueue(bridge, payload);
 			return false;
 		}
 
-		Deque<byte[]> queuedPayloads = queuedOutgoingPayloadsByPlayer.get(playerId);
-		if (queuedPayloads != null && !queuedPayloads.isEmpty()) {
-			enqueuePayload(playerId, payload);
-			return flushQueuedMessages(player);
+		if (!bridge.queue.isEmpty()) {
+			enqueue(bridge, payload);
+			return flushQueue(player, bridge);
 		}
 
-		if (bus.send(player, TAB_BRIDGE_CHANNEL, payload)) {
+		if (send(player, payload)) {
 			return true;
 		}
 
-		enqueuePayload(playerId, payload);
+		enqueue(bridge, payload);
 		return false;
 	}
 
 	@Override
-	public void updatePlayerPlaceholders(ServerPlayer player, Map<String, String> placeholderValues) {
+	public void refresh(ServerPlayer player) {
 		if (player == null) {
 			return;
 		}
 
-		UUID playerId = player.getUUID();
-		Map<String, String> safeValues = new LinkedHashMap<>();
-		if (placeholderValues != null) {
-			safeValues.putAll(placeholderValues);
-		}
-		Map<String, String> mergedValues = mergePlaceholderSnapshot(playerId, safeValues);
-		flushQueuedMessages(player);
-		pushRequestedPlaceholderUpdates(player, mergedValues);
-		syncPlayerState(player);
-	}
+		PlayerBridge bridge = players.get(player.getUUID());
 
-	@Override
-	public void updatePlayerRelationalPlaceholders(ServerPlayer player, Map<String, Map<String, String>> placeholderValues) {
-		if (player == null) {
+		if (bridge == null || !bridge.ready) {
 			return;
 		}
 
-		UUID playerId = player.getUUID();
-		Map<String, Map<String, String>> safeValues = new LinkedHashMap<>();
-		if (placeholderValues != null) {
-			for (Map.Entry<String, Map<String, String>> entry : placeholderValues.entrySet()) {
-				String identifier = entry.getKey();
-				if (identifier == null || identifier.isBlank()) {
-					continue;
-				}
-
-				Map<String, String> valuesByTarget = new LinkedHashMap<>();
-				Map<String, String> rawValues = entry.getValue();
-				if (rawValues != null) {
-					for (Map.Entry<String, String> targetEntry : rawValues.entrySet()) {
-						String targetName = targetEntry.getKey();
-						if (targetName == null || targetName.isBlank()) {
-							continue;
-						}
-
-						valuesByTarget.put(targetName, targetEntry.getValue() == null ? "" : targetEntry.getValue());
-					}
-				}
-
-				safeValues.put(identifier, Map.copyOf(valuesByTarget));
-			}
-		}
-
-		Map<String, Map<String, String>> previousValues = relationalPlaceholdersByPlayer.put(playerId, Map.copyOf(safeValues));
-		flushQueuedMessages(player);
-		pushRequestedRelationalPlaceholderUpdates(player, previousValues, safeValues);
-	}
-
-	@Override
-	public Map<String, String> placeholderValues(UUID playerId) {
-		if (playerId == null) {
-			return Map.of();
-		}
-
-		return placeholdersByPlayer.getOrDefault(playerId, Map.of());
+		flushQueue(player, bridge);
+		pushRequestedPlaceholders(player, bridge);
+		pushRelationalPlaceholders(player, bridge);
+		syncPlayerState(player, bridge);
 	}
 
 	@Override
 	public Set<String> requestedPlaceholderIdentifiers(UUID playerId) {
-		if (playerId == null) {
-			return Set.of();
-		}
-
-		Map<String, RequestedPlaceholderState> registrations = requestedPlaceholdersByPlayer.get(playerId);
-		if (registrations == null || registrations.isEmpty()) {
-			return Set.of();
-		}
-
-		return Set.copyOf(registrations.keySet());
+		PlayerBridge bridge = playerId == null ? null : players.get(playerId);
+		return bridge == null ? Set.of() : Set.copyOf(bridge.requested.keySet());
 	}
 
 	@Override
 	public Optional<TabBridgePacket> latestPacket(UUID playerId) {
-		if (playerId == null) {
-			return Optional.empty();
-		}
-
-		return Optional.ofNullable(packetsByPlayer.get(playerId));
+		PlayerBridge bridge = playerId == null ? null : players.get(playerId);
+		return bridge == null ? Optional.empty() : Optional.ofNullable(bridge.latestPacket);
 	}
 
 	@Override
 	public void removePlayer(UUID playerId) {
-		if (playerId == null) {
-			return;
+		if (playerId != null) {
+			players.remove(playerId);
 		}
-
-		placeholdersByPlayer.remove(playerId);
-		relationalPlaceholdersByPlayer.remove(playerId);
-		stateByPlayer.remove(playerId);
-		packetsByPlayer.remove(playerId);
-		queuedOutgoingPayloadsByPlayer.remove(playerId);
-		requestedPlaceholdersByPlayer.remove(playerId);
-		lastSentPlaceholderValuesByPlayer.remove(playerId);
-		lastSentRelationalPlaceholderValuesByPlayer.remove(playerId);
-		readyPlayers.remove(playerId);
-		placeholderWarmupUntilByPlayer.remove(playerId);
 	}
 
 	@Override
 	public void close() {
 		bus.unregisterIncoming(TAB_BRIDGE_CHANNEL);
 		bus.unregisterOutgoing(TAB_BRIDGE_CHANNEL);
-		placeholdersByPlayer.clear();
-		relationalPlaceholdersByPlayer.clear();
-		stateByPlayer.clear();
-		packetsByPlayer.clear();
-		queuedOutgoingPayloadsByPlayer.clear();
-		requestedPlaceholdersByPlayer.clear();
-		lastSentPlaceholderValuesByPlayer.clear();
-		lastSentRelationalPlaceholderValuesByPlayer.clear();
-		readyPlayers.clear();
-		placeholderWarmupUntilByPlayer.clear();
+		players.clear();
 	}
 
-	private void handleIncoming(ServerPlayer player, byte[] payload) {
+	@Override
+	public List<String> describe(UUID playerId, String playerName) {
+		List<String> lines = new ArrayList<>();
+		PlayerBridge bridge = playerId == null ? null : players.get(playerId);
+
+		if (bridge == null) {
+			lines.add("  (tab bridge has no state for " + playerName + ")");
+			return lines;
+		}
+
+		long now = System.currentTimeMillis();
+		String packetAge = bridge.latestPacket == null ? "never" : (now - bridge.latestPacket.receivedAtEpochMillis()) + "ms ago";
+		lines.add("── tab bridge · " + playerName + " · ready=" + bridge.ready
+			+ " · warmup=" + (bridge.warmupUntil > now) + " · queue=" + bridge.queue.size()
+			+ " · dropped=" + bridge.dropped + " · last frame from TAB " + packetAge + " ──");
+		lines.add("  requested " + bridge.requested.size() + " placeholder(s), expansion values " + bridge.expansionValues.size());
+
+		for (Map.Entry<String, Requested> entry : bridge.requested.entrySet()) {
+			Requested state = entry.getValue();
+			String lastSent = state.lastSentValue == null ? "(never sent)" : "\"" + preview(state.lastSentValue) + "\"";
+			String sentAgo = state.lastSentAt == 0L ? "" : " " + (now - state.lastSentAt) + "ms ago";
+			lines.add(String.format(Locale.ROOT, "  %s  every %sms  sent ×%d%s  = %s",
+				entry.getKey(),
+				state.refreshMillis == -1 ? "∞" : String.valueOf(state.refreshMillis),
+				state.sends,
+				sentAgo,
+				lastSent));
+		}
+
+		return lines;
+	}
+
+	@Override
+	public List<String> summary() {
+		List<String> lines = new ArrayList<>();
+		lines.add("── tab bridge · " + players.size() + " player(s) · received " + framesReceived.sum()
+			+ " · sent " + framesSent.sum() + " (" + placeholderUpdatesSent.sum() + " placeholder updates) · dropped " + framesDropped.sum() + " ──");
+
+		if (!rejectedIdentifiers.isEmpty()) {
+			lines.add("  rejected identifiers:");
+
+			for (Map.Entry<String, String> entry : rejectedIdentifiers.entrySet()) {
+				lines.add("    " + preview(entry.getKey()) + " · " + entry.getValue());
+			}
+		}
+
+		if (!unmatchedIdentifiers.isEmpty()) {
+			lines.add("  requested but claimed by nothing (echoed back raw): " + unmatchedIdentifiers);
+		}
+
+		return lines;
+	}
+
+	@Override
+	public boolean trace(UUID playerId, long seconds) {
+		PlayerBridge bridge = playerId == null ? null : players.get(playerId);
+
+		if (bridge == null) {
+			return false;
+		}
+
+		bridge.traceUntil = System.currentTimeMillis() + Math.max(1L, seconds) * 1000L;
+		return true;
+	}
+
+	// ----------------------------------------------------------------- inbound
+
+	private void handleIncoming(ServerPlayer player, PlayerBridge bridge, byte[] payload) {
 		if (payload == null || payload.length == 0) {
 			return;
 		}
 
 		try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(payload))) {
 			String action = input.readUTF();
+
 			switch (action) {
-				case "PlayerJoin" -> handlePlayerJoin(player, input);
-				case "Expansion" -> handleExpansionUpdate(player, input);
-				case "Placeholder" -> handlePlaceholderRegistration(player, input);
+				case "PlayerJoin" -> handlePlayerJoin(player, bridge, input);
+				case "Expansion" -> handleExpansionUpdate(player, bridge, input);
+				case "Placeholder" -> handlePlaceholderRegistration(player, bridge, input);
 				case "Permission" -> handlePermissionRequest(player, input);
-				case "Unload" -> clearPlayerState(player.getUUID());
+				case "Unload" -> players.remove(player.getUUID());
 				default -> logger.debug("Bỏ qua TAB bridge action chưa hỗ trợ: " + action);
 			}
 		} catch (IOException exception) {
-			logger.debug("Không thể giải mã TAB bridge payload cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể giải mã TAB bridge payload cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private void handlePlayerJoin(ServerPlayer player, DataInputStream input) throws IOException {
+	private void handlePlayerJoin(ServerPlayer player, PlayerBridge bridge, DataInputStream input) throws IOException {
 		input.readInt();
 		boolean forwardGroup = input.readBoolean();
-		Map<String, RequestedPlaceholderState> requestedPlaceholders = readPlaceholderRegistrations(player, input);
+		Map<String, Requested> requested = readPlaceholderRegistrations(player, input);
 		readReplacementRules(input);
+
 		if (input.available() > 0) {
 			input.readBoolean();
 		}
 
-		clearQueuedMessages(player.getUUID());
-		requestedPlaceholdersByPlayer.put(player.getUUID(), requestedPlaceholders);
-		startPlaceholderWarmup(player.getUUID());
-		sendPlayerJoinResponse(player, forwardGroup, requestedPlaceholders);
-		PlayerBridgeState currentState = captureState(player);
-		sendInitialStatePackets(player, currentState);
-		stateByPlayer.put(player.getUUID(), currentState);
+		bridge.queue.clear();
+		bridge.requested.clear();
+		bridge.requested.putAll(requested);
+		bridge.warmupUntil = System.currentTimeMillis() + INITIAL_PLACEHOLDER_WARMUP_MILLIS;
+		sendPlayerJoinResponse(player, bridge, forwardGroup);
+		PlayerBridgeState current = captureState(player);
+		sendInitialStatePackets(player, current);
+		bridge.state = current;
 	}
 
-	private void handlePlaceholderRegistration(ServerPlayer player, DataInputStream input) throws IOException {
+	private void handlePlaceholderRegistration(ServerPlayer player, PlayerBridge bridge, DataInputStream input) throws IOException {
 		String identifier = input.readUTF();
 		warnIfSuspiciousRequestedPlaceholder(player, "Placeholder", identifier);
-		int refreshMillis = 50;
+		int refreshMillis = MIN_REFRESH_MILLIS;
+
 		if (input.available() >= Integer.BYTES) {
 			refreshMillis = input.readInt();
 		}
 
-		if (!isSupportedRequestedPlaceholderIdentifier(identifier)) {
+		if (!accept(identifier)) {
 			return;
 		}
 
-		registerPlaceholder(player.getUUID(), identifier, refreshMillis);
-		startPlaceholderWarmup(player.getUUID());
-		if (identifier != null && identifier.startsWith("%rel_")) {
-			Map<String, String> valuesByTarget = relationalPlaceholdersByPlayer
-				.getOrDefault(player.getUUID(), Map.of())
-				.get(identifier);
-			sendRelationalPlaceholderUpdates(player, identifier, valuesByTarget, Map.of());
+		bridge.requested.put(identifier, new Requested(normalizeRefresh(refreshMillis)));
+		bridge.warmupUntil = System.currentTimeMillis() + INITIAL_PLACEHOLDER_WARMUP_MILLIS;
+
+		if (identifier.startsWith(RELATIONAL_PREFIX)) {
+			Map<String, String> byTarget = bridge.relational.get(identifier);
+			sendRelationalUpdates(player, bridge, identifier, byTarget, Map.of());
 			return;
 		}
 
-		Map<String, String> snapshot = placeholdersByPlayer.getOrDefault(player.getUUID(), Map.of());
-		String resolvedValue = resolvePlaceholderValue(player, identifier, snapshot);
-		sendSinglePlaceholderUpdate(player, identifier, resolvedValue, snapshot);
-		rememberSentPlaceholderValue(player.getUUID(), identifier, resolvedValue);
+		String value = resolve(player, bridge, identifier);
+		sendPlaceholderUpdate(player, bridge, identifier, value);
 	}
 
 	private void handlePermissionRequest(ServerPlayer player, DataInputStream input) throws IOException {
 		String permission = input.readUTF();
-		sendPermissionResponse(player, permission, resolvePermission(player, permission));
+		boolean granted = permissionService != null && permission != null && !permission.isBlank()
+			&& permissionService.hasPermission(player.getUUID(), permission);
+
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
+			output.writeByte(HAS_PERMISSION_ID);
+			output.writeUTF(permission);
+			output.writeBoolean(granted);
+			sendRaw(player, bytes.toByteArray());
+		}
 	}
 
-	private void handleExpansionUpdate(ServerPlayer player, DataInputStream input) throws IOException {
+	private void handleExpansionUpdate(ServerPlayer player, PlayerBridge bridge, DataInputStream input) throws IOException {
 		String identifier = input.readUTF();
 		String value = input.readUTF();
 		warnIfSuspiciousExpansionUpdate(player, identifier, value);
+
 		if (identifier == null || identifier.isBlank()) {
 			return;
 		}
 
-		mergePlaceholderSnapshot(player.getUUID(), Map.of(identifier, value == null ? "" : value));
+		bridge.expansionValues.put(normalizeKey(identifier), value == null ? "" : value);
 	}
 
-	private Map<String, String> mergePlaceholderSnapshot(UUID playerId, Map<String, String> incomingValues) {
-		if (playerId == null) {
-			return Map.of();
-		}
+	private Map<String, Requested> readPlaceholderRegistrations(ServerPlayer player, DataInputStream input) throws IOException {
+		int count = input.readInt();
+		Map<String, Requested> requested = new LinkedHashMap<>();
 
-		Map<String, String> merged = placeholdersByPlayer.compute(playerId, (ignored, existing) -> {
-			Map<String, String> updated = existing == null ? new ConcurrentHashMap<>() : existing;
-
-			if (incomingValues != null) {
-				for (Map.Entry<String, String> entry : incomingValues.entrySet()) {
-					String identifier = entry.getKey();
-					if (identifier == null || identifier.isBlank()) {
-						continue;
-					}
-
-					String normalizedValue = entry.getValue() == null ? "" : entry.getValue();
-					updated.put(identifier, normalizedValue);
-
-					String normalizedIdentifier = normalizeSnapshotLookupKey(identifier);
-					if (!normalizedIdentifier.isEmpty() && !normalizedIdentifier.equals(identifier)) {
-						updated.put(normalizedIdentifier, normalizedValue);
-					}
-				}
-			}
-
-			return updated;
-		});
-
-		return merged == null ? Map.of() : merged;
-	}
-
-	private Map<String, RequestedPlaceholderState> readPlaceholderRegistrations(ServerPlayer player, DataInputStream input) throws IOException {
-		int placeholderCount = input.readInt();
-		Map<String, RequestedPlaceholderState> placeholders = new LinkedHashMap<>();
-		for (int index = 0; index < placeholderCount; index++) {
+		for (int index = 0; index < count; index++) {
 			String identifier = input.readUTF();
 			warnIfSuspiciousRequestedPlaceholder(player, "PlayerJoin", identifier);
 			int refreshMillis = input.readInt();
-			if (!isSupportedRequestedPlaceholderIdentifier(identifier)) {
-				continue;
-			}
 
-			placeholders.put(identifier, new RequestedPlaceholderState(normalizeRefreshMillis(refreshMillis)));
+			if (accept(identifier)) {
+				requested.put(identifier, new Requested(normalizeRefresh(refreshMillis)));
+			}
 		}
-		return placeholders;
+
+		return requested;
 	}
 
 	private void readReplacementRules(DataInputStream input) throws IOException {
 		int replacementCount = input.readInt();
+
 		for (int index = 0; index < replacementCount; index++) {
 			input.readUTF();
 			int ruleCount = input.readInt();
-			for (int ruleIndex = 0; ruleIndex < ruleCount; ruleIndex++) {
+
+			for (int rule = 0; rule < ruleCount; rule++) {
 				input.readUTF();
 				input.readUTF();
 			}
 		}
 	}
 
-	private void sendPlayerJoinResponse(ServerPlayer player, boolean forwardGroup, Map<String, RequestedPlaceholderState> requestedPlaceholders) {
-		Map<String, String> snapshot = placeholdersByPlayer.getOrDefault(player.getUUID(), Map.of());
-		Map<String, Map<String, String>> relationalSnapshot = relationalPlaceholdersByPlayer.getOrDefault(player.getUUID(), Map.of());
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
+	// ---------------------------------------------------------------- outbound
+
+	private void sendPlayerJoinResponse(ServerPlayer player, PlayerBridge bridge, boolean forwardGroup) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
 			output.writeByte(PLAYER_JOIN_RESPONSE_ID);
-			output.writeUTF(currentWorldName(player));
+			output.writeUTF(worldOf(player));
+
 			if (forwardGroup) {
-				output.writeUTF(resolveGroupName(player));
+				output.writeUTF(groupOf(player));
 			}
 
-			output.writeInt(requestedPlaceholders.size());
-			for (String identifier : requestedPlaceholders.keySet()) {
+			output.writeInt(bridge.requested.size());
+
+			for (Map.Entry<String, Requested> entry : bridge.requested.entrySet()) {
+				String identifier = entry.getKey();
 				output.writeUTF(identifier);
-				if (identifier.startsWith("%rel_")) {
-					Map<String, String> valuesByTarget = relationalSnapshot.get(identifier);
-					writeRelationalPlaceholderMap(output, valuesByTarget);
-				} else {
-					String value = resolvePlaceholderValue(player, identifier, snapshot);
-					output.writeUTF(value);
+
+				if (identifier.startsWith(RELATIONAL_PREFIX)) {
+					writeRelationalMap(output, bridge.relational.get(identifier));
+					continue;
+				}
+
+				String value = resolve(player, bridge, identifier);
+				output.writeUTF(value);
+				entry.getValue().remember(value);
+			}
+
+			output.writeInt(gameModeOf(player));
+			sendRaw(player, bytes.toByteArray());
+		} catch (IOException exception) {
+			logger.debug("Không thể gửi TAB PlayerJoinResponse cho " + nameOf(player) + ": " + exception.getMessage());
+		}
+	}
+
+	private void pushRequestedPlaceholders(ServerPlayer player, PlayerBridge bridge) {
+		boolean warmup = bridge.warmupUntil > System.currentTimeMillis();
+
+		for (Map.Entry<String, Requested> entry : bridge.requested.entrySet()) {
+			String identifier = entry.getKey();
+
+			if (identifier.startsWith(RELATIONAL_PREFIX)) {
+				continue;
+			}
+
+			Requested state = entry.getValue();
+
+			if (!state.due()) {
+				continue;
+			}
+
+			String value = resolve(player, bridge, identifier);
+
+			if (warmup || !Objects.equals(state.lastSentValue, value)) {
+				sendPlaceholderUpdate(player, bridge, identifier, value);
+			}
+
+			state.advance();
+		}
+	}
+
+	private void pushRelationalPlaceholders(ServerPlayer player, PlayerBridge bridge) {
+		boolean anyRelational = false;
+
+		for (String identifier : bridge.requested.keySet()) {
+			if (identifier.startsWith(RELATIONAL_PREFIX)) {
+				anyRelational = true;
+				break;
+			}
+		}
+
+		if (!anyRelational) {
+			return;
+		}
+
+		Map<String, Map<String, String>> current = relationalSource.resolve(player);
+		Map<String, Map<String, String>> safeCurrent = current == null ? Map.of() : current;
+
+		for (Map.Entry<String, Requested> entry : bridge.requested.entrySet()) {
+			String identifier = entry.getKey();
+
+			if (!identifier.startsWith(RELATIONAL_PREFIX)) {
+				continue;
+			}
+
+			Requested state = entry.getValue();
+
+			if (!state.due()) {
+				continue;
+			}
+
+			Map<String, String> byTarget = safeCurrent.getOrDefault(identifier, Map.of());
+			Map<String, String> lastSent = bridge.lastSentRelational.getOrDefault(identifier, Map.of());
+			sendRelationalUpdates(player, bridge, identifier, byTarget, lastSent);
+
+			for (String target : lastSent.keySet()) {
+				if (!byTarget.containsKey(target)) {
+					sendRelationalUpdate(player, bridge, identifier, target, "");
 				}
 			}
 
-			output.writeInt(currentGameModeId(player));
-			sendRaw(player, bytes.toByteArray());
-		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB PlayerJoinResponse cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			bridge.lastSentRelational.put(identifier, Map.copyOf(byTarget));
+			state.advance();
 		}
+
+		bridge.relational.clear();
+		bridge.relational.putAll(safeCurrent);
 	}
 
-	private void pushRequestedPlaceholderUpdates(ServerPlayer player, Map<String, String> placeholderValues) {
-		UUID playerId = player.getUUID();
-		boolean warmupActive = isPlaceholderWarmupActive(playerId);
-		Map<String, RequestedPlaceholderState> requestedPlaceholders = requestedPlaceholdersByPlayer.get(playerId);
-		if (requestedPlaceholders == null || requestedPlaceholders.isEmpty()) {
-			return;
-		}
+	private void sendPlaceholderUpdate(ServerPlayer player, PlayerBridge bridge, String identifier, String value) {
+		String safeValue = value == null ? "" : value;
 
-		for (Map.Entry<String, RequestedPlaceholderState> entry : requestedPlaceholders.entrySet()) {
-			String identifier = entry.getKey();
-			if (identifier.startsWith("%rel_")) {
-				continue;
-			}
-
-			RequestedPlaceholderState state = entry.getValue();
-			if (state == null || !state.shouldEvaluate()) {
-				continue;
-			}
-
-			String value = resolvePlaceholderValue(player, identifier, placeholderValues);
-			if (!warmupActive && !placeholderValueChanged(playerId, identifier, value)) {
-				markPlaceholderEvaluated(playerId, identifier);
-				continue;
-			}
-
-			sendSinglePlaceholderUpdate(player, identifier, value, placeholderValues);
-			rememberSentPlaceholderValue(playerId, identifier, value);
-			markPlaceholderEvaluated(playerId, identifier);
-		}
-	}
-
-	private void pushRequestedRelationalPlaceholderUpdates(ServerPlayer player, Map<String, Map<String, String>> previousValues, Map<String, Map<String, String>> placeholderValues) {
-		Map<String, RequestedPlaceholderState> requestedPlaceholders = requestedPlaceholdersByPlayer.get(player.getUUID());
-		if (requestedPlaceholders == null || requestedPlaceholders.isEmpty()) {
-			return;
-		}
-
-		Map<String, Map<String, String>> currentRelationalValues = placeholderValues == null ? Map.of() : placeholderValues;
-		for (Map.Entry<String, RequestedPlaceholderState> entry : requestedPlaceholders.entrySet()) {
-			String identifier = entry.getKey();
-			if (!identifier.startsWith("%rel_")) {
-				continue;
-			}
-
-			RequestedPlaceholderState state = entry.getValue();
-			if (state == null || !state.shouldEvaluate()) {
-				continue;
-			}
-
-			Map<String, String> currentValuesByTarget = currentRelationalValues.get(identifier);
-			Map<String, String> lastSentValuesByTarget = lastSentRelationalPlaceholderValuesByPlayer
-				.getOrDefault(player.getUUID(), Map.of())
-				.getOrDefault(identifier, Map.of());
-			sendRelationalPlaceholderUpdates(player, identifier, currentValuesByTarget, lastSentValuesByTarget);
-			sendClearedRelationalPlaceholderUpdates(player, identifier, lastSentValuesByTarget, currentValuesByTarget);
-			rememberSentRelationalPlaceholderValues(player.getUUID(), identifier, currentValuesByTarget);
-			markPlaceholderEvaluated(player.getUUID(), identifier);
-		}
-	}
-
-	private void sendSinglePlaceholderUpdate(ServerPlayer player, String identifier, String resolvedValue, Map<String, String> placeholderValues) {
-		if (player == null || identifier == null || identifier.isBlank() || identifier.startsWith("%rel_")) {
-			return;
-		}
-
-		String safeResolvedValue = resolvedValue == null ? "" : resolvedValue;
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
 			output.writeByte(UPDATE_PLACEHOLDER_ID);
 			output.writeUTF(identifier);
-			output.writeUTF(safeResolvedValue);
+			output.writeUTF(safeValue);
 			sendRaw(player, bytes.toByteArray());
+			placeholderUpdatesSent.increment();
+
+			Requested state = bridge.requested.get(identifier);
+
+			if (state != null) {
+				state.remember(safeValue);
+			}
+
+			if (bridge.traceUntil > System.currentTimeMillis()) {
+				logger.info("[trace " + nameOf(player) + "] " + identifier + " = " + preview(safeValue));
+			}
 		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB UpdatePlaceholder " + identifier + " cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể gửi TAB UpdatePlaceholder " + identifier + " cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private String resolvePlaceholderValue(ServerPlayer player, String identifier, Map<String, String> placeholderValues) {
-		if (shouldPreferResolver(identifier)) {
-			TabBridgePlaceholderResolver resolver = placeholderResolver;
-			if (resolver != null && player != null) {
-				String resolved = resolver.resolve(player, identifier);
-				if (resolved != null) {
-					return normalizeBridgePlaceholderValue(identifier, resolved);
-				}
-			}
-		}
-
-		if (hasSnapshotValue(identifier, placeholderValues)) {
-			return normalizeBridgePlaceholderValue(identifier, resolveSnapshotValue(identifier, placeholderValues));
-		}
-
-		TabBridgePlaceholderResolver resolver = placeholderResolver;
-		if (resolver != null && player != null) {
-			String resolved = resolver.resolve(player, identifier);
-			if (resolved != null) {
-				return normalizeBridgePlaceholderValue(identifier, resolved);
-			}
-		}
-
-		return normalizeBridgePlaceholderValue(identifier, resolveSnapshotValue(identifier, placeholderValues));
-	}
-
-	private boolean shouldPreferResolver(String identifier) {
-		if (identifier == null || identifier.isBlank()) {
-			return false;
-		}
-
-		String normalized = normalizeSnapshotLookupKey(identifier);
-		return normalized.startsWith("luna_") && normalized.endsWith("_safe");
-	}
-
-	private boolean isSupportedRequestedPlaceholderIdentifier(String identifier) {
-		if (identifier == null || identifier.isBlank()) {
-			return false;
-		}
-
-		String trimmed = identifier.trim();
-		if (trimmed.length() < 3 || !trimmed.startsWith("%") || !trimmed.endsWith("%")) {
-			return false;
-		}
-
-		String inner = trimmed.substring(1, trimmed.length() - 1);
-		if (inner.isBlank()) {
-			return false;
-		}
-
-		for (int index = 0; index < inner.length(); index++) {
-			char character = inner.charAt(index);
-			if (character == '\n' || character == '\r' || Character.isISOControl(character)) {
-				return false;
-			}
-
-			Character.UnicodeBlock unicodeBlock = Character.UnicodeBlock.of(character);
-			if (unicodeBlock == Character.UnicodeBlock.BLOCK_ELEMENTS) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	private String normalizeBridgePlaceholderValue(String identifier, String value) {
-		if (value == null) {
-			return "";
-		}
-
-		if (!requiresSafePercentEscaping(identifier)) {
-			return value;
-		}
-
-		return escapePlaceholderPercentsOnce(value);
-	}
-
-	private void warnIfSuspiciousRequestedPlaceholder(ServerPlayer player, String action, String identifier) {
-		if (identifier == null || identifier.isBlank()) {
+	private void sendRelationalUpdates(ServerPlayer player, PlayerBridge bridge, String identifier, Map<String, String> byTarget, Map<String, String> previous) {
+		if (byTarget == null || byTarget.isEmpty()) {
 			return;
 		}
 
-		String playerName = player == null ? "<unknown>" : player.getGameProfile().getName();
-		if (identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
-			logger.warn("TAB bridge request quá dài từ proxy tại backend: action=" + action
-				+ " player=" + playerName
-				+ " length=" + identifier.length()
-				+ " placeholder=" + previewPlaceholder(identifier));
-		}
-
-		if (isUnsafeCpuPlaceholder(identifier)) {
-			logger.warn("TAB bridge request dùng CPU placeholder không có hậu tố _safe: action=" + action
-				+ " player=" + playerName
-				+ " placeholder=" + previewPlaceholder(identifier));
-		}
-	}
-
-	private void warnIfSuspiciousExpansionUpdate(ServerPlayer player, String identifier, String value) {
-		if ((identifier == null || identifier.isBlank()) && (value == null || value.isBlank())) {
-			return;
-		}
-
-		String playerName = player == null ? "<unknown>" : player.getGameProfile().getName();
-		if (identifier != null && identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
-			logger.warn("TAB bridge Expansion gửi identifier quá dài về backend: player=" + playerName
-				+ " length=" + identifier.length()
-				+ " identifier=" + previewPlaceholder(identifier));
-		}
-
-		if (value != null && value.length() >= LARGE_PLACEHOLDER_VALUE_LENGTH) {
-			logger.warn("TAB bridge Expansion gửi value quá dài về backend: player=" + playerName
-				+ " length=" + value.length()
-				+ " identifier=" + previewPlaceholder(identifier)
-				+ " value=" + previewPlaceholder(value));
-		}
-	}
-
-	private boolean requiresSafePercentEscaping(String identifier) {
-		if (identifier == null || identifier.isBlank()) {
-			return false;
-		}
-
-		return normalizeSnapshotLookupKey(identifier).endsWith("_safe");
-	}
-
-	private boolean isUnsafeCpuPlaceholder(String identifier) {
-		if (identifier == null || identifier.isBlank()) {
-			return false;
-		}
-
-		String normalized = normalizeSnapshotLookupKey(identifier);
-		if (normalized.isBlank() || normalized.endsWith("_safe")) {
-			return false;
-		}
-
-		return normalized.startsWith("luna_") && (normalized.contains("system_cpu") || normalized.contains("process_cpu"));
-	}
-
-	private String escapePlaceholderPercentsOnce(String value) {
-		if (value == null || value.indexOf('%') < 0) {
-			return value == null ? "" : value;
-		}
-
-		StringBuilder escaped = new StringBuilder(value.length() + 8);
-		for (int index = 0; index < value.length(); index++) {
-			char character = value.charAt(index);
-			if (character != '%') {
-				escaped.append(character);
-				continue;
-			}
-
-			if (index + 1 < value.length() && value.charAt(index + 1) == '%') {
-				escaped.append("%%");
-				index++;
-				continue;
-			}
-
-			escaped.append("%%");
-		}
-
-		return escaped.toString();
-	}
-
-	private String previewPlaceholder(String value) {
-		if (value == null) {
-			return "<null>";
-		}
-
-		String sanitized = value.replace("\r", "\\r").replace("\n", "\\n");
-		if (sanitized.length() <= PLACEHOLDER_PREVIEW_LENGTH) {
-			return sanitized;
-		}
-
-		return sanitized.substring(0, PLACEHOLDER_PREVIEW_LENGTH) + "...";
-	}
-
-	private boolean hasSnapshotValue(String identifier, Map<String, String> placeholderValues) {
-		if (identifier == null || identifier.isBlank() || placeholderValues == null || placeholderValues.isEmpty()) {
-			return false;
-		}
-
-		if (placeholderValues.containsKey(identifier)) {
-			return true;
-		}
-
-		String normalizedKey = normalizeSnapshotLookupKey(identifier);
-		return !normalizedKey.isEmpty() && placeholderValues.containsKey(normalizedKey);
-	}
-
-	private void sendRelationalPlaceholderUpdates(ServerPlayer player, String identifier, Map<String, String> valuesByTarget, Map<String, String> previousValuesByTarget) {
-		if (player == null || identifier == null || identifier.isBlank() || !identifier.startsWith("%rel_") || valuesByTarget == null || valuesByTarget.isEmpty()) {
-			return;
-		}
-
-		for (Map.Entry<String, String> entry : valuesByTarget.entrySet()) {
-			String targetName = entry.getKey();
+		for (Map.Entry<String, String> entry : byTarget.entrySet()) {
 			String value = entry.getValue() == null ? "" : entry.getValue();
-			if (value.equals(previousValuesByTarget.getOrDefault(targetName, null))) {
+
+			if (value.equals(previous.get(entry.getKey()))) {
 				continue;
 			}
 
-			sendRelationalPlaceholderUpdate(player, identifier, targetName, value);
+			sendRelationalUpdate(player, bridge, identifier, entry.getKey(), value);
 		}
 	}
 
-	private void sendClearedRelationalPlaceholderUpdates(ServerPlayer player, String identifier, Map<String, String> previousValuesByTarget, Map<String, String> currentValuesByTarget) {
-		if (player == null || identifier == null || identifier.isBlank() || !identifier.startsWith("%rel_") || previousValuesByTarget == null || previousValuesByTarget.isEmpty()) {
+	private void sendRelationalUpdate(ServerPlayer player, PlayerBridge bridge, String identifier, String target, String value) {
+		if (target == null || target.isBlank()) {
 			return;
 		}
 
-		Map<String, String> safeCurrentValues = currentValuesByTarget == null ? Map.of() : currentValuesByTarget;
-		for (String targetName : previousValuesByTarget.keySet()) {
-			if (targetName == null || targetName.isBlank() || safeCurrentValues.containsKey(targetName)) {
-				continue;
-			}
-
-			sendRelationalPlaceholderUpdate(player, identifier, targetName, "");
-		}
-	}
-
-	private void sendRelationalPlaceholderUpdate(ServerPlayer player, String identifier, String targetName, String value) {
-		if (player == null || identifier == null || identifier.isBlank() || !identifier.startsWith("%rel_") || targetName == null || targetName.isBlank()) {
-			return;
-		}
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
 			output.writeByte(UPDATE_PLACEHOLDER_ID);
 			output.writeUTF(identifier);
-			output.writeUTF(targetName);
+			output.writeUTF(target);
 			output.writeUTF(value == null ? "" : value);
 			sendRaw(player, bytes.toByteArray());
+			placeholderUpdatesSent.increment();
+
+			if (bridge.traceUntil > System.currentTimeMillis()) {
+				logger.info("[trace " + nameOf(player) + "] " + identifier + " → " + target + " = " + preview(value));
+			}
 		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB UpdatePlaceholder quan hệ " + identifier + " cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể gửi TAB UpdatePlaceholder quan hệ " + identifier + " cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private void writeRelationalPlaceholderMap(DataOutputStream output, Map<String, String> valuesByTarget) throws IOException {
-		if (output == null || valuesByTarget == null || valuesByTarget.isEmpty()) {
+	private void writeRelationalMap(DataOutputStream output, Map<String, String> byTarget) throws IOException {
+		if (byTarget == null || byTarget.isEmpty()) {
 			output.writeInt(0);
 			return;
 		}
 
-		output.writeInt(valuesByTarget.size());
-		for (Map.Entry<String, String> entry : valuesByTarget.entrySet()) {
+		output.writeInt(byTarget.size());
+
+		for (Map.Entry<String, String> entry : byTarget.entrySet()) {
 			output.writeUTF(entry.getKey());
 			output.writeUTF(entry.getValue() == null ? "" : entry.getValue());
 		}
 	}
 
-	private String resolveSnapshotValue(String identifier, Map<String, String> placeholderValues) {
-		if (identifier == null || identifier.isBlank() || placeholderValues == null || placeholderValues.isEmpty()) {
-			return "";
-		}
-
-		String direct = placeholderValues.get(identifier);
-		if (direct != null) {
-			return direct;
-		}
-
-		String normalizedKey = normalizeSnapshotLookupKey(identifier);
-		if (normalizedKey.isEmpty()) {
-			return "";
-		}
-
-		return placeholderValues.getOrDefault(normalizedKey, "");
-	}
-
-	private String normalizeSnapshotLookupKey(String identifier) {
-		if (identifier == null) {
-			return "";
-		}
-
-		String normalized = identifier.trim().toLowerCase(Locale.ROOT);
-		if (normalized.length() >= 2 && normalized.startsWith("%") && normalized.endsWith("%")) {
-			return normalized.substring(1, normalized.length() - 1);
-		}
-
-		return normalized;
-	}
-
-	private void registerPlaceholder(UUID playerId, String identifier, int refreshMillis) {
-		if (playerId == null || !isSupportedRequestedPlaceholderIdentifier(identifier)) {
-			return;
-		}
-
-		requestedPlaceholdersByPlayer.compute(playerId, (ignored, existing) -> {
-			Map<String, RequestedPlaceholderState> updated = new LinkedHashMap<>();
-			if (existing != null) {
-				updated.putAll(existing);
-			}
-			updated.put(identifier, new RequestedPlaceholderState(normalizeRefreshMillis(refreshMillis)));
-			return Map.copyOf(updated);
-		});
-	}
-
-	private void enqueuePayload(UUID playerId, byte[] payload) {
-		if (playerId == null || payload == null) {
-			return;
-		}
-
-		queuedOutgoingPayloadsByPlayer.compute(playerId, (ignored, existing) -> {
-			Deque<byte[]> queue = existing == null ? new ArrayDeque<>() : existing;
-			synchronized (queue) {
-				queue.addLast(Arrays.copyOf(payload, payload.length));
-			}
-			return queue;
-		});
-	}
-
-	private boolean flushQueuedMessages(ServerPlayer player) {
-		if (player == null) {
-			return false;
-		}
-
-		UUID playerId = player.getUUID();
-		if (!isPlayerReady(playerId)) {
-			return false;
-		}
-
-		Deque<byte[]> queuedPayloads = queuedOutgoingPayloadsByPlayer.get(playerId);
-		if (queuedPayloads == null || queuedPayloads.isEmpty()) {
-			return true;
-		}
-
-		while (true) {
-			byte[] nextPayload;
-			synchronized (queuedPayloads) {
-				nextPayload = queuedPayloads.peekFirst();
-			}
-			if (nextPayload == null) {
-				queuedOutgoingPayloadsByPlayer.remove(playerId, queuedPayloads);
-				return true;
-			}
-
-			if (!bus.send(player, TAB_BRIDGE_CHANNEL, nextPayload)) {
-				return false;
-			}
-
-			synchronized (queuedPayloads) {
-				queuedPayloads.pollFirst();
-				if (queuedPayloads.isEmpty()) {
-					queuedOutgoingPayloadsByPlayer.remove(playerId, queuedPayloads);
-					return true;
-				}
-			}
-		}
-	}
-
-	private void clearQueuedMessages(UUID playerId) {
-		if (playerId == null) {
-			return;
-		}
-
-		queuedOutgoingPayloadsByPlayer.remove(playerId);
-	}
-
-	private void markPlayerReady(UUID playerId) {
-		if (playerId == null) {
-			return;
-		}
-
-		readyPlayers.add(playerId);
-	}
-
-	private boolean isPlayerReady(UUID playerId) {
-		return playerId != null && readyPlayers.contains(playerId);
-	}
-
-	private void startPlaceholderWarmup(UUID playerId) {
-		if (playerId == null) {
-			return;
-		}
-
-		placeholderWarmupUntilByPlayer.put(playerId, System.currentTimeMillis() + INITIAL_PLACEHOLDER_WARMUP_MILLIS);
-	}
-
-	private boolean isPlaceholderWarmupActive(UUID playerId) {
-		if (playerId == null) {
-			return false;
-		}
-
-		Long warmupUntilMillis = placeholderWarmupUntilByPlayer.get(playerId);
-		if (warmupUntilMillis == null) {
-			return false;
-		}
-
-		if (System.currentTimeMillis() <= warmupUntilMillis) {
-			return true;
-		}
-
-		placeholderWarmupUntilByPlayer.remove(playerId, warmupUntilMillis);
-		return false;
-	}
-
-	private int normalizeRefreshMillis(int refreshMillis) {
-		if (refreshMillis == -1) {
-			return -1;
-		}
-
-		return Math.max(50, refreshMillis);
-	}
-
-	private boolean placeholderValueChanged(UUID playerId, String identifier, String value) {
-		if (playerId == null || identifier == null || identifier.isBlank()) {
-			return false;
-		}
-
-		Map<String, String> lastSentValues = lastSentPlaceholderValuesByPlayer.get(playerId);
-		if (lastSentValues == null) {
-			return true;
-		}
-
-		return !java.util.Objects.equals(lastSentValues.get(identifier), value);
-	}
-
-	private void rememberSentPlaceholderValue(UUID playerId, String identifier, String value) {
-		if (playerId == null || identifier == null || identifier.isBlank()) {
-			return;
-		}
-
-		lastSentPlaceholderValuesByPlayer.compute(playerId, (ignored, existing) -> {
-			Map<String, String> updated = existing == null ? new ConcurrentHashMap<>() : existing;
-			updated.put(identifier, value == null ? "" : value);
-			return updated;
-		});
-	}
-
-	private void rememberSentRelationalPlaceholderValues(UUID playerId, String identifier, Map<String, String> valuesByTarget) {
-		if (playerId == null || identifier == null || identifier.isBlank()) {
-			return;
-		}
-
-		Map<String, String> safeValues = new LinkedHashMap<>();
-		if (valuesByTarget != null) {
-			for (Map.Entry<String, String> entry : valuesByTarget.entrySet()) {
-				String targetName = entry.getKey();
-				if (targetName == null || targetName.isBlank()) {
-					continue;
-				}
-
-				safeValues.put(targetName, entry.getValue() == null ? "" : entry.getValue());
-			}
-		}
-
-		lastSentRelationalPlaceholderValuesByPlayer.compute(playerId, (ignored, existing) -> {
-			Map<String, Map<String, String>> updated = existing == null ? new ConcurrentHashMap<>() : existing;
-			updated.put(identifier, new ConcurrentHashMap<>(safeValues));
-			return updated;
-		});
-	}
-
-	private void markPlaceholderEvaluated(UUID playerId, String identifier) {
-		if (playerId == null || identifier == null || identifier.isBlank()) {
-			return;
-		}
-
-		Map<String, RequestedPlaceholderState> registrations = requestedPlaceholdersByPlayer.get(playerId);
-		if (registrations == null) {
-			return;
-		}
-
-		RequestedPlaceholderState state = registrations.get(identifier);
-		if (state != null) {
-			state.advance();
-		}
-	}
-
-	private static final class RequestedPlaceholderState {
-		private final int refreshMillis;
-		private volatile long nextEvaluationAtMillis;
-		private volatile boolean initialEvaluationPending;
-
-		private RequestedPlaceholderState(int refreshMillis) {
-			this.refreshMillis = refreshMillis;
-			this.nextEvaluationAtMillis = 0L;
-			this.initialEvaluationPending = true;
-		}
-
-		private boolean shouldEvaluate() {
-			if (initialEvaluationPending) {
-				return true;
-			}
-
-			if (refreshMillis == -1) {
-				return false;
-			}
-
-			return System.currentTimeMillis() >= nextEvaluationAtMillis;
-		}
-
-		private void advance() {
-			initialEvaluationPending = false;
-
-			if (refreshMillis == -1) {
-				nextEvaluationAtMillis = Long.MAX_VALUE;
-				return;
-			}
-
-			nextEvaluationAtMillis = System.currentTimeMillis() + refreshMillis;
-		}
-	}
-
-	private void sendPermissionResponse(ServerPlayer player, String permission, boolean value) {
-		if (player == null || permission == null || permission.isBlank()) {
-			return;
-		}
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(HAS_PERMISSION_ID);
-			output.writeUTF(permission);
-			output.writeBoolean(value);
-			sendRaw(player, bytes.toByteArray());
-		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB HasPermission " + permission + " cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
-		}
-	}
-
-	private void syncPlayerState(ServerPlayer player) {
-		if (player == null) {
-			return;
-		}
-
-		UUID playerId = player.getUUID();
+	private void syncPlayerState(ServerPlayer player, PlayerBridge bridge) {
 		PlayerBridgeState current = captureState(player);
-		PlayerBridgeState previous = stateByPlayer.put(playerId, current);
+		PlayerBridgeState previous = bridge.state;
+		bridge.state = current;
+
 		if (previous == null) {
 			return;
 		}
 
 		if (!previous.worldName().equals(current.worldName())) {
-			sendWorldUpdate(player, current.worldName());
+			sendUtf(player, SET_WORLD_ID, current.worldName());
 		}
 
 		if (!previous.groupName().equals(current.groupName())) {
-			sendGroupUpdate(player, current.groupName());
+			sendUtf(player, SET_GROUP_ID, current.groupName());
 		}
 
 		if (previous.gameModeId() != current.gameModeId()) {
-			sendGameModeUpdate(player, current.gameModeId());
+			sendInt(player, UPDATE_GAME_MODE_ID, current.gameModeId());
 		}
 
 		if (previous.invisible() != current.invisible()) {
-			sendInvisibleUpdate(player, current.invisible());
+			sendBoolean(player, INVISIBLE_ID, current.invisible());
 		}
 
 		if (previous.disguised() != current.disguised()) {
-			sendDisguisedUpdate(player, current.disguised());
+			sendBoolean(player, DISGUISED_ID, current.disguised());
 		}
 
 		if (previous.vanished() != current.vanished()) {
-			sendVanishedUpdate(player, current.vanished());
+			sendBoolean(player, VANISHED_ID, current.vanished());
 		}
-	}
-
-	private PlayerBridgeState captureState(ServerPlayer player) {
-		TabBridgePlayerState playerState = resolvePlayerState(player);
-		return new PlayerBridgeState(
-			currentWorldName(player),
-			resolveGroupName(player),
-			currentGameModeId(player),
-			isInvisible(player),
-			playerState.disguised(),
-			playerState.vanished()
-		);
 	}
 
 	private void sendInitialStatePackets(ServerPlayer player, PlayerBridgeState state) {
-		if (player == null || state == null) {
-			return;
-		}
-
 		if (state.invisible()) {
-			sendInvisibleUpdate(player, true);
+			sendBoolean(player, INVISIBLE_ID, true);
 		}
 
 		if (state.disguised()) {
-			sendDisguisedUpdate(player, true);
+			sendBoolean(player, DISGUISED_ID, true);
 		}
 
 		if (state.vanished()) {
-			sendVanishedUpdate(player, true);
+			sendBoolean(player, VANISHED_ID, true);
 		}
 	}
 
-	private void sendGameModeUpdate(ServerPlayer player, int gameModeId) {
-		if (player == null) {
-			return;
-		}
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(UPDATE_GAME_MODE_ID);
-			output.writeInt(gameModeId);
+	private void sendUtf(ServerPlayer player, byte id, String value) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
+			output.writeByte(id);
+			output.writeUTF(value == null ? "" : value);
 			sendRaw(player, bytes.toByteArray());
 		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB UpdateGameMode cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể gửi TAB frame " + id + " cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private void sendInvisibleUpdate(ServerPlayer player, boolean invisible) {
-		if (player == null) {
-			return;
-		}
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(INVISIBLE_ID);
-			output.writeBoolean(invisible);
+	private void sendInt(ServerPlayer player, byte id, int value) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
+			output.writeByte(id);
+			output.writeInt(value);
 			sendRaw(player, bytes.toByteArray());
 		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB Invisible cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể gửi TAB frame " + id + " cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private void sendDisguisedUpdate(ServerPlayer player, boolean disguised) {
-		if (player == null) {
-			return;
-		}
-
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(DISGUISED_ID);
-			output.writeBoolean(disguised);
+	private void sendBoolean(ServerPlayer player, byte id, boolean value) {
+		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream output = new DataOutputStream(bytes)) {
+			output.writeByte(id);
+			output.writeBoolean(value);
 			sendRaw(player, bytes.toByteArray());
 		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB Disguised cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+			logger.debug("Không thể gửi TAB frame " + id + " cho " + nameOf(player) + ": " + exception.getMessage());
 		}
 	}
 
-	private void sendVanishedUpdate(ServerPlayer player, boolean vanished) {
-		if (player == null) {
-			return;
+	// --------------------------------------------------------------- resolving
+
+	/**
+	 * The value TAB should see for an identifier: the engine's answer, else a
+	 * value TAB itself pushed for that identifier, else the identifier echoed back
+	 * so a typo stays visible in the tab list rather than vanishing.
+	 */
+	private String resolve(ServerPlayer player, PlayerBridge bridge, String identifier) {
+		if (placeholders != null) {
+			PlaceholderRef ref = PlaceholderGrammar.parse(identifier);
+			Resolution<ServerPlayer> resolution = placeholders.engine().resolve(ref, player);
+
+			if (resolution.hasValue()) {
+				return resolution.value();
+			}
 		}
 
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(VANISHED_ID);
-			output.writeBoolean(vanished);
-			sendRaw(player, bytes.toByteArray());
-		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB Vanished cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
+		String pushed = bridge.expansionValues.get(normalizeKey(identifier));
+
+		if (pushed != null) {
+			return pushed;
 		}
+
+		if (unmatchedIdentifiers.add(identifier)) {
+			logger.info("TAB yêu cầu placeholder không có gì nhận: " + preview(identifier) + " (trả lại nguyên văn).");
+		}
+
+		return identifier;
 	}
 
-	private void sendWorldUpdate(ServerPlayer player, String worldName) {
-		if (player == null) {
-			return;
+	private String worldOf(ServerPlayer player) {
+		PlayerSample sample = placeholders == null ? null : placeholders.engine().viewer(player);
+
+		if (sample != null && !sample.dimensionId().isBlank()) {
+			return sample.dimensionId();
 		}
 
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(SET_WORLD_ID);
-			output.writeUTF(worldName == null ? "unknown" : worldName);
-			sendRaw(player, bytes.toByteArray());
-		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB SetWorld cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
-		}
+		return "unknown";
 	}
 
-	private void sendGroupUpdate(ServerPlayer player, String groupName) {
-		if (player == null) {
-			return;
+	private String groupOf(ServerPlayer player) {
+		PlayerSample sample = placeholders == null ? null : placeholders.engine().viewer(player);
+
+		if (sample != null && !sample.groupName().isBlank()) {
+			return sample.groupName();
 		}
 
-		try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-			 DataOutputStream output = new DataOutputStream(bytes)) {
-			output.writeByte(SET_GROUP_ID);
-			output.writeUTF(groupName == null ? "" : groupName);
-			sendRaw(player, bytes.toByteArray());
-		} catch (IOException exception) {
-			logger.debug("Không thể gửi TAB SetGroup cho " + player.getGameProfile().getName() + ": " + exception.getMessage());
-		}
-	}
-
-	private boolean resolvePermission(ServerPlayer player, String permission) {
-		if (player == null || permission == null || permission.isBlank() || permissionService == null) {
-			return false;
-		}
-
-		return permissionService.hasPermission(player.getUUID(), permission);
-	}
-
-	private String resolveGroupName(ServerPlayer player) {
-		if (player == null || permissionService == null) {
+		if (permissionService == null || !permissionService.isAvailable()) {
 			return "";
 		}
 
-		String groupName = permissionService.getGroupName(player.getUUID());
-		return groupName == null ? "" : groupName;
+		String group = permissionService.getGroupName(player.getUUID());
+		return group == null ? "" : group;
 	}
 
-	private void clearPlayerState(UUID playerId) {
-		if (playerId == null) {
-			return;
-		}
-
-		placeholdersByPlayer.remove(playerId);
-		relationalPlaceholdersByPlayer.remove(playerId);
-		stateByPlayer.remove(playerId);
-		packetsByPlayer.remove(playerId);
-		queuedOutgoingPayloadsByPlayer.remove(playerId);
-		requestedPlaceholdersByPlayer.remove(playerId);
-		lastSentPlaceholderValuesByPlayer.remove(playerId);
-		lastSentRelationalPlaceholderValuesByPlayer.remove(playerId);
-		readyPlayers.remove(playerId);
-		placeholderWarmupUntilByPlayer.remove(playerId);
-	}
-
-	private String currentWorldName(ServerPlayer player) {
-		ServerLevel level = player.serverLevel();
-		if (level == null || level.dimension() == null || level.dimension().location() == null) {
-			return "unknown";
-		}
-
-		return level.dimension().location().toString();
-	}
-
-	private int currentGameModeId(ServerPlayer player) {
+	private int gameModeOf(ServerPlayer player) {
 		try {
 			return player.gameMode.getGameModeForPlayer().getId();
 		} catch (RuntimeException exception) {
@@ -1218,17 +698,212 @@ final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 		}
 	}
 
-	private boolean isInvisible(ServerPlayer player) {
-		return player != null && player.isInvisible();
+	private PlayerBridgeState captureState(ServerPlayer player) {
+		TabBridgePlayerState external = playerStateSource.resolve(player);
+		TabBridgePlayerState safeExternal = external == null ? TabBridgePlayerState.DEFAULT : external;
+		return new PlayerBridgeState(worldOf(player), groupOf(player), gameModeOf(player), player.isInvisible(), safeExternal.disguised(), safeExternal.vanished());
 	}
 
-	private TabBridgePlayerState resolvePlayerState(ServerPlayer player) {
-		if (player == null) {
-			return TabBridgePlayerState.DEFAULT;
+	// ------------------------------------------------------------------- queue
+
+	private void enqueue(PlayerBridge bridge, byte[] payload) {
+		synchronized (bridge.queue) {
+			while (bridge.queue.size() >= MAX_QUEUED_FRAMES) {
+				bridge.queue.pollFirst();
+				bridge.dropped++;
+				framesDropped.increment();
+			}
+
+			bridge.queue.addLast(payload.clone());
+		}
+	}
+
+	private boolean flushQueue(ServerPlayer player, PlayerBridge bridge) {
+		if (!bridge.ready) {
+			return false;
 		}
 
-		TabBridgePlayerState state = playerStateSource.resolve(player);
-		return state == null ? TabBridgePlayerState.DEFAULT : state;
+		while (true) {
+			byte[] next;
+
+			synchronized (bridge.queue) {
+				next = bridge.queue.peekFirst();
+			}
+
+			if (next == null) {
+				return true;
+			}
+
+			if (!send(player, next)) {
+				return false;
+			}
+
+			synchronized (bridge.queue) {
+				bridge.queue.pollFirst();
+			}
+		}
+	}
+
+	private boolean send(ServerPlayer player, byte[] payload) {
+		boolean sent = bus.send(player, TAB_BRIDGE_CHANNEL, payload);
+
+		if (sent) {
+			framesSent.increment();
+		}
+
+		return sent;
+	}
+
+	// ------------------------------------------------------------- validation
+
+	/**
+	 * Whether TAB's requested identifier is one this side will track. Refusals
+	 * are remembered with their reason so they can be listed instead of guessed.
+	 */
+	private boolean accept(String identifier) {
+		String reason = rejectionReason(identifier);
+
+		if (reason == null) {
+			return true;
+		}
+
+		if (identifier != null && rejectedIdentifiers.putIfAbsent(identifier, reason) == null) {
+			logger.warn("TAB bridge từ chối placeholder " + preview(identifier) + ": " + reason);
+		}
+
+		return false;
+	}
+
+	private String rejectionReason(String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return "blank";
+		}
+
+		String trimmed = identifier.trim();
+
+		if (trimmed.length() < 3 || !trimmed.startsWith("%") || !trimmed.endsWith("%")) {
+			return "not wrapped in percent signs";
+		}
+
+		for (int index = 1; index < trimmed.length() - 1; index++) {
+			char character = trimmed.charAt(index);
+
+			if (character == '\n' || character == '\r' || Character.isISOControl(character)) {
+				return "control character";
+			}
+
+			// a progress bar glyph inside an identifier means a value was mistaken
+			// for a placeholder somewhere upstream
+			if (Character.UnicodeBlock.of(character) == Character.UnicodeBlock.BLOCK_ELEMENTS) {
+				return "block element glyph in identifier";
+			}
+		}
+
+		return null;
+	}
+
+	private void warnIfSuspiciousRequestedPlaceholder(ServerPlayer player, String action, String identifier) {
+		if (identifier != null && identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
+			logger.warn("TAB bridge request quá dài từ proxy: action=" + action + " player=" + nameOf(player)
+				+ " length=" + identifier.length() + " placeholder=" + preview(identifier));
+		}
+	}
+
+	private void warnIfSuspiciousExpansionUpdate(ServerPlayer player, String identifier, String value) {
+		if (identifier != null && identifier.length() >= LARGE_PLACEHOLDER_IDENTIFIER_LENGTH) {
+			logger.warn("TAB bridge Expansion gửi identifier quá dài: player=" + nameOf(player)
+				+ " length=" + identifier.length() + " identifier=" + preview(identifier));
+		}
+
+		if (value != null && value.length() >= LARGE_PLACEHOLDER_VALUE_LENGTH) {
+			logger.warn("TAB bridge Expansion gửi value quá dài: player=" + nameOf(player)
+				+ " length=" + value.length() + " identifier=" + preview(identifier));
+		}
+	}
+
+	private static int normalizeRefresh(int refreshMillis) {
+		if (refreshMillis == -1) {
+			return -1;
+		}
+
+		return Math.max(MIN_REFRESH_MILLIS, refreshMillis);
+	}
+
+	private static String normalizeKey(String identifier) {
+		String normalized = identifier == null ? "" : identifier.trim().toLowerCase(Locale.ROOT);
+
+		if (normalized.length() >= 2 && normalized.startsWith("%") && normalized.endsWith("%")) {
+			return normalized.substring(1, normalized.length() - 1);
+		}
+
+		return normalized;
+	}
+
+	private static String nameOf(ServerPlayer player) {
+		return player == null ? "<unknown>" : player.getName().getString();
+	}
+
+	private static String preview(String value) {
+		if (value == null) {
+			return "<null>";
+		}
+
+		String sanitized = value.replace("\r", "\\r").replace("\n", "\\n");
+		return sanitized.length() <= PLACEHOLDER_PREVIEW_LENGTH ? sanitized : sanitized.substring(0, PLACEHOLDER_PREVIEW_LENGTH) + "...";
+	}
+
+	private PlayerBridge bridge(UUID playerId) {
+		return players.computeIfAbsent(playerId, ignored -> new PlayerBridge());
+	}
+
+	// ------------------------------------------------------------------ state
+
+	/** Everything the bridge knows about one player. */
+	private static final class PlayerBridge {
+		final Map<String, Requested> requested = new ConcurrentHashMap<>();
+		final Map<String, String> expansionValues = new ConcurrentHashMap<>();
+		final Map<String, Map<String, String>> relational = new ConcurrentHashMap<>();
+		final Map<String, Map<String, String>> lastSentRelational = new ConcurrentHashMap<>();
+		final Deque<byte[]> queue = new ArrayDeque<>();
+		volatile boolean ready;
+		volatile long warmupUntil;
+		volatile long traceUntil;
+		volatile int dropped;
+		volatile TabBridgePacket latestPacket;
+		volatile PlayerBridgeState state;
+	}
+
+	/** One identifier TAB asked for, and what was last said about it. */
+	private static final class Requested {
+		final int refreshMillis;
+		volatile long nextDueAt;
+		volatile boolean initialPending = true;
+		volatile String lastSentValue;
+		volatile long lastSentAt;
+		volatile int sends;
+
+		Requested(int refreshMillis) {
+			this.refreshMillis = refreshMillis;
+		}
+
+		boolean due() {
+			if (initialPending) {
+				return true;
+			}
+
+			return refreshMillis != -1 && System.currentTimeMillis() >= nextDueAt;
+		}
+
+		void advance() {
+			initialPending = false;
+			nextDueAt = refreshMillis == -1 ? Long.MAX_VALUE : System.currentTimeMillis() + refreshMillis;
+		}
+
+		void remember(String value) {
+			lastSentValue = value;
+			lastSentAt = System.currentTimeMillis();
+			sends++;
+		}
 	}
 
 	private record PlayerBridgeState(String worldName, String groupName, int gameModeId, boolean invisible, boolean disguised, boolean vanished) {

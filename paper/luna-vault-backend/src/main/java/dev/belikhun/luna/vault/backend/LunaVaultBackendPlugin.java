@@ -9,7 +9,11 @@ import dev.belikhun.luna.vault.api.LunaVaultApi;
 import dev.belikhun.luna.vault.backend.command.TransactionsCommand;
 import dev.belikhun.luna.vault.backend.command.VaultAdminCommand;
 import dev.belikhun.luna.vault.backend.gui.TransactionHistoryGuiController;
-import dev.belikhun.luna.vault.backend.placeholder.PaperVaultPlaceholderExpansion;
+import dev.belikhun.luna.core.api.placeholder.PlaceholderRuntime;
+import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.vault.api.VaultMoney;
+import dev.belikhun.luna.vault.api.placeholder.VaultPlaceholderSpecs;
+import org.bukkit.OfflinePlayer;
 import dev.belikhun.luna.vault.backend.service.LunaVaultEconomyProvider;
 import dev.belikhun.luna.vault.backend.service.PaperVaultGateway;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
@@ -23,7 +27,7 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 	private LunaLogger logger;
 	private TransactionHistoryGuiController historyGui;
 	private Economy economyProvider;
-	private PaperVaultPlaceholderExpansion placeholderExpansion;
+	private PlaceholderRuntime<OfflinePlayer> placeholderRuntime;
 
 	@Override
 	public void onEnable() {
@@ -48,7 +52,7 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 		getServer().getPluginManager().registerEvents(historyGui, this);
 		getServer().getServicesManager().register(LunaVaultApi.class, gateway, this, ServicePriority.Normal);
 		getServer().getServicesManager().register(Economy.class, economyProvider, this, ServicePriority.High);
-		registerPlaceholderExpansion(coreConfig, timeoutMillis);
+		registerPlaceholders(coreConfig);
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			TransactionsCommand command = new TransactionsCommand(historyGui);
 			commands.registrar().register("transactions", command);
@@ -62,9 +66,9 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 
 	@Override
 	public void onDisable() {
-		if (placeholderExpansion != null && placeholderExpansion.isRegistered()) {
-			placeholderExpansion.unregister();
-			placeholderExpansion = null;
+		if (placeholderRuntime != null) {
+			placeholderRuntime.unregister(this);
+			placeholderRuntime = null;
 		}
 		if (gateway != null) {
 			gateway.close();
@@ -79,19 +83,22 @@ public final class LunaVaultBackendPlugin extends JavaPlugin {
 		}
 	}
 
-	private void registerPlaceholderExpansion(ConfigStore coreConfig, long timeoutMillis) {
-		if (!Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
-			logger.warn("PlaceholderAPI không hoạt động. Bỏ qua đăng ký namespace lunavault.");
+	@SuppressWarnings("unchecked")
+	private void registerPlaceholders(ConfigStore coreConfig) {
+		placeholderRuntime = LunaCore.services().dependencyManager()
+			.resolveOptional(PlaceholderRuntime.class)
+			.map(runtime -> (PlaceholderRuntime<OfflinePlayer>) runtime)
+			.orElse(null);
+
+		if (placeholderRuntime == null) {
+			logger.warn("LunaCore chưa có placeholder runtime. Bỏ qua %lunavault_...%.");
 			return;
 		}
 
-		try {
-			placeholderExpansion = new PaperVaultPlaceholderExpansion(this, gateway, coreConfig, timeoutMillis);
-			placeholderExpansion.register();
-			logger.success("Đã đăng ký PlaceholderAPI namespace %lunavault_...%.");
-		} catch (Throwable throwable) {
-			placeholderExpansion = null;
-			logger.error("Không thể đăng ký PlaceholderAPI expansion lunavault.", throwable);
-		}
+		placeholderRuntime.register(this, VaultPlaceholderSpecs.specs(
+			gateway.client(),
+			minor -> Formatters.money(coreConfig, minor, VaultMoney.SCALE)
+		));
+		logger.success("Đã đăng ký placeholder %lunavault_balance% và %lunavault_rank%.");
 	}
 }

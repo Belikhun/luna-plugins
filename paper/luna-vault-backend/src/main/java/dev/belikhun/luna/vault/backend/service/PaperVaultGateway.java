@@ -34,6 +34,11 @@ import java.util.concurrent.CompletableFuture;
 public final class PaperVaultGateway implements LunaVaultApi, Listener, VaultPlatform<Player> {
 	private final VaultClient<Player> client;
 
+
+	/** The client behind this gateway, for surfaces that read its cache directly. */
+	public VaultClient<Player> client() {
+		return client;
+	}
 	public PaperVaultGateway(JavaPlugin plugin, LunaLogger logger, PluginMessageBus<Player, Player> bus, String backendName, long requestTimeoutMillis) {
 		this.client = new VaultClient<>(this, bus, logger.scope("Gateway"), backendName, requestTimeoutMillis);
 		plugin.getServer().getPluginManager().registerEvents(this, plugin);
