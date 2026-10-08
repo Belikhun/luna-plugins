@@ -394,6 +394,7 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(BackendHeartbeatEventEmitter.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(VelocityBackendStatusRegistry.class, backendStatusRegistry);
 		dependencyManager.registerSingleton(Database.class, sharedDatabase);
+		dependencyManager.registerSingleton(VelocityPlayerRecordStore.class, playerRecordStore);
 		dependencyManager.registerSingleton(PermissionService.class, permissionService);
 		dependencyManager.registerSingleton(VelocityMoneyFormat.class, moneyFormat);
 		dependencyManager.registerSingleton(VelocityPlayerDisplayFormat.class, playerDisplayFormat);

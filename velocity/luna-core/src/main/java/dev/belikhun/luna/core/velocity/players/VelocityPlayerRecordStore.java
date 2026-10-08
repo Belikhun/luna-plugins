@@ -165,6 +165,39 @@ public final class VelocityPlayerRecordStore {
 		submit("record-chat", () -> insertChat(player.getUniqueId(), player.getUsername(), server, "chat", message, now));
 	}
 
+	/**
+	 * Record a line said by a virtual speaker (the chat bridge's AI, which has no
+	 * Velocity player): a profile so the directory and the chat views treat it
+	 * like anyone else, and the line in the chat log. The profile carries no
+	 * address, no client and no sessions, and is only ever touched here.
+	 *
+	 * @param uuid     a stable id the caller owns for that speaker
+	 * @param username the name it speaks under
+	 * @param server   the backend it spoke on; blank for a network-wide line,
+	 *                 which every unfiltered chat view shows and no backend's does
+	 */
+	public void recordVirtualChat(UUID uuid, String username, String server, String content) {
+		if (uuid == null || username == null || username.isBlank() || content == null || content.isBlank()) {
+			return;
+		}
+
+		long now = System.currentTimeMillis();
+
+		submit("record-virtual-chat", () -> {
+			database.update(
+				"INSERT INTO luna_player_profiles"
+					+ " (uuid, username, username_lower, first_seen_at, last_seen_at, last_server, last_address,"
+					+ " last_client_version, online_mode, session_count, total_play_millis)"
+					+ " VALUES (?, ?, ?, ?, ?, ?, '', '', 0, 0, 0)"
+					+ " ON DUPLICATE KEY UPDATE"
+					+ " username = VALUES(username), username_lower = VALUES(username_lower),"
+					+ " last_seen_at = VALUES(last_seen_at), last_server = VALUES(last_server)",
+				List.of(uuid.toString(), username, username.toLowerCase(Locale.ROOT), now, now, normalize(server))
+			);
+			insertChat(uuid, username, server, "chat", content, now);
+		});
+	}
+
 	@Subscribe(order = PostOrder.LAST)
 	public void onCommandExecute(CommandExecuteEvent event) {
 		if (!event.getResult().isAllowed()) {

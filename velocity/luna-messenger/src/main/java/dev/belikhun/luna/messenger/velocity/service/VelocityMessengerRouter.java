@@ -18,19 +18,23 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageBus;
 import dev.belikhun.luna.core.api.messaging.PluginMessageDispatchResult;
 import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -1610,6 +1614,33 @@ public final class VelocityMessengerRouter {
 	 * @param name the sender's name, or null for the configured one
 	 * @return the number of players reached
 	 */
+	/**
+	 * Put the bridge's lines in the player directory's chat log under a virtual
+	 * profile, so the console's chat history reads like the game did. The id is
+	 * derived from the name, which keeps one profile per bot name across restarts
+	 * and can never collide with a Mojang or offline-mode player id.
+	 */
+	private void recordBridgeLines(String senderName, List<String> lines) {
+		if (lines.isEmpty()) {
+			return;
+		}
+
+		VelocityPlayerRecordStore store = LunaCoreVelocity.services().dependencyManager()
+			.resolveOptional(VelocityPlayerRecordStore.class)
+			.orElse(null);
+
+		if (store == null) {
+			return;
+		}
+
+		String seed = "luna:chat-bridge:" + senderName.toLowerCase(Locale.ROOT);
+		UUID speaker = UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8));
+
+		for (String line : lines) {
+			store.recordVirtualChat(speaker, senderName, "", line);
+		}
+	}
+
 	public int routeBridgeChat(String name, String text) {
 		VelocityMessengerConfig.ChatBridgeConfig bridge = config.chatBridge();
 		List<Player> recipients = List.copyOf(proxyServer.getAllPlayers());
@@ -1654,6 +1685,8 @@ public final class VelocityMessengerRouter {
 
 			logger.audit("CHAT[BRIDGE] " + toConsoleText(rendered));
 		}
+
+		recordBridgeLines(senderName, lines);
 
 		if (bridge.publishDiscord() && !lines.isEmpty()) {
 			String joined = String.join("\n", lines);
