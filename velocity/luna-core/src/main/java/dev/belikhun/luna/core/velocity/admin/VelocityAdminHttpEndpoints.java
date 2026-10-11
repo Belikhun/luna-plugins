@@ -42,6 +42,9 @@ public final class VelocityAdminHttpEndpoints {
 	/** How long a proxy command may run before the caller gets a timeout. */
 	private static final long COMMAND_TIMEOUT_MILLIS = 5000L;
 
+	/** How long a forced disconnect waits for the proxy to drop the session. */
+	private static final long RELEASE_WAIT_MILLIS = 2000L;
+
 	private static final MiniMessage MINI_MESSAGE = MiniMessage.miniMessage();
 
 	private final LunaLogger logger;
@@ -141,6 +144,40 @@ public final class VelocityAdminHttpEndpoints {
 				payload.put("username", player.getUsername());
 				payload.put("uuid", player.getUniqueId().toString());
 				payload.put("reason", reason);
+				return LunaJson.envelope(200, payload, startedAt);
+			});
+		});
+
+		router.post("/admin/players/{player}/disconnect", request -> {
+			return withPlayer(request, "disconnect", (player, body, startedAt) -> {
+				String reason = body.getOrDefault("reason", "");
+				String username = player.getUsername();
+				String uuid = player.getUniqueId().toString();
+
+				// A kick writes its packet and only closes once the write completes. When the
+				// client's network died, the socket buffer is full and that write never finishes,
+				// so the session stays registered and the player's next login is refused with
+				// "already connected". Closing the channel drops the pending writes and runs
+				// velocity's own teardown, which is what frees the name.
+				boolean closed = closeChannel(player);
+
+				if (!closed) {
+					player.disconnect(Component.text("Bạn đã bị ngắt kết nối bởi quản trị viên."));
+				}
+
+				boolean released = awaitRelease(player);
+				logger.audit("Console buộc ngắt kết nối " + username
+					+ (closed ? "" : " (không đóng được kênh, đã gửi kick)")
+					+ (released ? "" : " (phiên vẫn còn)")
+					+ (reason.isBlank() ? "" : ": " + reason));
+
+				recordStore.recordModeration(uuid, username, "kick", "console", reason, "", "");
+
+				Map<String, Object> payload = new LinkedHashMap<>();
+				payload.put("username", username);
+				payload.put("uuid", uuid);
+				payload.put("closed", closed);
+				payload.put("released", released);
 				return LunaJson.envelope(200, payload, startedAt);
 			});
 		});
@@ -265,6 +302,46 @@ public final class VelocityAdminHttpEndpoints {
 			logger.error("Lệnh proxy thất bại: " + failure.getMessage(), failure);
 			return LunaJson.error(500, "command failed: " + rootMessage(failure));
 		}
+	}
+
+	/**
+	 * Close a player's connection without sending anything first. Velocity's API only
+	 * offers the polite disconnect, so this reaches its {@code ConnectedPlayer} through
+	 * reflection: {@code getConnection().getChannel().close()}.
+	 */
+	private boolean closeChannel(Player player) {
+		try {
+			Object connection = player.getClass().getMethod("getConnection").invoke(player);
+			Object channel = connection.getClass().getMethod("getChannel").invoke(connection);
+			Class<?> channelType = Class.forName("io.netty.channel.Channel", false, connection.getClass().getClassLoader());
+			channelType.getMethod("close").invoke(channel);
+			return true;
+		} catch (ReflectiveOperationException | RuntimeException failure) {
+			logger.warn("Không thể đóng kênh của " + player.getUsername() + ": " + rootMessage(failure));
+			return false;
+		}
+	}
+
+	/** Wait briefly for velocity's teardown to unregister the session the channel belonged to. */
+	private boolean awaitRelease(Player player) {
+		long deadline = System.currentTimeMillis() + RELEASE_WAIT_MILLIS;
+
+		while (System.currentTimeMillis() < deadline) {
+			Optional<Player> current = proxyServer.getPlayer(player.getUniqueId());
+
+			if (current.isEmpty() || current.get() != player) {
+				return true;
+			}
+
+			try {
+				Thread.sleep(50L);
+			} catch (InterruptedException interrupted) {
+				Thread.currentThread().interrupt();
+				return false;
+			}
+		}
+
+		return false;
 	}
 
 	/** Console callers naturally type a leading slash; the dispatcher does not want one. */
