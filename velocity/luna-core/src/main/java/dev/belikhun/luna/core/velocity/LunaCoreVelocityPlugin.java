@@ -345,6 +345,7 @@ public final class LunaCoreVelocityPlugin {
 		}
 		playerActivityListener = playerEndpoints::onActivity;
 		playerSessionRegistry.addListener(playerActivityListener);
+		playerRecordStore.setChatListener(playerEndpoints::onChat);
 
 		new VelocityAdminHttpEndpoints(
 			logger,

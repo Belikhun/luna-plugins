@@ -148,6 +148,27 @@ public final class VelocityPlayerHttpEndpoints {
 		broadcaster.broadcast(activity.type(), LunaJson.write(payload));
 	}
 
+	/**
+	 * Push a recorded chat line to every subscribed console as a `chat` event.
+	 * It goes out after the line is stored, so a console woken by it reads the
+	 * line back from the chat log.
+	 */
+	public void onChat(VelocityPlayerRecordStore.ChatLine line) {
+		if (line == null || broadcaster.size() == 0) {
+			return;
+		}
+
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", "chat");
+		payload.put("uuid", line.uuid().toString());
+		payload.put("username", line.username());
+		payload.put("server", line.server());
+		payload.put("content", line.content());
+		payload.put("atEpochMillis", line.atEpochMillis());
+
+		broadcaster.broadcast("chat", LunaJson.write(payload));
+	}
+
 	/** Resolve a username (case-insensitive) or UUID to a connected player. */
 	public Optional<Player> resolvePlayer(String reference) {
 		if (reference == null || reference.isBlank()) {

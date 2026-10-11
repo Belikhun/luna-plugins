@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Persists the player directory: who has ever joined, when, where, for how long,
@@ -52,6 +53,15 @@ public final class VelocityPlayerRecordStore {
 	private final ProxyServer proxyServer;
 	private final LunaLogger logger;
 	private final ExecutorService writer;
+
+	/** A chat line as it was recorded, for whoever wants to hear of it live. */
+	public record ChatLine(UUID uuid, String username, String server, String content, long atEpochMillis) {}
+
+	/**
+	 * Told of each chat line once it is in the database, so a reader woken by it
+	 * finds the line when it queries; set per reload by whoever streams chat out.
+	 */
+	private volatile Consumer<ChatLine> chatListener;
 	private volatile Database database;
 
 	public VelocityPlayerRecordStore(ProxyServer proxyServer, LunaLogger logger) {
@@ -162,7 +172,10 @@ public final class VelocityPlayerRecordStore {
 		String message = event.getMessage();
 		long now = System.currentTimeMillis();
 
-		submit("record-chat", () -> insertChat(player.getUniqueId(), player.getUsername(), server, "chat", message, now));
+		submit("record-chat", () -> {
+			insertChat(player.getUniqueId(), player.getUsername(), server, "chat", message, now);
+			announceChat(new ChatLine(player.getUniqueId(), player.getUsername(), normalize(server), message, now));
+		});
 	}
 
 	/**
@@ -195,6 +208,7 @@ public final class VelocityPlayerRecordStore {
 				List.of(uuid.toString(), username, username.toLowerCase(Locale.ROOT), now, now, normalize(server))
 			);
 			insertChat(uuid, username, server, "chat", content, now);
+			announceChat(new ChatLine(uuid, username, normalize(server), content, now));
 		});
 	}
 
@@ -346,6 +360,25 @@ public final class VelocityPlayerRecordStore {
 				"UPDATE luna_player_profiles SET total_play_millis = total_play_millis + ? WHERE uuid = ?",
 				List.of(playedMillis, uuid.toString())
 			);
+		}
+	}
+
+	/** Hear of each chat line once it is recorded; null stops it. */
+	public void setChatListener(Consumer<ChatLine> listener) {
+		this.chatListener = listener;
+	}
+
+	private void announceChat(ChatLine line) {
+		Consumer<ChatLine> listener = chatListener;
+
+		if (listener == null) {
+			return;
+		}
+
+		try {
+			listener.accept(line);
+		} catch (RuntimeException exception) {
+			logger.warn("Không thể phát dòng chat ra stream: " + exception.getMessage());
 		}
 	}
 
