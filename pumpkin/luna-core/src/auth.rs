@@ -36,7 +36,8 @@ use luna_core_api::text::{Span, parse};
 use luna_core_api::throttle::Throttle;
 use pumpkin_plugin_api::Server;
 use pumpkin_plugin_api::boss_bar::{BossBar, BossBarColor, BossBarDivision};
-use pumpkin_plugin_api::gui::{Gui, GuiType};
+use pumpkin_plugin_api::Screen;
+use pumpkin_plugin_api::gui::Gui;
 use pumpkin_plugin_api::item_stack::ItemStack;
 use pumpkin_plugin_api::player::{Player, StatusEffectInstance, StatusEffectType};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1185,7 +1186,7 @@ fn chosen_message(premium: bool, remember: bool) -> &'static str {
 /// `<aqua>`, `<gold>`) which are not luna's palette, and eyeballing a hex for
 /// each one is exactly how the two ports drift apart.
 fn build_selector(remember: bool) -> Gui {
-	let gui = Gui::new(GuiType::Generic9x1, markup(SELECTOR_TITLE));
+	let gui = Gui::new(Screen::Generic9x1, markup(SELECTOR_TITLE));
 
 	// belt and braces with the cancelled click event: the GUI itself refuses to
 	// give anything up, so a click the handler somehow misses still takes nothing

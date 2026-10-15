@@ -15,13 +15,13 @@ use pumpkin_plugin_api::{Server, common::RgbColor};
 /// Build a component from the runs. One per use; see the module note.
 #[must_use]
 pub fn render(spans: &[Span]) -> TextComponent {
-	let root = TextComponent::text("");
+	let mut root = TextComponent::text("");
 
 	for span in spans {
-		let run = TextComponent::text(&span.text);
+		let mut run = TextComponent::text(&span.text);
 
 		if let Some((red, green, blue)) = span.color {
-			run.color_rgb(RgbColor {
+			run = run.color_rgb(RgbColor {
 				r: red,
 				g: green,
 				b: blue,
@@ -29,26 +29,26 @@ pub fn render(spans: &[Span]) -> TextComponent {
 		}
 
 		if span.bold {
-			run.bold(true);
+			run = run.bold(true);
 		}
 
 		if span.underlined {
-			run.underlined(true);
+			run = run.underlined(true);
 		}
 
 		if span.strikethrough {
-			run.strikethrough(true);
+			run = run.strikethrough(true);
 		}
 
 		if span.obfuscated {
-			run.obfuscated(true);
+			run = run.obfuscated(true);
 		}
 
 		// always written, never only when true: a custom item name is italic
 		// unless the component says otherwise, which is what `<!i>` is for
-		run.italic(span.italic);
+		run = run.italic(span.italic);
 
-		root.add_child(run);
+		root = root.add_child(run);
 	}
 
 	root

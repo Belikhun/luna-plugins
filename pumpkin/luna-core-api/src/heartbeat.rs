@@ -328,6 +328,7 @@ mod tests {
 			ram_used_bytes: 100,
 			ram_free_bytes: 200,
 			ram_max_bytes: 300,
+			worlds: Vec::new(),
 		}
 	}
 

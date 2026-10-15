@@ -55,7 +55,7 @@ use pumpkin_plugin_api::events::{
 use pumpkin_plugin_api::scheduler::SchedulerExt;
 use pumpkin_plugin_api::{Context, Plugin, PluginMetadata, Server, register_plugin};
 use state::{CoreState, now_millis};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use tabbridge::TabBridge;
 
 /// Ticks per second the server runs at, for turning an interval into ticks.
@@ -90,7 +90,8 @@ fn permissions() -> Vec<String> {
 /// The running state, kept so unload can close the broker connection.
 #[derive(Default)]
 struct LunaCore {
-	state: Option<Arc<CoreState>>,
+	// the host hands hooks a shared reference, so the slot unload empties is a lock
+	state: Mutex<Option<Arc<CoreState>>>,
 }
 
 impl Plugin for LunaCore {
@@ -109,7 +110,7 @@ impl Plugin for LunaCore {
 		}
 	}
 
-	fn on_load(&mut self, context: Context) -> Result<(), String> {
+	fn on_load(&self, context: Context) -> Result<(), String> {
 		let data_folder = context.get_data_folder();
 		let (config, note) = config::CoreConfig::load_or_create(&data_folder);
 
@@ -332,15 +333,17 @@ impl Plugin for LunaCore {
 			}
 		});
 
-		self.state = Some(state);
+		*self.state.lock().unwrap_or_else(PoisonError::into_inner) = Some(state);
 
 		Ok(())
 	}
 
-	fn on_unload(&mut self, _context: Context) -> Result<(), String> {
+	fn on_unload(&self, _context: Context) -> Result<(), String> {
 		// the scheduler drops this plugin's tasks with it, but the broker holds a
 		// socket and a consumer that outlive them
-		if let Some(state) = self.state.take() {
+		let running = self.state.lock().unwrap_or_else(PoisonError::into_inner).take();
+
+		if let Some(state) = running {
 			state.shutdown();
 		}
 
@@ -486,7 +489,7 @@ fn register_messenger(context: &Context, messenger: Arc<Messenger>) {
 		.execute(handler(MessengerBranch::Poke));
 	let poke = Command::new(&["poke".to_owned()], "Chọc một người chơi trong mạng.");
 
-	poke.then(poke_target);
+	let poke = poke.then(poke_target);
 	context.register_command(poke, MESSENGER_PERMISSION);
 
 	// /msg <target> [message]; the bare target switches the conversation to them
@@ -495,11 +498,11 @@ fn register_messenger(context: &Context, messenger: Arc<Messenger>) {
 	let msg_target = CommandNode::argument("target", &ArgumentType::String(StringType::SingleWord))
 		.execute(handler(MessengerBranch::SwitchDirect));
 
-	msg_target.then(msg_body);
+	let msg_target = msg_target.then(msg_body);
 
 	let msg = Command::new(&["msg".to_owned()], "Nhắn riêng cho một người chơi.");
 
-	msg.then(msg_target);
+	let msg = msg.then(msg_target);
 	context.register_command(msg, MESSENGER_PERMISSION);
 
 	// /r <message>
@@ -507,7 +510,7 @@ fn register_messenger(context: &Context, messenger: Arc<Messenger>) {
 		.execute(handler(MessengerBranch::Reply));
 	let reply = Command::new(&["r".to_owned()], "Trả lời tin nhắn riêng gần nhất.");
 
-	reply.then(reply_body);
+	let reply = reply.then(reply_body);
 	context.register_command(reply, MESSENGER_PERMISSION);
 
 	let chat = context.register_event_handler::<PlayerChatEvent, _>(
@@ -741,16 +744,16 @@ fn register_countdown(context: &Context, countdowns: Arc<Countdowns>) {
 	let length = CommandNode::argument("length", &ArgumentType::String(StringType::SingleWord))
 		.execute(handler(Branch::Start));
 
-	length.then(title);
+	let length = length.then(title);
 
 	let start = CommandNode::literal("start");
-	start.then(length);
+	let start = start.then(length);
 
 	let id =
 		CommandNode::argument("id", &ArgumentType::Integer((Some(1), None))).execute(handler(Branch::Stop));
 	let stop = CommandNode::literal("stop");
 
-	stop.then(id);
+	let stop = stop.then(id);
 
 	let stop_all = CommandNode::literal("stopall").execute(handler(Branch::StopAll));
 	let list = CommandNode::literal("list").execute(handler(Branch::List));
@@ -760,10 +763,10 @@ fn register_countdown(context: &Context, countdowns: Arc<Countdowns>) {
 		"Đếm ngược tới một sự kiện, thông báo cho cả server.",
 	);
 
-	command.then(start);
-	command.then(stop);
-	command.then(stop_all);
-	command.then(list);
+	let command = command.then(start);
+	let command = command.then(stop);
+	let command = command.then(stop_all);
+	let command = command.then(list);
 
 	context.register_command(command, COUNTDOWN_PERMISSION);
 }
@@ -1100,14 +1103,13 @@ fn register_auth(context: &Context, guard: Arc<AuthGuard>) {
 					CommandNode::argument("confirm", &ArgumentType::String(StringType::SingleWord))
 						.execute(handler);
 
-				password.then(confirm);
-				password
+				password.then(confirm)
 			}
 		};
 
 		let command = Command::new(&[name.to_owned()], description);
 
-		command.then(password);
+		let command = command.then(password);
 
 		// the root executes too, so a bare `/login` answers with luna's usage
 		// line the way Paper does; without it the argument tree refuses the

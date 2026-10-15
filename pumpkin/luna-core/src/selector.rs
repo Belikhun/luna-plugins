@@ -61,7 +61,8 @@ use luna_core_api::selector_engine::{
 	PAGE_SIZE, RenderEntry, apply_template, layout_by_page, render_item,
 };
 use pumpkin_plugin_api::Server;
-use pumpkin_plugin_api::gui::{Gui, GuiType};
+use pumpkin_plugin_api::Screen;
+use pumpkin_plugin_api::gui::Gui;
 use pumpkin_plugin_api::item_stack::ItemStack;
 use pumpkin_plugin_api::player::Player;
 use pumpkin_plugin_api::text::TextComponent;
@@ -253,7 +254,7 @@ impl Selector {
 			&BTreeMap::from([("player_name".to_owned(), player.get_name())]),
 		);
 
-		let gui = Gui::new(GuiType::Generic9x6, gui_title(&title));
+		let gui = Gui::new(Screen::Generic9x6, gui_title(&title));
 
 		// nothing in here is a real item; the GUI refusing to give anything up
 		// is what makes a click the handler somehow misses still take nothing
@@ -446,7 +447,7 @@ impl Selector {
 		);
 
 		let gui = Gui::new(
-			GuiType::Generic9x6,
+			Screen::Generic9x6,
 			gui_title("<gradient:#6DFFD4:#4EA3FF>Thống Kê Toàn Mạng</gradient>"),
 		);
 

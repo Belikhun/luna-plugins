@@ -8,7 +8,7 @@ edition = "2024"
 license = "All Rights Reserved"
 
 [workspace.dependencies]
-pumpkin-plugin-api = { git = "https://github.com/Pumpkin-MC/Pumpkin", package = "pumpkin-plugin-api" }
+pumpkin-plugin-api = { git = "https://github.com/Pumpkin-MC/Pumpkin", tag = "0.2.0+26.3-26.51", package = "pumpkin-plugin-api" }
 luna-core-api = { path = "luna-core-api" }
 tracing = "0.1"
 
