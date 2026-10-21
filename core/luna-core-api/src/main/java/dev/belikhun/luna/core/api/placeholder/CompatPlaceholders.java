@@ -103,6 +103,12 @@ public final class CompatPlaceholders {
 				}
 
 				if (key.toLowerCase(Locale.ROOT).startsWith("tickduration")) {
+					String spread = SparkMetrics.fallbackTickDurationSpread();
+
+					if (!spread.isBlank()) {
+						return spread;
+					}
+
 					double duration = request.server().tickDurationMillis();
 					return TickDurationFormat.spread(duration, duration, duration, duration);
 				}

@@ -48,9 +48,6 @@ final class SparkProbe {
 			double processCpuPercent = SparkMetrics.normalizeCpuPercent(spark.cpuProcess().poll(CpuUsage.MINUTES_1));
 
 			String tickDuration = placeholder("tickduration_10s");
-			if (tickDuration.isBlank()) {
-				tickDuration = tickDurationFromMspt(spark);
-			}
 
 			return new SparkMetrics.Snapshot(tps, systemCpuPercent, processCpuPercent, tickDuration);
 		} catch (IllegalStateException exception) {
@@ -70,13 +67,13 @@ final class SparkProbe {
 	 * so the placeholder call above dies with NoSuchMethodError inside its
 	 * catch-all and answers "", while mspt() has been in the API from the start.
 	 */
-	private static String tickDurationFromMspt(Spark spark) {
+	private static String tickDurationFromMspt(Spark spark, MillisPerTick window) {
 		try {
 			if (spark.mspt() == null) {
 				return "";
 			}
 
-			DoubleAverageInfo info = spark.mspt().poll(MillisPerTick.SECONDS_10);
+			DoubleAverageInfo info = spark.mspt().poll(window);
 			if (info == null) {
 				return "";
 			}
@@ -89,11 +86,28 @@ final class SparkProbe {
 
 	/** One of spark's legacy-formatted placeholders, or "" when unreadable. */
 	static String placeholder(String placeholder) {
+		String value;
+
 		try {
-			String value = SparkProvider.get().placeholders().resolveLegacyFormatting(placeholder);
-			return value == null ? "" : value;
+			value = SparkProvider.get().placeholders().resolveLegacyFormatting(placeholder);
 		} catch (Throwable ignored) {
-			return "";
+			value = null;
 		}
+
+		if (value != null && !value.isBlank()) {
+			return value;
+		}
+
+		// Older spark (1.10.53 on forge 1.20.1) has no placeholders() API; compose the
+		// tick duration spread from mspt() so all four numbers are not the same mean.
+		if (placeholder.startsWith("tickduration")) {
+			try {
+				return tickDurationFromMspt(SparkProvider.get(), placeholder.endsWith("_1m") ? MillisPerTick.MINUTES_1 : MillisPerTick.SECONDS_10);
+			} catch (Throwable ignored) {
+				return "";
+			}
+		}
+
+		return "";
 	}
 }

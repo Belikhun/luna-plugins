@@ -18,6 +18,8 @@ public final class SparkMetrics {
 
 	private static volatile boolean sparkProbeWarned;
 
+	private static volatile Supplier<long[]> tickTimesFallback;
+
 	private SparkMetrics() {
 	}
 
@@ -28,6 +30,50 @@ public final class SparkMetrics {
 		} catch (Throwable ignored) {
 			return false;
 		}
+	}
+
+	/**
+	 * Where to read recent tick durations (nanoseconds) when spark cannot give a
+	 * tick duration spread, e.g. the server's own tick time ring.
+	 */
+	public static void tickTimesFallback(Supplier<long[]> supplier) {
+		tickTimesFallback = supplier;
+	}
+
+	/**
+	 * min/median/95th percentile/max of the fallback tick times, formatted like
+	 * spark's tickduration placeholder, or "" when there is nothing to read.
+	 */
+	public static String fallbackTickDurationSpread() {
+		Supplier<long[]> supplier = tickTimesFallback;
+
+		if (supplier == null) {
+			return "";
+		}
+
+		long[] raw;
+
+		try {
+			raw = supplier.get();
+		} catch (Throwable ignored) {
+			return "";
+		}
+
+		if (raw == null || raw.length == 0) {
+			return "";
+		}
+
+		long[] samples = java.util.Arrays.stream(raw.clone()).filter(value -> value > 0L).sorted().toArray();
+
+		if (samples.length == 0) {
+			return "";
+		}
+
+		double min = samples[0] / 1_000_000D;
+		double median = samples[samples.length / 2] / 1_000_000D;
+		double p95 = samples[Math.min(samples.length - 1, (int) Math.ceil(samples.length * 0.95D) - 1)] / 1_000_000D;
+		double max = samples[samples.length - 1] / 1_000_000D;
+		return TickDurationFormat.spread(min, median, p95, max);
 	}
 
 	/** Whether spark is installed and its metrics can be read. */

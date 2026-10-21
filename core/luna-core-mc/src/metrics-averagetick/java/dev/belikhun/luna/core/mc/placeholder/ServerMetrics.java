@@ -22,6 +22,16 @@ public final class ServerMetrics {
 	}
 
 	/**
+	 * The server's ring of recent tick durations (the last 100 ticks).
+	 *
+	 * @param server the running server
+	 * @return durations in nanoseconds; unfilled slots are 0
+	 */
+	public static long[] tickTimesNanos(MinecraftServer server) {
+		return server.tickTimes;
+	}
+
+	/**
 	 * A player's measured round-trip time.
 	 *
 	 * @param player the player to read

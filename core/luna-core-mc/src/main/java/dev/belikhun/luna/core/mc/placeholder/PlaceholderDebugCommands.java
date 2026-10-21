@@ -70,8 +70,16 @@ public final class PlaceholderDebugCommands {
 			return true;
 		}
 
-		PermissionService permissions = module == null ? null : module.permissions();
-		return permissions != null && permissions.isAvailable() && permissions.hasPermission(player.getUUID(), PERMISSION);
+		// Brigadier evaluates this while the server rebuilds a player's command tree, including in the
+		// middle of PlayerList.respawn, before LuckPerms Forge has attached its capability to the new
+		// entity. A throw there aborts the respawn and leaves the player out of the player list, so a
+		// failed lookup must never escape: fall back to the vanilla operator level.
+		try {
+			PermissionService permissions = module == null ? null : module.permissions();
+			return permissions != null && permissions.isAvailable() && permissions.hasPermission(player.getUUID(), PERMISSION);
+		} catch (RuntimeException exception) {
+			return source.hasPermission(2);
+		}
 	}
 
 	private static int list(CommandContext<CommandSourceStack> context, Supplier<MinecraftPlaceholderModule> module, String namespace) {

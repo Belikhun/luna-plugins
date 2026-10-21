@@ -27,6 +27,11 @@ public final class TrunkGameReads implements GameReads {
 	}
 
 	@Override
+	public long[] tickTimesNanos(MinecraftServer server) {
+		return ServerMetrics.tickTimesNanos(server);
+	}
+
+	@Override
 	public int pingMillis(ServerPlayer player) {
 		return Math.max(0, ServerMetrics.pingMillis(player));
 	}

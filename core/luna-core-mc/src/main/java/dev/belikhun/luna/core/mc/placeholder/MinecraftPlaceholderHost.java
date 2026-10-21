@@ -51,6 +51,9 @@ public final class MinecraftPlaceholderHost implements PlaceholderHost<ServerPla
 		this.permissions = permissions;
 		this.reads = reads;
 		this.logger = logger.scope("PlaceholderHost");
+		// spark's tickduration spread, from the server's own tick ring when spark is absent
+		// or too old to answer (forge 1.20.1 ships spark 1.10.53, which crashes on Java 25).
+		SparkMetrics.tickTimesFallback(() -> reads.tickTimesNanos(server));
 	}
 
 	@Override

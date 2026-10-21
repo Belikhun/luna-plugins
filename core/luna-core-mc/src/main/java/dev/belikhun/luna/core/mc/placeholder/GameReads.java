@@ -19,6 +19,11 @@ public interface GameReads {
 	/** Mean tick duration in milliseconds; 0 when the server has not ticked yet. */
 	double tickDurationMillis(MinecraftServer server);
 
+	/** The last ticks' durations in nanoseconds, or null when the server keeps none. */
+	default long[] tickTimesNanos(MinecraftServer server) {
+		return null;
+	}
+
 	/** A player's round trip in milliseconds; 0 when unknown. */
 	int pingMillis(ServerPlayer player);
 
