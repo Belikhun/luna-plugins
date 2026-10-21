@@ -8,6 +8,8 @@ dependencies {
 	compileOnly(project(":luna-core-api"))
 	compileOnly(project(":luna-core-mc26-fabric"))
 	compileOnly(libs.luckperms.api)
+	// the join-line mixin; loom supplies it on the 1.21 line, this no-loom build names it
+	compileOnly(libs.sponge.mixin)
 }
 
 tasks.named<ShadowJar>("shadowJar") {

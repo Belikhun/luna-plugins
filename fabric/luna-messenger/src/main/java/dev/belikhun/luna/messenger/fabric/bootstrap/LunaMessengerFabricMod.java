@@ -16,6 +16,7 @@ import dev.belikhun.luna.core.mc.text.LunaTextComponents;
 import dev.belikhun.luna.core.fabric.logging.FabricLunaLoggers;
 import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntime;
 import dev.belikhun.luna.messenger.mc.runtime.MessengerRuntimeFactory;
+import dev.belikhun.luna.messenger.fabric.runtime.JoiningPlayer;
 import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -25,9 +26,13 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -37,12 +42,25 @@ import java.util.concurrent.CompletableFuture;
  * is that a line typed here is seen on every server, which only the proxy can
  * do. {@code ALLOW_CHAT_MESSAGE} refusing the message is what stops it being
  * shown twice, once locally and once from the proxy.
+ *
+ * The same goes for vanilla's "joined the game" / "left the game" lines: the
+ * proxy announces every arrival and departure network-wide, so the local copy is
+ * refused, as the paper build does with its join and quit messages. Simulated
+ * players (a map's Carpet bots) never pass the proxy, so theirs are kept.
  */
 public final class LunaMessengerFabricMod implements DedicatedServerModInitializer {
 	public static final String MOD_ID = "lunamessenger";
 
 	private static final String NOT_READY = "❌ LunaMessenger chưa sẵn sàng.";
 	private static final String PLAYERS_ONLY = "❌ Lệnh này chỉ dùng cho người chơi.";
+
+	/** Vanilla's arrival and departure lines, which the proxy already announces. */
+	private static final Set<String> JOIN_LEAVE_KEYS = Set.of(
+		"multiplayer.player.joined",
+		"multiplayer.player.joined.renamed",
+		"multiplayer.player.left"
+	);
+
 
 	private final LunaLogger logger;
 	private DependencyManager dependencyManager;
@@ -72,6 +90,66 @@ public final class LunaMessengerFabricMod implements DedicatedServerModInitializ
 		});
 
 		ServerMessageEvents.ALLOW_CHAT_MESSAGE.register((message, sender, params) -> onChat(message.signedContent(), sender));
+		ServerMessageEvents.ALLOW_GAME_MESSAGE.register((server, message, overlay) -> !isProxyAnnouncedJoinLeave(server, message));
+	}
+
+	/**
+	 * Whether this is vanilla's join or leave line for a player the proxy already
+	 * announces, so the game must not broadcast it too.
+	 *
+	 * The line's first argument is the player's display name, whose insertion is
+	 * the plain username however a team or another mod decorates the name. A line
+	 * whose player cannot be found is still refused: it is about someone, and only
+	 * a simulated player is kept.
+	 */
+	private boolean isProxyAnnouncedJoinLeave(MinecraftServer server, Component message) {
+		if (!(message.getContents() instanceof TranslatableContents translatable)
+			|| !JOIN_LEAVE_KEYS.contains(translatable.getKey())) {
+			return false;
+		}
+
+		ServerPlayer player = playerNamedIn(server, translatable.getArgs());
+		return player == null || !isSimulatedPlayer(player);
+	}
+
+	private ServerPlayer playerNamedIn(MinecraftServer server, Object[] args) {
+		if (args.length == 0 || !(args[0] instanceof Component name)) {
+			return null;
+		}
+
+		String username = name.getStyle().getInsertion();
+
+		if (username == null || username.isBlank()) {
+			username = name.getString();
+		}
+
+		// a join line is broadcast while the player is still being placed, before
+		// the player list has them; a leave line while they are still in it
+		ServerPlayer joining = JoiningPlayer.get();
+
+		if (joining != null && joining.getScoreboardName().equalsIgnoreCase(username)) {
+			return joining;
+		}
+
+		return server.getPlayerList().getPlayerByName(username);
+	}
+
+	/**
+	 * A player the server simulates (Carpet's bots) rather than a person on a
+	 * connection: a subclass of the player class with no internet address behind
+	 * it. The same test luna-auth-backend uses to leave them alone.
+	 */
+	private static boolean isSimulatedPlayer(ServerPlayer player) {
+		if (player.getClass() == ServerPlayer.class) {
+			return false;
+		}
+
+		if (player.connection == null) {
+			return true;
+		}
+
+		SocketAddress address = player.connection.getRemoteAddress();
+		return !(address instanceof InetSocketAddress);
 	}
 
 	private void onServerStarted(MinecraftServer server) {

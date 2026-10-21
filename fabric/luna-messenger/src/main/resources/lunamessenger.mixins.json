@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.belikhun.luna.messenger.fabric.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"server": [
+		"PlayerListMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

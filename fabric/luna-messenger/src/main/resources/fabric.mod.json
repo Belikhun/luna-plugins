@@ -10,6 +10,9 @@
 	"entrypoints": {
 		"server": ["dev.belikhun.luna.messenger.fabric.bootstrap.LunaMessengerFabricMod"]
 	},
+	"mixins": [
+		"lunamessenger.mixins.json"
+	],
 	"depends": {
 		"fabricloader": ">=0.15.0",
 		"fabric-api": ">=0.116.0",
