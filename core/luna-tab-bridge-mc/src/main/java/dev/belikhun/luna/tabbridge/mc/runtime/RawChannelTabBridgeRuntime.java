@@ -48,6 +48,8 @@ final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 	private static final PluginMessageChannel TAB_BRIDGE_CHANNEL = PluginMessageChannel.of("tab:bridge-6");
 	/** After a join or a new registration, every value is sent once even if unchanged. */
 	private static final long INITIAL_PLACEHOLDER_WARMUP_MILLIS = 10_000L;
+	/** How often a value is re-sent during the warmup, whatever its refresh. */
+	private static final long WARMUP_RESEND_MILLIS = 1_000L;
 	/** Frames kept per player while TAB has not said hello; older ones are dropped. */
 	private static final int MAX_QUEUED_FRAMES = 256;
 	/** TAB's own minimum, raised: below this the client strobes. */
@@ -420,7 +422,12 @@ final class RawChannelTabBridgeRuntime implements TabBridgeRuntime {
 
 			Requested state = entry.getValue();
 
-			if (!state.due()) {
+			// TAB on the proxy drops updates that arrive before it has loaded the player, so a
+			// slow placeholder (host name, refresh 10s or never) sent once at join can be lost for
+			// good. Through the warmup, re-send everything at least once a second.
+			boolean warmupResend = warmup && System.currentTimeMillis() - state.lastSentAt >= WARMUP_RESEND_MILLIS;
+
+			if (!state.due() && !warmupResend) {
 				continue;
 			}
 
