@@ -1,0 +1,44 @@
+# LunaPatPat
+#
+# The generated resource pack holds every animation in the library (textures and sounds), plus one
+# PatPat rule per choice players have made. PatPat picks animations on the client, so choices only
+# take effect once players have the rebuilt pack.
+
+pack:
+  # where the network's pack loader reads packs from (LunaPackLoader "pack-path")
+  directory: "/mnt/shulker/mrds/packs"
+  # file name (without .zip) and the pack loader entry written next to it
+  name: "lunapatpat"
+  title: "PatPat của Luna"
+  priority: 6
+  required: false
+  servers:
+    - "survival"
+  # pack.mcmeta format range
+  min-format: 75
+  max-format: 99
+
+# Run after the pack is rebuilt, from the server's own machine. {player} is replaced by each
+# online player's name for resend-each; leave a list empty to skip it.
+after-build:
+  # makes the pack loader read the new zip
+  reload:
+    - "/mnt/shulker/mrds/.bin/luna packs reload"
+  # the pack loader only sends a pack a player does not have yet (by name), so for each online
+  # player the old copy is dropped and the new one loaded; {player} is the player's name
+  per-player:
+    - "/mnt/shulker/mrds/.bin/luna send proxy lunapack forceunload {player} {pack}"
+    - "/mnt/shulker/mrds/.bin/luna send proxy lunapack forceload {player} {pack}"
+
+# seconds to wait after the last change before rebuilding, so several changes make one rebuild
+rebuild-delay-seconds: 3
+
+# priorities of the generated rules (higher wins when several match)
+priority:
+  pair: 3000
+  incoming: 2000
+  outgoing: 1000
+  default: 10
+
+modrinth:
+  user-agent: "Belikhun/luna-patpat (luna network)"

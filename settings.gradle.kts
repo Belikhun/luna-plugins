@@ -65,6 +65,8 @@ include("luna-smp")
 include("luna-messenger")
 include("luna-auth-backend")
 include("luna-tv")
+include("luna-deathswap")
+include("luna-patpat")
 
 // The proxy, and everything that lives on it.
 include("luna-core-velocity")

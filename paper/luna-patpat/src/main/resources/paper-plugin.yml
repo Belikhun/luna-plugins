@@ -1,0 +1,20 @@
+name: LunaPatPat
+version: '${version}'
+main: dev.belikhun.luna.patpat.LunaPatPat
+api-version: '1.21'
+description: Thư viện hoạt ảnh PatPat, cho người chơi chọn hoạt ảnh vỗ đầu, và tự dựng gói tài nguyên.
+authors:
+  - Belikhun
+permissions:
+  lunapatpat.use:
+    default: true
+    description: Chọn hoạt ảnh PatPat của chính mình.
+  lunapatpat.admin:
+    default: op
+    description: Nhập hoạt ảnh, đặt hoạt ảnh cho người khác, dựng lại gói.
+dependencies:
+  server:
+    LunaCore:
+      load: BEFORE
+      required: true
+      join-classpath: true

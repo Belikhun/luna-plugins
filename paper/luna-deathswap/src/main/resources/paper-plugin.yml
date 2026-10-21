@@ -1,0 +1,35 @@
+name: LunaDeathSwap
+main: dev.belikhun.luna.deathswap.LunaDeathSwapPlugin
+author: Belikhun
+version: '${version}'
+api-version: '1.20'
+description: "DeathSwap nhiều phòng, nhiều người chơi cho mạng Luna"
+
+dependencies:
+  server:
+    LunaCore:
+      required: true
+    PlaceholderAPI:
+      required: false
+      load: BEFORE
+    # pre-generates spawn areas before a round; without it the plugin loads the chunks itself
+    Chunky:
+      required: false
+      load: BEFORE
+
+permissions:
+  lunadeathswap.*:
+    description: "Toàn bộ quyền cho LunaDeathSwap"
+    children:
+      lunadeathswap.play: true
+      lunadeathswap.room.create: true
+      lunadeathswap.admin: true
+  lunadeathswap.play:
+    description: "Cho phép vào phòng, ngồi ngoài và xem ván DeathSwap"
+    default: true
+  lunadeathswap.room.create:
+    description: "Cho phép tạo phòng riêng (đóng khi trống)"
+    default: true
+  lunadeathswap.admin:
+    description: "Quản lý mọi phòng, sảnh và thế giới"
+    default: op

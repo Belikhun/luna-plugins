@@ -1,0 +1,276 @@
+# LunaDeathSwap
+#
+# Players wait in a shared lobby (an empty void world, lunadeathswap:lobby)
+# and play in rooms. Each room runs its own rounds on a brand-new world that
+# is deleted afterwards. The last player alive in a round wins.
+#
+# Manage rooms in game or from the console: /ds room (see /ds room for the
+# list). Room settings changed there are saved in rooms.yml.
+
+lobby:
+  # Set it in game with /ds setlobby. Leave the world empty to use the void
+  # lobby world; until a position is set, its spawn (0, 65, 0) is used.
+  spawn:
+    world: ''
+
+rooms:
+  # A persistent room that always exists, created with the defaults below.
+  default: main
+  default-name: Phòng chính
+  # Put players into the default room when they join the server.
+  auto-join: true
+
+# Settings every new room starts with. Change one room with
+# /ds room set <id> <key> <value>; keys and ranges: /ds room set <id>
+room-defaults:
+  max-players: 16
+  min-players: 2
+  auto-start: true
+  start-countdown: 30
+  # A swap happens at a random time between these (seconds).
+  swap-min: 180
+  swap-max: 300
+  # Seconds of on-screen countdown right before a swap.
+  swap-warning: 10
+  # The first swap of a round happens at a random time between these (seconds),
+  # for a longer head start. first-swap-min 0 = the normal swap-min..swap-max.
+  first-swap-min: 0
+  first-swap-max: 0
+  # Hide the first swap's countdown (???) until the warning, even with show-timer on.
+  hide-first-swap: false
+  # true shows the exact time left; false hides it (???) until the warning.
+  show-timer: false
+  # A boss bar counting down to the next swap (follows show-timer: ??? while hidden).
+  swap-bossbar: true
+  # The vanilla locator bar that points at other players. Off: no free tracking.
+  locator-bar: false
+  # While the timer is hidden, show "> 1 phút" / "< 1 phút" instead of ???.
+  vague-timer: false
+  # shuffle: a new random ring every swap; random: any derangement (pairs and
+  # small groups can form); ring: one ring fixed at the start; pairs: fixed partners.
+  swap-pattern: shuffle
+  # Starting kit: none, food (16 bread), basic (water bucket + bread),
+  # tools (stone pickaxe/axe/shovel + water bucket + bread).
+  kit: none
+  max-hearts: 10
+  # LifeSwap: dying costs lifeswap-steal hearts, which the trap's owner gains;
+  # you respawn at your start point (gear kept) and are out only at 0 hearts.
+  lifeswap: false
+  lifeswap-steal: 2
+  # Max hearts every survivor loses at each swap (0 = off); out at 0 hearts.
+  swap-drain: 0
+  # The closing arena, so long rounds (LifeSwap) end: after shrink-after
+  # minutes (0 = never) the border jumps in to just outside the farthest
+  # survivor and closes on 0,0 down to shrink-size blocks over shrink-time minutes.
+  shrink-after: 30
+  shrink-time: 10
+  shrink-size: 100
+  # Then keep closing to nothing over this many minutes (slower); 0 = stop at shrink-size.
+  shrink-final-time: 5
+  # PvP turns on once the arena starts closing in (even with pvp: false).
+  shrink-pvp: true
+  # Arena mode: when the arena phase starts, every survivor is teleported near
+  # 0,0 and the border is set to arena-size (diameter), then closes to
+  # shrink-size. The arena is pre-generated in the background after launch.
+  shrink-teleport: true
+  # In the arena phase a death eliminates; LifeSwap hearts no longer save you.
+  shrink-sudden-death: true
+  arena-size: 500
+  # Carry fall distance and velocity into the new spot.
+  keep-momentum: true
+  # Players start spread on a ring this far from 0,0.
+  spread-radius: 1500
+  world-border: 6000
+  difficulty: normal
+  pvp: false
+  # A death this many seconds after a swap counts as a trap by the player
+  # who stood there before.
+  trap-credit: 30
+  end-delay: 10
+  # 0 = a random ready world from the pool.
+  seed: 0
+
+# Round worlds are made by a separate, throwaway Paper process (this server's
+# own jar, so no download) while players wait, and kept ready in a small
+# pool, so a round starts without the server freezing.
+worlds:
+  # false: create worlds inside this server instead (freezes it briefly).
+  use-generator: true
+  # Ready worlds to keep on disk (0-3).
+  pool-size: 1
+  # Delete attempts for a used world before leaving it for the next start.
+  delete-retries: 5
+  # Before a round starts, the terrain around every spawn point is generated
+  # (with Chunky when installed, otherwise chunk by chunk), so players never
+  # land in unloaded chunks. radius in blocks (0 = off), timeout per spawn.
+  spawn-pregen:
+    radius: 160
+    timeout-seconds: 90
+  generator:
+    memory-mb: 1536
+    timeout-seconds: 240
+    # Leave empty to use this server's own java and jar.
+    java: ''
+    server-jar: ''
+
+ui:
+  player-name-format: '%luckperms_prefix%<reset> <white>%player_name%</white>'
+  footer: ' <gray>mayphatdien/deathswap '
+
+# Sidebar, drawn by the plugin (proxy TAB's scoreboard is off).
+# MiniMessage + PlaceholderAPI + these placeholders:
+#   everywhere: %player_display% %footer% %rooms_count% %world_pool_chip%
+#     %stats_wins_chip% %stats_games_chip% %stats_traps_chip% %stats_best_chip%
+#   in a room: %room_name% %room_id% %room_chip% %room_members_chip%
+#     %state_display% %status_chip% %waiting_chip% %countdown_chip%
+#     %countdown% %preparing_stage% %prepare_bar_chip% %prepare_eta_chip%
+#     %alive_chip% %swap_chip% %swaps_chip% %timer_chip% %traps_chip%
+#     %winner_chip% %sitout_hint%
+# alive_line repeats per survivor (%alive_name%, %alive_hearts% = their max
+# hearts), up to alive_max lines. In
+# the hub template it repeats per public room instead (%list_room_name%,
+# %list_room_state%, %list_room_members%). A line containing [skip] is dropped.
+scoreboard:
+  enabled: true
+  update-ticks: 10
+  templates:
+    # In the lobby, not in any room.
+    hub:
+      title: <b><gradient:#FF6B6B:#FFB86C>DEATH</gradient><gradient:#C084FC:#60A5FA>SWAP</gradient></b>
+      header:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ''
+      - ' <gradient:#7ED6FF:#A78BFA>ꜱᴛᴀᴛꜱ</gradient> '
+      - ' %stats_wins_chip% <dark_gray>●</dark_gray> %stats_games_chip% '
+      - ' %stats_traps_chip% <dark_gray>●</dark_gray> %stats_best_chip% '
+      - ''
+      - ' <gradient:#FFB86C:#FF7AB6>ʀᴏᴏᴍꜱ</gradient> '
+      alive_line: ' <gray>⌂</gray> <white>%list_room_name%</white> %list_room_state% <gray>%list_room_members%</gray> '
+      alive_empty: ' <gray>ℹ Chưa có phòng</gray> '
+      alive_max: 5
+      footer:
+      - ''
+      - ' <gray>▶</gray> <aqua>/ds rooms</aqua> '
+      - '%footer%'
+
+    # In a room, between rounds.
+    lobby:
+      title: <b><gradient:#FF6B6B:#FFB86C>DEATH</gradient><gradient:#C084FC:#60A5FA>SWAP</gradient></b>
+      lines:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ''
+      - ' %room_chip% '
+      - ' %room_members_chip% <dark_gray>●</dark_gray> %state_display% '
+      - ' %waiting_chip% <gray>sẵn sàng</gray> '
+      - ' %world_pool_chip% '
+      - ''
+      - ' <gradient:#7ED6FF:#A78BFA>ꜱᴛᴀᴛꜱ</gradient> '
+      - ' %stats_wins_chip% <dark_gray>●</dark_gray> %stats_games_chip% '
+      - ' %stats_traps_chip% <dark_gray>●</dark_gray> %stats_best_chip% '
+      - ''
+      - ' %sitout_hint% '
+      - '%footer%'
+
+    countdown:
+      title: <b><gradient:#ffe39a:#ff8b9d>ĐẾM NGƯỢC</gradient></b>
+      lines:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ' %status_chip% '
+      - ''
+      - ' %room_chip% '
+      - ' %countdown_chip% <dark_gray>●</dark_gray> %waiting_chip% '
+      - ''
+      - '%footer%'
+
+    preparing:
+      title: <b><gradient:#ffe9a8:#b8ffeb>CHUẨN BỊ</gradient></b>
+      lines:
+      - ''
+      - ' %room_chip% '
+      - ' <yellow>⌛</yellow> <white>%preparing_stage%...</white> '
+      - ' %prepare_bar_chip% '
+      - ' %prepare_eta_chip% '
+      - ''
+      - '%footer%'
+
+    playing:
+      title: <b><gradient:#b8ffeb:#ffcc7a>ĐANG CHƠI</gradient></b>
+      header:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ' %status_chip% '
+      - ''
+      - ' %swap_chip% <dark_gray>●</dark_gray> %swaps_chip% '
+      - ' %timer_chip% <dark_gray>●</dark_gray> %traps_chip% '
+      - ''
+      - ' <gradient:#FB7185:#C084FC>ᴀʟɪᴠᴇ</gradient> %alive_chip% '
+      alive_line: ' <#7fd36b>●</#7fd36b> <white>%alive_name%</white> %alive_hearts% '
+      alive_empty: ' <gray>❤ [trống]</gray> '
+      alive_max: 6
+      footer:
+      - ''
+      - '%footer%'
+
+    spectating:
+      title: <b><gradient:#c7d2fe:#a5b4fc>THEO DÕI</gradient></b>
+      header:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ' %status_chip% <dark_gray>●</dark_gray> %room_chip% '
+      - ''
+      - ' %swap_chip% <dark_gray>●</dark_gray> %swaps_chip% '
+      - ' %timer_chip% '
+      - ''
+      - ' <gradient:#FB7185:#C084FC>ᴀʟɪᴠᴇ</gradient> %alive_chip% '
+      alive_line: ' <#7fd36b>●</#7fd36b> <white>%alive_name%</white> %alive_hearts% '
+      alive_empty: ' <gray>❤ [trống]</gray> '
+      alive_max: 8
+      footer:
+      - ''
+      - ' <gray>▶</gray> <aqua>/spawn</aqua> <gray>về sảnh</gray> '
+      - '%footer%'
+
+    # In the lobby while your room plays a round you are not in.
+    lobby_playing:
+      title: <b><gradient:#FF6B6B:#FFB86C>DEATH</gradient><gradient:#C084FC:#60A5FA>SWAP</gradient></b>
+      header:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ' %status_chip% <dark_gray>●</dark_gray> %room_chip% '
+      - ''
+      - ' %swap_chip% <dark_gray>●</dark_gray> %swaps_chip% '
+      - ' %timer_chip% '
+      - ''
+      - ' <gradient:#FB7185:#C084FC>ᴀʟɪᴠᴇ</gradient> %alive_chip% '
+      alive_line: ' <#7fd36b>●</#7fd36b> <white>%alive_name%</white> %alive_hearts% '
+      alive_empty: ' <gray>❤ [trống]</gray> '
+      alive_max: 6
+      footer:
+      - ''
+      - ' <gray>▶</gray> <aqua>/ds watch</aqua> <gray>để xem</gray> '
+      - '%footer%'
+
+    finished:
+      title: <b><gradient:#ffd86b:#ff9f68>KẾT THÚC</gradient></b>
+      lines:
+      - ''
+      - ' <white>👤<reset> %player_display% '
+      - ' %status_chip% '
+      - ' %winner_chip% '
+      - ' %timer_chip% <dark_gray>●</dark_gray> %swaps_chip% '
+      - ' %traps_chip% '
+      - ''
+      - '%footer%'
+
+# Action bar per sidebar state (missing or empty turns one off).
+actionbar:
+  hub: '<gray>⌂ Chưa vào phòng</gray> <dark_gray>●</dark_gray> <aqua>/ds rooms</aqua>'
+  lobby: '%room_chip% <dark_gray>●</dark_gray> %waiting_chip% <dark_gray>●</dark_gray> %sitout_hint%'
+  countdown: '<yellow>⌛</yellow> <white>Bắt đầu sau %countdown%s</white>'
+  preparing: '<yellow>⌛</yellow> <white>%preparing_stage%</white> <dark_gray>●</dark_gray> %prepare_bar_chip%'
+  playing: '%swap_chip% <dark_gray>●</dark_gray> %alive_chip% <dark_gray>●</dark_gray> %timer_chip%'
+  spectating: '<gray>👻 Khán giả</gray> <dark_gray>●</dark_gray> %swap_chip% <dark_gray>●</dark_gray> %alive_chip%'
+  lobby_playing: '<gray>👻 Đang ở sảnh</gray> <dark_gray>●</dark_gray> %alive_chip% <dark_gray>●</dark_gray> <aqua>/ds watch</aqua>'
