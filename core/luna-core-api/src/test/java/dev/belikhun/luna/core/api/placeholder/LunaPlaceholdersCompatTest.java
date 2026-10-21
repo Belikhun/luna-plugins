@@ -107,6 +107,33 @@ final class LunaPlaceholdersCompatTest {
 	}
 
 	@Test
+	void replaceRewritesTextAndNestedPlaceholders() {
+		String bar = engine.resolveText("%luna_replace_▋_|_{luna_ram_bar_only_10}%", null);
+
+		assertEquals(10, bar.chars().filter(c -> c == '|').count(), bar);
+		assertFalse(bar.contains("▋"), bar);
+		assertEquals("a b c", engine.resolveText("%luna_replace_\\u005F_\\u0020_a_b_c%", null));
+		assertEquals("ac", engine.resolveText("%luna_replace_b_\"\"_abc%", null));
+		assertEquals(LunaPlaceholders.replaceText("x▋y", "▋", "|"), "x|y");
+	}
+
+	@Test
+	void barsTakeAGlyph() {
+		String pipes = engine.resolveText("%luna_ram_bar_only_glyph_|_10%", null);
+		String escaped = engine.resolveText("%luna_ram_bar_only_glyph_\\u2502_10%", null);
+		String withValue = engine.resolveText("%luna_tps_bar_glyph_|_10%", null);
+		String defaultWidth = engine.resolveText("%luna_ram_bar_only_glyph_|%", null);
+		String block = engine.resolveText("%luna_ram_bar_only_10%", null);
+
+		assertEquals(10, pipes.chars().filter(c -> c == '|').count(), pipes);
+		assertFalse(pipes.contains("▋"), pipes);
+		assertEquals(10, escaped.chars().filter(c -> c == '│').count(), escaped);
+		assertTrue(withValue.contains("|") && withValue.contains(">tps<"), withValue);
+		assertEquals(StatBar.DEFAULT_WIDTH, defaultWidth.chars().filter(c -> c == '|').count(), defaultWidth);
+		assertTrue(block.contains("▋") && !block.contains("|"), block);
+	}
+
+	@Test
 	void nestedBracesExpandThroughTheForeignHost() {
 		host.foreignValues.put("luckperms_prefix", "<red>[Admin]</red>");
 

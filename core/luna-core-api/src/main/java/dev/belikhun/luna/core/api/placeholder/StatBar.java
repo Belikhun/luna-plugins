@@ -52,7 +52,9 @@ public record StatBar(String key, PlaceholderScope scope, PlaceholderRefresh ref
 	 *
 	 * @param namespace the namespace to register them in
 	 * @param <P>       the platform's player type
-	 * @return {@code key[_<width>]}, {@code key_only[_<width>]} and {@code key_value_only}
+	 * @return {@code key[_<width>]}, {@code key_only[_<width>]}, their
+	 *         {@code …_glyph_<glyph>[_<width>]} twins drawing the bar with a
+	 *         glyph of the writer's choosing, and {@code key_value_only}
 	 */
 	public <P> List<PlaceholderSpec<P>> specs(String namespace) {
 		List<PlaceholderSpec<P>> specs = new ArrayList<>();
@@ -66,6 +68,16 @@ public record StatBar(String key, PlaceholderScope scope, PlaceholderRefresh ref
 			"Progress bar for " + metric + " without label or value",
 			request -> render(request).width(width(request)).renderBar()));
 
+		// a server whose resource pack replaces the default font can draw the
+		// block glyph far wider than a cell; these let its config pick another
+		specs.add(PlaceholderSpec.of(namespace, key + "_glyph_<glyph:word>[_<width:width>]", scope, refresh,
+			"Progress bar for " + metric + " with its label and value, drawn with the given glyph (\\uXXXX escapes)",
+			request -> render(request).glyph(glyph(request)).width(width(request)).render()));
+
+		specs.add(PlaceholderSpec.of(namespace, key + "_only_glyph_<glyph:word>[_<width:width>]", scope, refresh,
+			"Progress bar for " + metric + " without label or value, drawn with the given glyph (\\uXXXX escapes)",
+			request -> render(request).glyph(glyph(request)).width(width(request)).renderBar()));
+
 		specs.add(PlaceholderSpec.of(namespace, key + "_value_only", scope, refresh,
 			"The value text of the " + metric + " bar, coloured by its level",
 			request -> render(request).renderValue()));
@@ -75,6 +87,10 @@ public record StatBar(String key, PlaceholderScope scope, PlaceholderRefresh ref
 
 	private LunaProgressBar render(PlaceholderRequest<?> request) {
 		return bar.apply(request);
+	}
+
+	private static String glyph(PlaceholderRequest<?> request) {
+		return LunaPlaceholders.decodeToken(request.param("glyph"));
 	}
 
 	private static int width(PlaceholderRequest<?> request) {

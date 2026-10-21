@@ -95,6 +95,9 @@ public final class LunaPlaceholders {
 		specs.add(PlaceholderSpec.of(NAMESPACE, "mm2l_<value:rest>", PlaceholderScope.PLAYER, PlaceholderRefresh.LIVE,
 			"The argument converted from MiniMessage to legacy codes; {…} inside it is expanded first",
 			request -> LunaImportedPlaceholderSupport.miniMessageToLegacy(request.expandedParam("value"))));
+		specs.add(PlaceholderSpec.of(NAMESPACE, "replace_<from:word>_<to:word>_<value:rest>", PlaceholderScope.PLAYER, PlaceholderRefresh.LIVE,
+			"The argument with every <from> replaced by <to>; \\uXXXX escapes, \"\" for nothing; {…} inside it is expanded first",
+			request -> replaceText(request.expandedParam("value"), request.param("from"), request.param("to"))));
 
 		for (StatBar bar : StatBar.ALL) {
 			specs.addAll(bar.specs(NAMESPACE));
@@ -141,5 +144,64 @@ public final class LunaPlaceholders {
 	private static String formatPercent(double value) {
 		double safe = Double.isNaN(value) || Double.isInfinite(value) ? 0D : Math.max(0D, Math.min(100D, value));
 		return String.format(Locale.US, "%.1f", safe);
+	}
+
+	/**
+	 * Replaces every occurrence of one text with another. Both are single key
+	 * tokens, so an underscore or a space is written {@code \\u005F} or
+	 * {@code \\u0020}, and {@code ""} stands for the empty text.
+	 *
+	 * @param value the text to rewrite, null treated as empty
+	 * @param from  what to find
+	 * @param to    what to put in its place
+	 * @return the rewritten text
+	 */
+	static String replaceText(String value, String from, String to) {
+		if (value == null) {
+			return "";
+		}
+
+		String target = decodeToken(from);
+
+		if (target.isEmpty()) {
+			return value;
+		}
+
+		return value.replace(target, decodeToken(to));
+	}
+
+	/**
+	 * Decodes a key token that stands for literal text: {@code \\uXXXX}
+	 * escapes become their character and {@code ""} is the empty text.
+	 */
+	static String decodeToken(String token) {
+		if (token == null || token.equals("\"\"")) {
+			return "";
+		}
+
+		StringBuilder out = new StringBuilder();
+		int index = 0;
+
+		while (index < token.length()) {
+			char character = token.charAt(index);
+			boolean escape = character == '\\'
+				&& index + 6 <= token.length()
+				&& token.charAt(index + 1) == 'u';
+
+			if (escape) {
+				try {
+					out.append((char) Integer.parseInt(token.substring(index + 2, index + 6), 16));
+					index += 6;
+					continue;
+				} catch (NumberFormatException exception) {
+					// not an escape after all; keep the backslash as written
+				}
+			}
+
+			out.append(character);
+			index++;
+		}
+
+		return out.toString();
 	}
 }

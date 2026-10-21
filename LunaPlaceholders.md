@@ -68,8 +68,12 @@ Player:
 | `player_dimension[_<glyph>]` | same colours, `◎` by default |
 | `voicechat_status`, `voicechat_group` | Simple Voice Chat state |
 | `stripcolor_legacy_<text>`, `stripcolor_mm_<text>`, `mm2l_<text>` | text transforms; `{…}` in the argument is expanded first |
+| `replace_<from>_<to>_<text>` | every `<from>` in the text becomes `<to>`; `\uXXXX` escapes (`\u005F` for `_`, `\u0020` for a space), `""` for nothing; `{…}` expanded first, e.g. `%luna_replace_▋_\|_{luna_ram_bar_only_80}%` |
 
-Bars, each as `X_bar[_<width>]`, `X_bar_only[_<width>]` and `X_bar_value_only`:
+Bars, each as `X_bar[_<width>]`, `X_bar_only[_<width>]` and `X_bar_value_only`, plus
+`X_bar_glyph_<glyph>[_<width>]` and `X_bar_only_glyph_<glyph>[_<width>]` drawing the cells
+with another glyph than `▋` (`%luna_ram_bar_only_glyph_|_80%`; `\uXXXX` escapes work), for
+a server whose resource pack replaces the default font:
 `tps`, `player_ping`, `latency`, `system_cpu`, `process_cpu`, `ram`.
 
 ### Mod-loader stand-ins
