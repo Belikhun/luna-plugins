@@ -63,10 +63,23 @@ public final class VelocityTabAdapter {
 		return List.copyOf(registered);
 	}
 
-	/** Rebuilds every TAB registration from the registry and the enumerations. */
+	/**
+	 * Rebuilds every TAB registration from the registry and the enumerations.
+	 *
+	 * Registers over the existing ids instead of unregistering them first. TAB
+	 * keeps one reference per id, and the features of online players (header,
+	 * nametags, layout) hold that reference. Registering an id that already has
+	 * one swaps its handle in place and refreshes those features; unregistering
+	 * drops the reference, so the features keep the orphaned one: after a
+	 * {@code /tab reload} that is the bridge placeholder TAB made for the id it
+	 * did not know yet (raw {@code %lunav_...%} text from the backend), and
+	 * otherwise a value that never refreshes again. Only ids that are gone are
+	 * unregistered.
+	 */
 	public synchronized void sync() {
-		unregisterAll();
 		PlaceholderManager manager = TabAPI.getInstance().getPlaceholderManager();
+		Set<String> previous = new LinkedHashSet<>(registered);
+		registered.clear();
 		Set<String> ids = new LinkedHashSet<>();
 
 		for (Map.Entry<String, List<PlaceholderRegistry.Entry<Player>>> namespace : runtime.registry().entries().entrySet()) {
@@ -96,6 +109,16 @@ public final class VelocityTabAdapter {
 
 		for (Map.Entry<String, String> legacy : legacyIds.entrySet()) {
 			register(manager, legacy.getKey(), legacy.getValue());
+		}
+
+		previous.removeAll(registered);
+
+		for (String stale : previous) {
+			try {
+				manager.unregisterPlaceholder(stale);
+			} catch (Throwable ignored) {
+				// already gone, e.g. dropped by TAB's own reload
+			}
 		}
 
 		logger.success("Đã đăng ký " + registered.size() + " TAB placeholder (" + ids.size() + " id chính tắc).");
