@@ -2,6 +2,7 @@ package dev.belikhun.luna.core.forge.network;
 
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 
+import net.minecraft.Util;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -97,11 +98,12 @@ public final class KeepaliveExtender {
 			return;
 		}
 
-		// vanilla compares against Util.getMillis(), which is System.nanoTime()/1000000,
-		// not wall-clock time - and nanoTime's zero is arbitrary, so reading
-		// currentTimeMillis() here would compare two unrelated numbers and hold every
-		// connection open forever
-		long now = System.nanoTime() / 1000000L;
+		// vanilla's own clock, never a copy of it: Util.getMillis() reads Util.timeSource,
+		// which is only System.nanoTime() until something replaces it. On nightfall the
+		// two were about 37 days apart, so a pushed deadline landed in vanilla's future:
+		// no keepalive was ever sent again, and the reply timed against it wrapped the int
+		// latency into a ping of 263457189 ms that never refreshed
+		long now = Util.getMillis();
 
 		try {
 			resolveFields();
