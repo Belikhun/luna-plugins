@@ -7,6 +7,9 @@ import net.minecraft.world.BossEvent;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+
 /**
  * The three player-facing calls the auth lock makes that 26.x re-spelled, as the
  * 1.20-1.21 line has them.
@@ -43,5 +46,30 @@ public final class AuthPlayerCompat {
 		player.removeEffect(MobEffects.BLINDNESS);
 		player.removeEffect(MobEffects.MOVEMENT_SLOWDOWN);
 		player.removeEffect(MobEffects.JUMP);
+	}
+
+	/**
+	 * Whether this is a player the server simulates rather than a person on a
+	 * connection: Carpet's {@code /player} bots, the NPCs some maps spawn. They never
+	 * pass the proxy, so there is no auth state to ask for and nothing to lock.
+	 *
+	 * Both conditions must hold. Every real player is the plain {@code ServerPlayer}
+	 * class on every loader, and has an internet address behind it (the proxy's
+	 * forwarded one included); a simulated one is a subclass sitting on an embedded
+	 * channel. A subclass alone could be some loader's wrapper, and an odd address
+	 * alone could be a local socket, so neither is trusted on its own and a client
+	 * cannot talk its way past the lock.
+	 */
+	public static boolean isSimulatedPlayer(ServerPlayer player) {
+		if (player == null || player.getClass() == ServerPlayer.class) {
+			return false;
+		}
+
+		if (player.connection == null) {
+			return true;
+		}
+
+		SocketAddress address = player.connection.getRemoteAddress();
+		return !(address instanceof InetSocketAddress);
 	}
 }

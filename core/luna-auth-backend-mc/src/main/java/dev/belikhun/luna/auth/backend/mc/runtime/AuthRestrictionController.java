@@ -238,6 +238,11 @@ public final class AuthRestrictionController {
 			return;
 		}
 
+		if (AuthPlayerCompat.isSimulatedPlayer(player)) {
+			flow("SkipSimulated player=" + player.getName().getString() + " uuid=" + player.getUUID() + " class=" + player.getClass().getSimpleName());
+			return;
+		}
+
 		UUID playerId = player.getUUID();
 
 		if (!stateRegistry.hasState(playerId)) {
@@ -259,7 +264,7 @@ public final class AuthRestrictionController {
 	}
 
 	public void onPlayerLoggedOut(ServerPlayer player) {
-		if (player == null) {
+		if (player == null || AuthPlayerCompat.isSimulatedPlayer(player)) {
 			return;
 		}
 
@@ -304,7 +309,7 @@ public final class AuthRestrictionController {
 	}
 
 	private void onPlayerTick(ServerPlayer player) {
-		if (player == null || player.level().isClientSide()) {
+		if (player == null || player.level().isClientSide() || AuthPlayerCompat.isSimulatedPlayer(player)) {
 			return;
 		}
 
@@ -339,7 +344,7 @@ public final class AuthRestrictionController {
 
 	/** False when the message must not be sent, having told the player why. */
 	public boolean allowChat(ServerPlayer player) {
-		if (player == null || stateRegistry.isAuthenticated(player.getUUID())) {
+		if (player == null || AuthPlayerCompat.isSimulatedPlayer(player) || stateRegistry.isAuthenticated(player.getUUID())) {
 			return true;
 		}
 
@@ -357,7 +362,7 @@ public final class AuthRestrictionController {
 	 * gets.
 	 */
 	public boolean allowCommand(ServerPlayer player, String rawCommand) {
-		if (player == null) {
+		if (player == null || AuthPlayerCompat.isSimulatedPlayer(player)) {
 			return true;
 		}
 
@@ -442,7 +447,9 @@ public final class AuthRestrictionController {
 	}
 
 	public boolean isLocked(Player player) {
-		return player instanceof ServerPlayer serverPlayer && !stateRegistry.isAuthenticated(serverPlayer.getUUID());
+		return player instanceof ServerPlayer serverPlayer
+			&& !AuthPlayerCompat.isSimulatedPlayer(serverPlayer)
+			&& !stateRegistry.isAuthenticated(serverPlayer.getUUID());
 	}
 
 	private void ensureMessagingAttached() {
