@@ -104,7 +104,13 @@ browser:
     - "--use-angle=gl-egl"
     - "--ignore-gpu-blocklist"
     - "--enable-gpu-rasterization"
-    - "--enable-features=VaapiVideoDecodeLinuxGL,VaapiIgnoreDriverChecks"
+    # Tắt giải mã video bằng phần cứng. Chế độ --headless=new không có bộ cấp
+    # bộ đệm GBM nên VAAPI khởi tạo được rồi hỏng ngay ở khung đầu
+    # (PIPELINE_ERROR_DECODE). H.264 còn lùi về FFmpeg được, nhưng HEVC thì
+    # Chromium không có bộ giải mã phần mềm: khi VAAPI bật, Chromium báo là hỗ
+    # trợ HEVC nên TikTok gửi HEVC và video không phát. Tắt thì Chromium báo
+    # không hỗ trợ HEVC, trang tự gửi H.264 và giải mã bằng CPU như trước.
+    - "--disable-accelerated-video-decode"
     - "--disable-gpu-vsync"
     # WebGL bật. Trước đây tắt vì sợ SwiftShader chạy trên CPU (một trang nhiều
     # hiệu ứng từng đốt 6 lõi), nhưng nỗi lo đó có từ trước khi có mấy tham số
