@@ -52,7 +52,7 @@ addon {
 	// the resource pack build and persists it; it only rebuilds when this
 	// version changes. A stateSelector edit is invisible until it moves, so
 	// bump it whenever a backing block changes.
-	version = "0.3.3"
+	version = "0.3.21"
 	main = "dev.belikhun.luna.smp.LunaSmp"
 	pluginMain = "dev.belikhun.luna.smp.LunaSmpPlugin"
 	authors = listOf("Belikhun")

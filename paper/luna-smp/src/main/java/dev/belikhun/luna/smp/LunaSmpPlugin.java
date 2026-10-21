@@ -11,6 +11,7 @@ import dev.belikhun.luna.smp.packprotect.PackLoadStateMessageListener;
 import dev.belikhun.luna.smp.packprotect.messaging.PackLoadStateChannel;
 import dev.belikhun.luna.smp.farmprotect.FarmProtectListener;
 import dev.belikhun.luna.core.paper.lifecycle.PaperPluginBootstrap;
+import dev.belikhun.luna.smp.landscape.BuildCommand;
 import dev.belikhun.luna.smp.repair.ToolRepairCommand;
 import dev.belikhun.luna.smp.repair.ToolRepairConfirmGui;
 import dev.belikhun.luna.smp.repair.ToolRepairService;
@@ -101,9 +102,12 @@ public class LunaSmpPlugin extends JavaPlugin {
 		Permission root = new Permission("lunasmp.*", PermissionDefault.OP);
 		Permission repair = new Permission("lunasmp.repair", PermissionDefault.TRUE);
 		repair.addParent(root, true);
+		Permission build = new Permission("lunasmp.build", PermissionDefault.OP);
+		build.addParent(root, true);
 
 		registerPermissionIfAbsent(root);
 		registerPermissionIfAbsent(repair);
+		registerPermissionIfAbsent(build);
 	}
 
 	private void registerPermissionIfAbsent(Permission permission) {
@@ -120,6 +124,7 @@ public class LunaSmpPlugin extends JavaPlugin {
 		getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands -> {
 			commands.registrar().register("repair", repairCommand);
 			commands.registrar().register("fix", repairCommand);
+			commands.registrar().register("lunabuild", new BuildCommand());
 		});
 		logger.audit("Đã đăng ký lệnh sửa dụng cụ bằng Paper Command Lifecycle.");
 	}

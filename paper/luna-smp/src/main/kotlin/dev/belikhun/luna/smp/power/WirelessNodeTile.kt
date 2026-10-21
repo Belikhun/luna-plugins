@@ -13,6 +13,7 @@ import xyz.xenondevs.nova.addon.simpleupgrades.gui.OpenUpgradesItem
 import xyz.xenondevs.nova.addon.simpleupgrades.registry.UpgradeTypes
 import xyz.xenondevs.nova.addon.simpleupgrades.storedEnergyHolder
 import xyz.xenondevs.nova.addon.simpleupgrades.storedRegion
+import xyz.xenondevs.nova.addon.simpleupgrades.UpgradeType
 import xyz.xenondevs.nova.addon.simpleupgrades.storedUpgradeHolder
 import xyz.xenondevs.nova.ui.menu.EnergyBar
 import xyz.xenondevs.nova.ui.menu.sideconfig.OpenSideConfigItem
@@ -75,6 +76,13 @@ class WirelessNodeTile(
 ) : NetworkedTileEntity(pos, blockState, data) {
 
 	private val upgradeHolder = storedUpgradeHolder(UpgradeTypes.ENERGY, UpgradeTypes.EFFICIENCY, UpgradeTypes.RANGE)
+
+	/**
+	 * Fills the node with [amount] upgrades of [type] and returns how many fitted.
+	 * The build command uses it to hand a placed node its reach without a player
+	 * feeding the GUI.
+	 */
+	fun addUpgrades(type: UpgradeType<*>, amount: Int): Int = upgradeHolder.addUpgrade(type, amount)
 
 	/**
 	 * INSERT on every face: the network fills it, and cannot take it back.

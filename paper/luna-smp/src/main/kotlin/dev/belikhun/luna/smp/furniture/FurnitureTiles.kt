@@ -505,6 +505,18 @@ class FurniturePot(
 		return take(filled, player)
 	}
 
+	/**
+	 * Sets what the pot holds, slot by slot, replacing whatever was there.
+	 * The build command uses it to plant a garden's pots without a player
+	 * clicking each one; anything past the pot's own slots is ignored.
+	 */
+	fun fill(items: List<ItemStack>) {
+		for (index in slots.indices) {
+			val item = items.getOrNull(index)?.clone()?.also { it.amount = 1 }
+			inventory.setItem(SELF_UPDATE_REASON, index, item)
+		}
+	}
+
 	/** The first slot with nothing in it, or -1 when the pot is full. */
 	private fun firstEmpty(): Int = slots.indices.firstOrNull { inventory.getItem(it) == null } ?: -1
 

@@ -32,6 +32,7 @@ import { frameSprites, medievalPieces } from './medieval';
 import { POLE_PARTS, TERMINAL_HEIGHT, WIRE_COVERS, WIRE_TIERS, poleItemModels, poleModels, poleSprites } from './poles';
 import { BUTTON, FIELD_DRAW_PER_BLOCK, LAMPS, NODE, NODE_CAPACITY, NODE_RADIUS, RANGE_LEVELS, RANGE_STEP, SWITCH, lampModels, lampSprites } from './lamps';
 import { POST_FACE_Z, SIGNS, WALL_FACE_Z, signModels, signSprites } from './signs';
+import { BOUQUET_ENTRY, bouquetItemModels, bouquetModels, bouquetSprites } from './bouquet';
 import { BIRTHDAY_BLOCKS, BIRTHDAY_ITEMS, birthdayItemModels, birthdayItemSprites, birthdayModels, birthdaySprites } from './birthday';
 import { trungThuBlockEntries, trungThuItemEntries, trungThuItemModels, trungThuItemSprites, trungThuKotlin, trungThuMcmeta, trungThuModels, trungThuRecipes, trungThuSprites } from './trungthu';
 import { BLOCK_FACE, DEVICES, DIODE, DIODE_BLOCK, GAUGES, PANEL_FACE, SWITCHES, UNIT_FACE, alarmBeamModel, barModels, directionalJointLongModels, directionalJointModels, gaugeModels, gaugeSprites, ledChipModels, needleModels } from './gauges';
@@ -2201,6 +2202,27 @@ for (const [name, model] of Object.entries(birthdayItemModels())) {
 for (const [name, bytes] of Object.entries(birthdayItemSprites())) {
 	writeFileSync(join(ADDON_ITEM_TEXTURES, `${name}.png`), bytes);
 }
+
+// ---- the gift set -------------------------------------------------------
+//
+// The love bouquet: one block, its held model and three painted sheets, all
+// drawn in bouquet.ts; the Kotlin is hand-written in gift/.
+
+for (const [name, model] of Object.entries(bouquetModels())) {
+	writeModel(name, model as Model);
+}
+
+for (const [name, model] of Object.entries(bouquetItemModels())) {
+	writeFileSync(join(ADDON_ITEMS, `${name}.json`), JSON.stringify(model, null, '\t') + '\n');
+}
+
+for (const [name, bytes] of Object.entries(bouquetSprites())) {
+	writeFileSync(join(ADDON_TEXTURES, `${name}.png`), bytes);
+}
+
+writeFileSync(join(ADDON_CONFIGS, `${BOUQUET_ENTRY.id}.yml`), 'tool_categories: [axe]\ntool_tier: wood\nrequires_tool_for_drops: false\n');
+en[`block.lunasmp.${BOUQUET_ENTRY.id}`] = BOUQUET_ENTRY.en;
+vi[`block.lunasmp.${BOUQUET_ENTRY.id}`] = BOUQUET_ENTRY.vi;
 
 // ---- tết trung thu -------------------------------------------------------
 //

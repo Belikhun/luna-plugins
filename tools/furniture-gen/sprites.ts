@@ -196,8 +196,10 @@ export function bushSprite(id: string, accents: [string, string]): Uint8Array {
 				}
 			}
 
-			// the odd interior hole, the way every leaf texture lets light in
-			if (edge > 0 && noise(seed ^ 0x9e3779b9, x, y) > 0.988) {
+			// interior holes the way a vanilla leaf lets light through: about a
+			// fifth of the face is open, in clusters rather than single pixels,
+			// so a hedge reads as foliage you can half see through, not a box
+			if (edge > 0 && noise(seed ^ 0x9e3779b9, x >> 1, y >> 1) * 0.6 + noise(seed ^ 0x9e3779b9, x, y) * 0.4 > 0.72) {
 				continue;
 			}
 
