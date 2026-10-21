@@ -56,6 +56,14 @@ public final class ForgePayloadFallbackTransport implements PayloadFallback {
 			);
 
 			networkChannel.addListener(event -> {
+				// the listener sees every NetworkEvent on this channel, including the
+				// ChannelRegistrationChangeEvent forge fires when the client's
+				// minecraft:register arrives at join; taken as a message, that one
+				// reached the server selector as an empty "open the menu" frame
+				if (!(event instanceof NetworkEvent.ClientCustomPayloadEvent) || event instanceof NetworkEvent.ClientCustomPayloadLoginEvent) {
+					return;
+				}
+
 				// this line's NetworkEvent hands out its context through a supplier
 				NetworkEvent.Context context = event.getSource().get();
 				InboundSink target = sink;
