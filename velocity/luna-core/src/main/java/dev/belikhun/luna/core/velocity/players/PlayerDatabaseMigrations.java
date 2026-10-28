@@ -168,5 +168,41 @@ public final class PlayerDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return NAMESPACE;
+			}
+
+			@Override
+			public int version() {
+				return 4;
+			}
+
+			@Override
+			public String name() {
+				return "create_network_player_bans_table";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_network_bans ("
+						+ "username_lower VARCHAR(32) PRIMARY KEY, "
+						+ "username VARCHAR(32) NOT NULL, "
+						+ "uuid VARCHAR(36) NOT NULL DEFAULT '', "
+						+ "reason TEXT NULL, "
+						+ "actor VARCHAR(64) NOT NULL DEFAULT '', "
+						+ "created_at BIGINT NOT NULL, "
+						+ "expires_at BIGINT NULL, "
+						+ "hits BIGINT NOT NULL DEFAULT 0, "
+						+ "last_hit_at BIGINT NULL, "
+						+ "KEY idx_network_bans_uuid (uuid)"
+						+ ")",
+					List.of()
+				);
+			}
+		});
 	}
 }

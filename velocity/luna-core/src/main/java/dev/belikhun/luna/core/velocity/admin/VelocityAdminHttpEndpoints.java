@@ -128,13 +128,15 @@ public final class VelocityAdminHttpEndpoints {
 					? Component.text("Bạn đã bị ngắt kết nối bởi quản trị viên.")
 					: render(reason);
 
+				String actor = body.getOrDefault("actor", "").trim();
+
 				player.disconnect(component);
-				logger.audit("Console kick " + player.getUsername() + ": " + reason);
+				logger.audit((actor.isBlank() ? "Console" : actor) + " kick " + player.getUsername() + ": " + reason);
 				recordStore.recordModeration(
 					player.getUniqueId().toString(),
 					player.getUsername(),
 					"kick",
-					"console",
+					actor.isBlank() ? "console" : actor,
 					reason,
 					"",
 					""

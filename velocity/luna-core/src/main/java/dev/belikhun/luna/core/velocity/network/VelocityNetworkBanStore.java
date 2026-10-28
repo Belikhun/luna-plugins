@@ -6,8 +6,6 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import dev.belikhun.luna.core.api.database.Database;
 import dev.belikhun.luna.core.api.database.NoopDatabase;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -214,13 +212,9 @@ public final class VelocityNetworkBanStore {
 
 		recordHit(entry, now);
 
-		Component message = Component.text("Địa chỉ IP của bạn đã bị cấm khỏi máy chủ.", NamedTextColor.RED);
-		if (!entry.reason.isBlank()) {
-			message = message.append(Component.newline())
-				.append(Component.text("Lý do: " + entry.reason, NamedTextColor.GRAY));
-		}
-
-		event.setResult(PreLoginEvent.PreLoginComponentResult.denied(message));
+		event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+			NetworkBanMessages.ipBanned(entry.reason, entry.expiresAt)
+		));
 	}
 
 	/** Count a refused attempt; persisted at most once a minute per address. */

@@ -58,6 +58,9 @@ import dev.belikhun.luna.core.velocity.tablist.VelocityTabListRenderer;
 import dev.belikhun.luna.core.velocity.skins.VelocitySkinHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanStore;
+import dev.belikhun.luna.core.velocity.network.VelocityNetworkPlayerBanStore;
+import dev.belikhun.luna.core.velocity.network.NetworkModeration;
+import dev.belikhun.luna.core.velocity.command.NetworkModerationCommand;
 import dev.belikhun.luna.core.velocity.players.PlayerDatabaseMigrations;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerDirectoryHttpEndpoints;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerHttpEndpoints;
@@ -136,6 +139,8 @@ public final class LunaCoreVelocityPlugin {
 	 * counters must survive a config reload; only the database handle swaps.
 	 */
 	private final VelocityNetworkBanStore networkBanStore;
+	private final VelocityNetworkPlayerBanStore networkPlayerBanStore;
+	private final NetworkModeration networkModeration;
 	private final SseBroadcaster telemetryBroadcaster;
 	private final SseBroadcaster playerBroadcaster;
 	/**
@@ -168,6 +173,14 @@ public final class LunaCoreVelocityPlugin {
 		// so no join/chat event is lost while modules restart.
 		this.playerRecordStore = new VelocityPlayerRecordStore(proxyServer, this.logger);
 		this.networkBanStore = new VelocityNetworkBanStore(this.logger);
+		this.networkPlayerBanStore = new VelocityNetworkPlayerBanStore(this.logger);
+		this.networkModeration = new NetworkModeration(
+			this.logger,
+			proxyServer,
+			this.playerRecordStore,
+			this.networkPlayerBanStore,
+			this.networkBanStore
+		);
 		// The database handle is built here so it exists before anything can ask for
 		// it; the messaging bus cannot be, because it registers a Velocity listener
 		// and the plugin has no container yet while Guice is still constructing it.
@@ -200,6 +213,7 @@ public final class LunaCoreVelocityPlugin {
 		proxyServer.getEventManager().register(this, playerSessionRegistry);
 		proxyServer.getEventManager().register(this, playerRecordStore);
 		proxyServer.getEventManager().register(this, networkBanStore);
+		proxyServer.getEventManager().register(this, networkPlayerBanStore);
 		proxyServer.getEventManager().register(this, tabBridgeObserver);
 		placeholderModule = new VelocityPlaceholderModule(this, proxyServer, dataDirectory, new LuckPermsService(), logger);
 		reloadModules();
@@ -217,6 +231,7 @@ public final class LunaCoreVelocityPlugin {
 		playerBroadcaster.close();
 		playerRecordStore.shutdown();
 		networkBanStore.shutdown();
+		networkPlayerBanStore.shutdown();
 		heartbeatSweepExecutor.shutdownNow();
 		backendStatusRegistry.shutdown();
 		teardownRuntime();
@@ -259,6 +274,7 @@ public final class LunaCoreVelocityPlugin {
 		prepareDirectorySchema(sharedDatabase);
 		playerRecordStore.attach(sharedDatabase);
 		networkBanStore.attach(sharedDatabase);
+		networkPlayerBanStore.attach(sharedDatabase);
 		backendStatusRegistry.updateTimeoutMillis(heartbeatTimeoutMillis);
 		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, backendStatusRegistry);
 
@@ -311,8 +327,7 @@ public final class LunaCoreVelocityPlugin {
 
 		new VelocityNetworkBanHttpEndpoints(
 			logger,
-			networkBanStore,
-			playerRecordStore,
+			networkModeration,
 			authorizer
 		).register(nextHttpServerManager.router());
 
@@ -584,6 +599,13 @@ public final class LunaCoreVelocityPlugin {
 		VelocityPlaceholderDebugCommand placeholderDebugCommand = new VelocityPlaceholderDebugCommand(proxyServer, tabListRenderer, tabBridgeObserver, placeholderModule);
 		manager.register(meta, new LunaCoreVelocityAdminCommand(backendStatusRegistry, this::reloadModules, placeholderDebugCommand));
 
+		// network-wide moderation; registered before the selector so a disabled
+		// selector (which returns early below) still leaves them in place
+		for (NetworkModerationCommand.Mode mode : NetworkModerationCommand.Mode.values()) {
+			CommandMeta moderationMeta = manager.metaBuilder(mode.label).build();
+			manager.register(moderationMeta, new NetworkModerationCommand(mode, proxyServer, networkModeration));
+		}
+
 		if (!selectorConfig.enabled()) {
 			logger.warn("Server selector đang tắt trong cấu hình Velocity.");
 			return;
@@ -716,7 +738,7 @@ public final class LunaCoreVelocityPlugin {
 
 	private void unregisterOwnedCommands() {
 		CommandManager manager = proxyServer.getCommandManager();
-		for (String alias : List.of("lunacoreproxy", "lcv", "luna", "server", "connect", "servers")) {
+		for (String alias : List.of("lunacoreproxy", "lcv", "luna", "server", "connect", "servers", "netkick", "netban", "netunban", "netbanip", "netunbanip", "netbans")) {
 			try {
 				manager.unregister(alias);
 			} catch (Exception ignored) {
