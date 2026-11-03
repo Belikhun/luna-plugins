@@ -361,6 +361,10 @@ public final class VelocityMessengerRouter {
 			.map(connection -> connection.getServerInfo().getName())
 			.orElse("");
 
+		if (config.isIsolated(serverName)) {
+			return;
+		}
+
 		publishDiscord(config.discord().deathMessage(), Map.of(
 			"sender_name", sender.getUsername(),
 			"server_name", serverName,
@@ -615,7 +619,8 @@ public final class VelocityMessengerRouter {
 		VelocityMessengerConfig.FormatProfile profile = config.profileForServer(serverName);
 		String channelName = config.discord().networkChannelName();
 		String avatarUrl = resolveAvatarUrl(sender, resolvedValues);
-		List<Player> recipients = List.copyOf(proxyServer.getAllPlayers());
+		boolean isolated = config.isIsolated(serverName);
+		List<Player> recipients = networkAudience(serverName);
 		MentionProcessing mention = processMentions(sender, message, recipients);
 		Map<String, String> internalValues = Map.of(
 			"sender_name", sender.getUsername(),
@@ -637,6 +642,12 @@ public final class VelocityMessengerRouter {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, correlationId);
 			notifyMentionTarget(sender.getUsername(), player, mention.mentionedById());
 		}
+		if (isolated) {
+			// a server with its own chat: nothing leaves it, not even to Discord or the AI bridge
+			logger.audit("CHAT[NETWORK:" + serverName + "] " + toConsoleText(rendered));
+			return;
+		}
+
 		logger.audit("CHAT[NETWORK] " + toConsoleText(rendered));
 		observePlayerChat(sender, serverName, serverDisplay, senderPrefix, senderDisplay, message, resolvedValues, recipients, correlationId);
 
@@ -655,6 +666,26 @@ public final class VelocityMessengerRouter {
 		discordInternalValues.put("discord_content", outbound);
 		publishDiscord(config.discord().networkMessage(), discordInternalValues, resolvedValues, sender,
 			DiscordOutboundMessage.DispatchType.PLAYER_CHAT);
+	}
+
+	/**
+	 * Who hears a network message sent from `serverName` ("" for Discord or the AI bot):
+	 * an isolated server hears only itself, and everyone else never hears an isolated one.
+	 */
+	public List<Player> networkAudience(String serverName) {
+		boolean fromIsolated = config.isIsolated(serverName);
+		List<Player> audience = new java.util.ArrayList<>();
+		for (Player player : proxyServer.getAllPlayers()) {
+			String viewerServer = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
+			if (fromIsolated ? viewerServer.equalsIgnoreCase(serverName) : !config.isIsolated(viewerServer)) {
+				audience.add(player);
+			}
+		}
+		return audience;
+	}
+
+	public boolean isIsolatedServer(String serverName) {
+		return config.isIsolated(serverName);
 	}
 
 	private void routeServer(Player sender, String message, Map<String, String> resolvedValues, UUID correlationId) {
@@ -838,7 +869,7 @@ public final class VelocityMessengerRouter {
 			Map.entry("discord_message_id", inboundMessage.messageId() == null ? "" : inboundMessage.messageId()),
 			Map.entry("discord_author_id", inboundMessage.authorId() == null ? "" : inboundMessage.authorId())
 		), Map.of(), null);
-		for (Player player : proxyServer.getAllPlayers()) {
+		for (Player player : networkAudience("")) {
 			sendResult(player, MessengerResultType.NETWORK_CHAT, rendered, null);
 		}
 

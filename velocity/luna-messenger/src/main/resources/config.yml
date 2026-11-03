@@ -2,6 +2,9 @@ chat:
   default-context: network
   network-channel-aliases: [nw]
   server-channel-aliases: [sv]
+  # Server có kênh chat network riêng: chat của nó không ra ngoài (kể cả Discord và bot AI),
+  # và chat từ nơi khác (server khác, Discord, bot AI) cũng không vào.
+  isolated-servers: []
 
 discord-link:
   # Thời gian hết hạn mã /discord link (giây)

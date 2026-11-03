@@ -21,6 +21,7 @@ public final class VelocityMessengerConfig {
 	private final ServerProtectionConfig serverProtection;
 	private final RateLimitConfig rateLimit;
 	private final ChatBridgeConfig chatBridge;
+	private final Set<String> isolatedServers;
 
 	private VelocityMessengerConfig(
 		FormatProfile defaults,
@@ -30,7 +31,8 @@ public final class VelocityMessengerConfig {
 		DiscordConfig discord,
 		ServerProtectionConfig serverProtection,
 		RateLimitConfig rateLimit,
-		ChatBridgeConfig chatBridge
+		ChatBridgeConfig chatBridge,
+		Set<String> isolatedServers
 	) {
 		this.defaults = defaults;
 		this.perServer = perServer;
@@ -40,6 +42,7 @@ public final class VelocityMessengerConfig {
 		this.serverProtection = serverProtection;
 		this.rateLimit = rateLimit;
 		this.chatBridge = chatBridge;
+		this.isolatedServers = isolatedServers;
 	}
 
 	public static VelocityMessengerConfig load(Path path) {
@@ -61,6 +64,13 @@ public final class VelocityMessengerConfig {
 		ServerProtectionConfig serverProtection = parseServerProtectionConfig(map(root.get("server-protection")));
 		RateLimitConfig rateLimit = parseRateLimitConfig(map(root.get("rate-limit")));
 		ChatBridgeConfig chatBridge = parseChatBridgeConfig(map(root.get("chat-bridge")));
+		Set<String> isolatedServers = new LinkedHashSet<>();
+		for (String value : stringList(map(root.get("chat")).get("isolated-servers"))) {
+			String normalized = value.trim().toLowerCase(Locale.ROOT);
+			if (!normalized.isEmpty()) {
+				isolatedServers.add(normalized);
+			}
+		}
 		return new VelocityMessengerConfig(
 			defaults,
 			Map.copyOf(perServer),
@@ -69,7 +79,8 @@ public final class VelocityMessengerConfig {
 			discord,
 			serverProtection,
 			rateLimit,
-			chatBridge
+			chatBridge,
+			Set.copyOf(isolatedServers)
 		);
 	}
 
@@ -102,6 +113,19 @@ public final class VelocityMessengerConfig {
 
 	public ChatBridgeConfig chatBridge() {
 		return chatBridge;
+	}
+
+	/**
+	 * Servers whose network chat stays among their own players (`chat.isolated-servers`):
+	 * their chat reaches nobody elsewhere, nor Discord or the AI bridge, and chat from
+	 * elsewhere (other servers, Discord, the AI bot) does not reach them.
+	 */
+	public boolean isIsolated(String serverName) {
+		return serverName != null && !serverName.isBlank() && isolatedServers.contains(serverName.toLowerCase(Locale.ROOT));
+	}
+
+	public Set<String> isolatedServers() {
+		return isolatedServers;
 	}
 
 	private static MentionConfig parseMentionConfig(Map<String, Object> mentions) {

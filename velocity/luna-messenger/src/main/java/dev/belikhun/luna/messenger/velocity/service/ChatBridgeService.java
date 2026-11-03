@@ -291,12 +291,13 @@ public final class ChatBridgeService {
 		}
 
 		String server = string(body, "server");
-		for (Player player : proxyServer.getAllPlayers()) {
-			if (server == null || server.isBlank()) {
-				targets.add(player);
-				continue;
-			}
+		if (server == null || server.isBlank()) {
+			// network-wide: isolated servers keep to themselves
+			targets.addAll(router.networkAudience(""));
+			return targets;
+		}
 
+		for (Player player : proxyServer.getAllPlayers()) {
 			String current = player.getCurrentServer().map(connection -> connection.getServerInfo().getName()).orElse("");
 			if (current.equalsIgnoreCase(server)) {
 				targets.add(player);
