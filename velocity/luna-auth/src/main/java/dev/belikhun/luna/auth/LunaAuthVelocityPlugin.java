@@ -254,6 +254,7 @@ public final class LunaAuthVelocityPlugin {
 		Pbkdf2PasswordHasher passwordHasher = new Pbkdf2PasswordHasher(hashIterations, hashSaltBytes, hashKeyBits);
 		this.authService = new AuthService(logger, repository, passwordHasher, maxFailures, lockoutSeconds * 1000L, sessionSeconds * 1000L);
 		this.authService.cleanupHistoryRetention(retentionDays);
+		this.mojangPremiumCheckService.setKnownPremiumResolver(this::knownPremiumUuid);
 
 		registerCommands();
 		registerHttpEndpoints();
@@ -344,6 +345,23 @@ public final class LunaAuthVelocityPlugin {
 			}
 		}
 
+		// A name that has completed an online-mode login before (claims table) goes
+		// straight to online mode, so returning premium players are not dropped to
+		// the offline flow whenever their selector choice expires. An explicit
+		// offline preference is handled above; a failed online attempt still falls
+		// back to offline on the retry through the probe-fallback window.
+		if (premiumUuidEnabled) {
+			Optional<UUID> knownPremium = knownPremiumUuid(username);
+			if (knownPremium.isPresent()) {
+				mixedModeProbeFallbackUntil.put(probeKey, now + MIXED_MODE_PROBE_FALLBACK_WINDOW_MILLIS);
+				event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
+				flow("PreLogin mixed-mode: đã từng đăng nhập online (claim " + knownPremium.get()
+					+ ") -> force online-mode username=" + username
+					+ " remote=" + event.getConnection().getRemoteAddress());
+				return;
+			}
+		}
+
 		Long manualProbeUntil = mixedModeManualProbeUntil.get(probeKey);
 		if (manualProbeUntil == null || manualProbeUntil < now) {
 			if (manualProbeUntil != null) {
@@ -387,6 +405,7 @@ public final class LunaAuthVelocityPlugin {
 
 		UUID verifiedUuid = event.getGameProfile().getId();
 		mixedModeProbeFallbackUntil.remove(mixedModeProbeKey(event.getUsername(), event.getConnection().getRemoteAddress()));
+		mojangPremiumCheckService.recordVerified(event.getUsername(), verifiedUuid);
 		UUID mappedUuid = uuidOverrideMap.get(verifiedUuid);
 		UUID effectiveUuid = verifiedUuid;
 		String mappingMode = "KEEP_PREMIUM_UUID";
@@ -689,7 +708,7 @@ public final class LunaAuthVelocityPlugin {
 			logger.warn("Chưa có forwarding secret — endpoint auth sẽ trả về 401.");
 		}
 
-		new AuthHttpEndpoints(logger, proxyServer, authService, this::syncAuthState, authorizer)
+		new AuthHttpEndpoints(logger, proxyServer, authService, this::syncAuthState, authorizer, new LoginModeAccess())
 			.register(httpServerManager.router());
 
 		logger.audit("Đã đăng ký endpoint /auth/accounts/{player}.");
@@ -1332,7 +1351,7 @@ public final class LunaAuthVelocityPlugin {
 		}
 	}
 
-	private AuthAdminCommand.ModePreferenceResult setModePreferenceByCommand(String username, String modeRaw) {
+	private AuthAdminCommand.ModePreferenceResult setModePreferenceByCommand(String username, String modeRaw, boolean rememberForever) {
 		if (username == null || username.isBlank()) {
 			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Username không hợp lệ.");
 		}
@@ -1347,12 +1366,114 @@ public final class LunaAuthVelocityPlugin {
 			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Mode phải là online | offline | unset.");
 		}
 
-		if ("online".equals(mode) && !mojangPremiumCheckService.isPremiumUsername(username)) {
-			return new AuthAdminCommand.ModePreferenceResult(false, "❌ Username này không phải premium name hợp lệ.");
+		if ("online".equals(mode)) {
+			// An admin asking for online mode deserves a live answer, not whatever
+			// the cache remembered from the player's last (possibly failed) lookup.
+			MojangPremiumCheckService.Lookup lookup = mojangPremiumCheckService.refresh(username);
+			if (lookup.status() == MojangPremiumCheckService.Status.NOT_PREMIUM) {
+				return new AuthAdminCommand.ModePreferenceResult(false, "❌ Username này không phải premium name hợp lệ.");
+			}
+			if (lookup.status() == MojangPremiumCheckService.Status.UNKNOWN) {
+				return new AuthAdminCommand.ModePreferenceResult(false, "❌ Không liên lạc được Mojang để xác minh " + username + " (" + lookup.error() + "). Hãy thử lại sau.");
+			}
 		}
 
-		setModePreference(username, mode, false);
-		return new AuthAdminCommand.ModePreferenceResult(true, "✔ Đã lưu mode preference=" + mode + " cho " + username + " trong 24 giờ.");
+		setModePreference(username, mode, rememberForever);
+		String lifetime = rememberForever
+			? "vĩnh viễn"
+			: "trong " + (modePreferenceTtlMillis / 3_600_000L) + " giờ";
+		return new AuthAdminCommand.ModePreferenceResult(true, "✔ Đã lưu mode preference=" + mode + " cho " + username + " " + lifetime + ". Áp dụng từ lần đăng nhập kế tiếp.");
+	}
+
+	/** Mojang UUID of a name that completed an online-mode login before, from the claims table. */
+	private Optional<UUID> knownPremiumUuid(String username) {
+		if (authService == null || username == null || username.isBlank()) {
+			return Optional.empty();
+		}
+
+		return authService.findClaimedOnlineUuid(OfflineUuid.fromUsername(username), username);
+	}
+
+	/**
+	 * Login-mode state and control for the console, over the auth HTTP routes.
+	 * Lives here because the preference store and the mixed-mode switches are
+	 * this plugin's own fields.
+	 */
+	private final class LoginModeAccess implements AuthHttpEndpoints.LoginModeAccess {
+		@Override
+		public Map<String, Object> describe(String username, Player online, boolean refreshPremium) {
+			boolean proxyOnlineMode = proxyServer.getConfiguration().isOnlineMode();
+			boolean mixedMode = mixedModeQuickLoginEnabled && !proxyOnlineMode;
+			MojangPremiumCheckService.Lookup premium = refreshPremium
+				? mojangPremiumCheckService.refresh(username)
+				: mojangPremiumCheckService.peek(username);
+			ModePreference preference = mixedModePreferences.get(normalizePreferenceKey(username));
+			String preferredMode = findActiveModePreference(username).orElse("");
+			Map<String, Object> payload = new LinkedHashMap<>();
+
+			payload.put("proxyOnlineMode", proxyOnlineMode);
+			payload.put("mixedMode", mixedMode);
+			payload.put("current", online == null ? "" : online.isOnlineMode() ? "online" : "offline");
+
+			if (preferredMode.isBlank() || preference == null) {
+				payload.put("preference", null);
+			} else {
+				Map<String, Object> preferencePayload = new LinkedHashMap<>();
+				preferencePayload.put("mode", preference.mode());
+				preferencePayload.put("rememberForever", preference.rememberForever());
+				preferencePayload.put("expiresAtEpochMillis", preference.rememberForever() ? 0L : preference.expiresAtEpochMillis());
+				payload.put("preference", preferencePayload);
+			}
+
+			Map<String, Object> premiumPayload = new LinkedHashMap<>();
+			premiumPayload.put("status", premium.status().name().toLowerCase(Locale.ROOT));
+			premiumPayload.put("onlineUuid", premium.onlineUuid() == null ? "" : premium.onlineUuid().toString());
+			premiumPayload.put("source", premium.source());
+			premiumPayload.put("checkedAtEpochMillis", premium.checkedAtEpochMillis());
+			premiumPayload.put("error", premium.error() == null ? "" : premium.error());
+			payload.put("premium", premiumPayload);
+			payload.put("next", nextLoginMode(username, proxyOnlineMode, mixedMode, preferredMode, premium));
+			payload.put("preferenceHours", modePreferenceTtlMillis / 3_600_000L);
+
+			return payload;
+		}
+
+		@Override
+		public AuthAdminCommand.ModePreferenceResult change(String username, String mode, boolean rememberForever) {
+			return setModePreferenceByCommand(username, mode, rememberForever);
+		}
+
+		/**
+		 * The mode the next pre-login will pick, mirroring onPreLogin: a name the
+		 * premium check rejects always stays offline, a premium name that logged in
+		 * online before goes online, and any other premium name without an online
+		 * preference stays offline until the player picks online.
+		 */
+		private String nextLoginMode(String username, boolean proxyOnlineMode, boolean mixedMode, String preferredMode, MojangPremiumCheckService.Lookup premium) {
+			if (proxyOnlineMode) {
+				return "online";
+			}
+			if (!mixedMode) {
+				return "offline";
+			}
+			if (premium.status() == MojangPremiumCheckService.Status.NOT_PREMIUM) {
+				return "offline";
+			}
+			if ("offline".equals(preferredMode)) {
+				return "offline";
+			}
+			if ("online".equals(preferredMode)) {
+				return premium.premium() ? "online" : "online-if-premium";
+			}
+			if (!premium.premium()) {
+				return "offline";
+			}
+			// Mirrors onPreLogin: a name with a past online login goes straight online.
+			if (premiumUuidEnabled && knownPremiumUuid(username).isPresent()) {
+				return "online";
+			}
+			return "ask";
+		}
 	}
 
 	private record ModePreference(String mode, long expiresAtEpochMillis, boolean rememberForever) {

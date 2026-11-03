@@ -2,6 +2,7 @@ package dev.belikhun.luna.auth.http;
 
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import dev.belikhun.luna.auth.command.AuthAdminCommand;
 import dev.belikhun.luna.auth.model.AuthAccount;
 import dev.belikhun.luna.auth.service.AuthService;
 import dev.belikhun.luna.core.api.heartbeat.HeartbeatFormCodec;
@@ -22,7 +23,9 @@ import java.util.function.Consumer;
 /**
  * Account administration for the Luna control console: read a player's
  * authentication state, reset their password, issue a temporary one, set a
- * permanent one, unlock a locked-out account and force a logout.
+ * permanent one, unlock a locked-out account, force a logout or a login, and read or
+ * change which login mode (online Mojang authentication or offline password)
+ * the player is held to.
  *
  * The in-game /auth command can only act on players who are connected right
  * now, which is the wrong constraint for a console — the person who needs a
@@ -55,6 +58,7 @@ public final class AuthHttpEndpoints {
 	private final AuthService authService;
 	private final Consumer<Player> authStateSync;
 	private final RequestAuthorizer authorizer;
+	private final LoginModeAccess loginMode;
 	private final SecureRandom random;
 
 	public AuthHttpEndpoints(
@@ -62,13 +66,15 @@ public final class AuthHttpEndpoints {
 		ProxyServer proxyServer,
 		AuthService authService,
 		Consumer<Player> authStateSync,
-		RequestAuthorizer authorizer
+		RequestAuthorizer authorizer,
+		LoginModeAccess loginMode
 	) {
 		this.logger = logger.scope("AuthHttp");
 		this.proxyServer = proxyServer;
 		this.authService = authService;
 		this.authStateSync = authStateSync;
 		this.authorizer = authorizer;
+		this.loginMode = loginMode;
 		this.random = new SecureRandom();
 	}
 
@@ -113,6 +119,9 @@ public final class AuthHttpEndpoints {
 					case "password" -> apply(target, startedAt, body, changePassword(target, body));
 					case "unlock" -> apply(target, startedAt, body, unlock(target, body));
 					case "logout" -> apply(target, startedAt, body, forceLogout(target, body));
+					case "forcelogin" -> apply(target, startedAt, body, forceLogin(target, body));
+					case "mode" -> changeMode(target, startedAt, body);
+					case "premium-check" -> premiumCheck(target, startedAt);
 					default -> LunaJson.error(400, "unknown action: " + action);
 				};
 			} catch (IllegalArgumentException invalid) {
@@ -212,6 +221,88 @@ public final class AuthHttpEndpoints {
 		return result;
 	}
 
+	/**
+	 * Sign a connected player in without their password, for someone stuck at the
+	 * login prompt. Only a live connection can be signed in, and only an account
+	 * with a password, the same limits as /auth forcelogin.
+	 */
+	private AuthService.AuthResult forceLogin(Target target, Map<String, String> body) {
+		Player online = target.online();
+
+		if (online == null) {
+			throw new IllegalArgumentException("player is not connected; only a live connection can be signed in");
+		}
+
+		String ipAddress = online.getRemoteAddress().getAddress().getHostAddress();
+		AuthService.AuthResult result = authService.adminForceLogin(target.uuid(), target.username(), ipAddress, actor(body));
+
+		if (result.success()) {
+			sync(target);
+			online.sendRichMessage("<green>✔ Bạn đã được quản trị viên xác thực thủ công.</green>");
+			logger.audit(actor(body) + " xác thực cưỡng bức cho " + target.username() + ".");
+		}
+
+		return result;
+	}
+
+	/**
+	 * Set, or clear with mode=unset, the login mode the player is held to.
+	 * Switching to online asks Mojang live, never the cache. A connected player
+	 * whose live connection does not match the new mode is disconnected unless
+	 * reconnect=false, because the mode is only chosen at pre-login.
+	 */
+	private HttpResponse changeMode(Target target, long startedAt, Map<String, String> body) {
+		String mode = body.getOrDefault("mode", "").trim().toLowerCase(Locale.ROOT);
+		boolean forever = Boolean.parseBoolean(body.getOrDefault("forever", "false").trim());
+		boolean reconnect = !"false".equalsIgnoreCase(body.getOrDefault("reconnect", "true").trim());
+
+		if (!"online".equals(mode) && !"offline".equals(mode) && !"unset".equals(mode)) {
+			throw new IllegalArgumentException("mode must be online, offline or unset");
+		}
+
+		AuthAdminCommand.ModePreferenceResult result = loginMode.change(target.username(), mode, forever);
+
+		if (!result.success()) {
+			return LunaJson.error(400, result.message());
+		}
+
+		logger.audit(actor(body) + " đặt login mode=" + mode + (forever ? " (vĩnh viễn)" : "") + " cho " + target.username() + ".");
+
+		Player online = target.online();
+		boolean mismatched = online != null
+			&& (("online".equals(mode) && !online.isOnlineMode()) || ("offline".equals(mode) && online.isOnlineMode()));
+		boolean disconnected = false;
+
+		if (mismatched && reconnect) {
+			String reason = "online".equals(mode)
+				? "Chế độ tài khoản đã đổi sang Premium. Hãy kết nối lại để xác thực online."
+				: "Chế độ tài khoản đã đổi sang Offline. Hãy kết nối lại và đăng nhập bằng mật khẩu.";
+			disconnect(target, reason);
+			disconnected = true;
+		} else {
+			sync(target);
+		}
+
+		Map<String, Object> payload = describe(resolveAgain(target));
+		payload.put("action", "mode");
+		payload.put("success", true);
+		payload.put("message", result.message());
+		payload.put("disconnected", disconnected);
+
+		return LunaJson.envelope(200, payload, startedAt);
+	}
+
+	/** Ask Mojang again about the player's name, dropping whatever was cached. */
+	private HttpResponse premiumCheck(Target target, long startedAt) {
+		Map<String, Object> payload = describe(resolveAgain(target));
+		payload.put("loginMode", loginMode.describe(target.username(), target.online(), true));
+		payload.put("action", "premium-check");
+		payload.put("success", true);
+		payload.put("message", "");
+
+		return LunaJson.envelope(200, payload, startedAt);
+	}
+
 	/** Wrap a plain result in the account payload, so callers see the new state. */
 	private HttpResponse apply(Target target, long startedAt, Map<String, String> body, AuthService.AuthResult result) {
 		if (!result.success()) {
@@ -259,6 +350,7 @@ public final class AuthHttpEndpoints {
 		sessionPayload.put("expiresAtEpochMillis", session.sessionExpiresAtEpochMillis());
 		sessionPayload.put("ip", session.sessionIp());
 		payload.put("session", sessionPayload);
+		payload.put("loginMode", loginMode.describe(target.username(), proxyServer.getPlayer(target.uuid()).orElse(null), false));
 
 		return payload;
 	}
@@ -393,6 +485,22 @@ public final class AuthHttpEndpoints {
 		String message = cause.getMessage();
 
 		return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+	}
+
+	/**
+	 * The plugin's login-mode state, kept behind an interface because the
+	 * preference store and the mixed-mode switches live in the plugin class.
+	 */
+	public interface LoginModeAccess {
+		/**
+		 * The player's login mode as the console shows it.
+		 *
+		 * @param online         the live connection, or null
+		 * @param refreshPremium ask Mojang now instead of reading the cache
+		 */
+		Map<String, Object> describe(String username, Player online, boolean refreshPremium);
+
+		AuthAdminCommand.ModePreferenceResult change(String username, String mode, boolean rememberForever);
 	}
 
 	/**
