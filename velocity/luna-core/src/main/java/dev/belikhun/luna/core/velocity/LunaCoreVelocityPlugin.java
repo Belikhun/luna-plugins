@@ -42,6 +42,7 @@ import dev.belikhun.luna.core.velocity.command.VelocityServerConnectCommand;
 import dev.belikhun.luna.core.velocity.command.VelocityServersCommand;
 import dev.belikhun.luna.core.velocity.admin.VelocityAdminHttpEndpoints;
 import dev.belikhun.luna.core.velocity.dashboard.VelocityDashboardHttpEndpoints;
+import dev.belikhun.luna.core.velocity.dashboard.VelocityRuntimeHttpEndpoints;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendNameResolver;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityBackendStatusRegistry;
 import dev.belikhun.luna.core.velocity.heartbeat.VelocityForwardingSecretResolver;
@@ -304,6 +305,7 @@ public final class LunaCoreVelocityPlugin {
 			telemetryBroadcaster
 		);
 		dashboardEndpoints.register(nextHttpServerManager.router());
+		new VelocityRuntimeHttpEndpoints(logger, proxyServer, authorizer).register(nextHttpServerManager.router());
 
 		// The registry survives the reload, so the previous reload's listener would
 		// stay subscribed and keep feeding a dead endpoint instance.
