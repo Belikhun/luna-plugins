@@ -1,0 +1,7 @@
+name: LunaBpmBridge
+version: '${version}'
+main: dev.belikhun.luna.bpm.bridge.LunaBpmBridge
+api-version: '1.21'
+description: Cầu nối của LunaBPM trên backend, báo entity id, world và ai đang thấy ai cho proxy.
+authors:
+  - Belikhun

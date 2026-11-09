@@ -67,6 +67,8 @@ include("luna-auth-backend")
 include("luna-tv")
 include("luna-deathswap")
 include("luna-patpat")
+// Paper side of luna-bpm: reports entity ids and tracking to the proxy.
+include("luna-bpm")
 
 // The proxy, and everything that lives on it.
 include("luna-core-velocity")
@@ -75,6 +77,8 @@ include("luna-pack")
 include("luna-glyph")
 include("luna-messenger-velocity")
 include("luna-auth")
+// Better Player Model (YSM) server, network-wide: models, crypto, sync.
+include("luna-bpm-velocity")
 
 // NeoForge backends.
 include("luna-core-neoforge")

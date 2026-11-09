@@ -1,0 +1,24 @@
+# LunaBPM - Better Player Model server on the proxy.
+# Models: put .ysm or .zip files in plugins/luna-bpm/models, then run /bpm reload.
+# Each Paper backend needs the LunaBpmBridge plugin (luna-bpm@paper) for players there
+# to show their model.
+
+network:
+  # Bandwidth for model downloads to all players together, in Mbps.
+  global-bandwidth-limit: 100
+  # Bandwidth for model downloads per player, in Mbps.
+  player-bandwidth-limit: 5
+  # Wait this long after a player lands on a backend before the handshake (ms).
+  handshake-delay-ms: 2000
+
+upload:
+  # Let players upload .ysm/.zip models from the mod's menu.
+  allow-model-upload: true
+  # Largest upload, in MiB.
+  model-upload-max-mib: 128
+  # Upload chunks a client may send per tick.
+  model-upload-chunks-per-tick: 4
+
+models:
+  # Require bpm.model.<model-id> to wear a non-default model.
+  require-model-permission: false
