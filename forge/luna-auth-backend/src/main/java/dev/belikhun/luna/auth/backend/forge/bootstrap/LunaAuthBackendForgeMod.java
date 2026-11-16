@@ -137,7 +137,11 @@ public final class LunaAuthBackendForgeMod {
 		}
 	}
 
-	@SubscribeEvent
+	/**
+	 * Runs at HIGHEST so an unauthenticated player's chat is cancelled before
+	 * LunaMessenger (HIGH) relays it to the network.
+	 */
+	@SubscribeEvent(priority = EventPriority.HIGHEST)
 	public void onServerChat(ServerChatEvent event) {
 		if (controller != null && !controller.allowChat(event.getPlayer())) {
 			event.setCanceled(true);

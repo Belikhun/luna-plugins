@@ -159,7 +159,12 @@ public final class LunaMessengerForgeMod {
 		messengerRuntime.publishLeave(player);
 	}
 
-	@SubscribeEvent
+	/**
+	 * Runs at HIGH, after the auth gate (HIGHEST) and before chat mods that
+	 * cancel the event at the default priority (e.g. super_chat), which would
+	 * otherwise keep the message off the network.
+	 */
+	@SubscribeEvent(priority = EventPriority.HIGH)
 	public void onServerChat(ServerChatEvent event) {
 		if (messengerRuntime == null) {
 			return;
