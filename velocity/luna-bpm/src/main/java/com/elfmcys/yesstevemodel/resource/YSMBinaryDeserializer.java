@@ -14,6 +14,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
     private final YSMByteBuf reader;
     private final int format;
     private final RawYsmModel model;
+    private boolean namesOnly;
 
     public YSMBinaryDeserializer(byte[] decompressedData) {
         this.reader = new YSMByteBuf(Unpooled.wrappedBuffer(decompressedData));
@@ -27,6 +28,31 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         this.format = format;
         this.model = new RawYsmModel();
         this.model.formatVersion = this.format;
+    }
+
+    /**
+     * Reads {@code length} bytes of {@code data} from {@code offset} without copying them.
+     * With {@code namesOnly}, texture, sound, function and image bytes are stepped over and
+     * left empty, and geometry faces are read but not kept: the result carries names and
+     * properties only, which is all the proxy's catalog needs. Decoded in full, a 170 MB
+     * model is about 700 MB of small objects.
+     */
+    public YSMBinaryDeserializer(byte[] data, int offset, int length, int format, boolean namesOnly) {
+        this.reader = new YSMByteBuf(Unpooled.wrappedBuffer(data, offset, length));
+        this.format = format;
+        this.model = new RawYsmModel();
+        this.model.formatVersion = this.format;
+        this.namesOnly = namesOnly;
+    }
+
+    private static final byte[] NO_BYTES = new byte[0];
+
+    private byte[] readBlob() {
+        if (namesOnly) {
+            reader.skipByteArray();
+            return NO_BYTES;
+        }
+        return reader.readByteArray();
     }
 
 
@@ -132,7 +158,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
                 int unknownFormatFlag = reader.readVarInt();
                 if (unknownFormatFlag != 0x01) throw new RuntimeException("Expected 0x01");
             }
-            tex.data = reader.readByteArray();
+            tex.data = readBlob();
             tex.width = reader.readVarInt();
             tex.height = reader.readVarInt();
             tex.imageFormat = -1; // RGBA
@@ -242,7 +268,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         for (int i = 0; i < customTextureCount; ++i) {
             RawYsmModel.RawTexture tex = new RawYsmModel.RawTexture();
             tex.name = reader.readString();
-            tex.data = reader.readByteArray();
+            tex.data = readBlob();
             tex.width = reader.readVarInt();
             tex.height = reader.readVarInt();
             tex.imageFormat = -1; // RGBA
@@ -251,7 +277,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             for (int j = 0; j < subTextureSize; ++j) {
                 RawYsmModel.RawTexture.SubTexture sub = new RawYsmModel.RawTexture.SubTexture();
                 sub.specularType = reader.readVarInt();
-                sub.data = reader.readByteArray();
+                sub.data = readBlob();
                 sub.width = reader.readVarInt();
                 sub.height = reader.readVarInt();
                 sub.imageFormat = -1; // RGBA
@@ -290,7 +316,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         for (int i = 0; i < extraTextureCount; ++i) {
             RawYsmModel.RawImage avatar = new RawYsmModel.RawImage();
             avatar.name = reader.readString();
-            avatar.data = reader.readByteArray();
+            avatar.data = readBlob();
             avatar.width = reader.readVarInt();
             avatar.height = reader.readVarInt();
             avatar.format = -1; // е…је®№ж—§з‰€й»и®¤ RGBA
@@ -523,12 +549,16 @@ public class YSMBinaryDeserializer implements AutoCloseable{
                         face.u[v] = reader.readFloat(); // u
                         face.v[v] = reader.readFloat(); // v
                     }
-                    cube.faces.add(face);
+                    if (!namesOnly) {
+                        cube.faces.add(face);
+                    }
                 }
                 cube.unkInt1 = reader.readVarInt();
                 cube.unkInt2 = reader.readVarInt();
                 cube.unkInt3 = reader.readVarInt();
-                bone.cubes.add(cube);
+                if (!namesOnly) {
+                    bone.cubes.add(cube);
+                }
             }
 
             bone.name = reader.readString();
@@ -684,7 +714,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             for (int i = 0; i < avatarsCount; i++) {
                 RawYsmModel.RawImage avatar = new RawYsmModel.RawImage();
                 avatar.name = reader.readString();
-                avatar.data = reader.readByteArray();
+                avatar.data = readBlob();
                 avatar.width = reader.readVarInt();
                 avatar.height = reader.readVarInt();
                 avatar.format = reader.readVarInt();
@@ -715,7 +745,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             for (int i = 0; i < backgroundImagesCount; i++) {
                 RawYsmModel.RawImage bg = new RawYsmModel.RawImage();
                 bg.name = reader.readString();
-                bg.data = reader.readByteArray();
+                bg.data = readBlob();
                 bg.width = reader.readVarInt();
                 bg.height = reader.readVarInt();
                 bg.format = reader.readVarInt();
@@ -934,7 +964,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             if (format > 15) {
                 hash = reader.readString(); // soundHash
             }
-            byte[] data = reader.readByteArray();
+            byte[] data = readBlob();
             model.soundFiles.put(soundName, new RawYsmModel.RawDataFile(hash, data));
         }
     }
@@ -944,7 +974,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
         for (int i = 0; i < functionCount; i++) {
             String functionName = reader.readString();
             String hash = reader.readString();
-            byte[] data = reader.readByteArray();
+            byte[] data = readBlob();
             model.functionFiles.put(functionName, new RawYsmModel.RawDataFile(hash, data));
         }
     }
@@ -969,7 +999,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
             RawYsmModel.RawTexture tex = new RawYsmModel.RawTexture();
             tex.name = reader.readString();
             tex.hash = reader.readString();
-            tex.data = reader.readByteArray();
+            tex.data = readBlob();
             tex.width = reader.readVarInt();
             tex.height = reader.readVarInt();
             tex.imageFormat = reader.readVarInt();
@@ -994,7 +1024,7 @@ public class YSMBinaryDeserializer implements AutoCloseable{
 
     private SpecialImageResult parseSpecialImage() {
         String imageHash = reader.readString();
-        byte[] imageData = reader.readByteArray();
+        byte[] imageData = readBlob();
         return new SpecialImageResult(imageHash, imageData);
     }
 

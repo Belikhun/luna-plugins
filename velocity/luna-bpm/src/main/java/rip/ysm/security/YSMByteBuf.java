@@ -111,6 +111,13 @@ public class YSMByteBuf implements AutoCloseable {
         return bytes;
     }
 
+    /** Steps over a length-prefixed byte array without materialising it. */
+    public void skipByteArray() {
+        int len = readVarInt();
+        validateReadableLength(len, MAX_BYTE_ARRAY_BYTES, "byte array");
+        buf.skipBytes(len);
+    }
+
     public String readString() {
         int len = readVarInt();
         validateReadableLength(len, MAX_STRING_BYTES, "string");

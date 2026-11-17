@@ -18,6 +18,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -167,13 +168,24 @@ public final class BpmService {
 
 	private final ScheduledExecutorService net;
 	private final ExecutorService workers;
-	private final Semaphore modelProcessingPermits;
 	private final SelectionStore selections;
+	private final ModelIndex modelIndex;
+
+	/**
+	 * Held by anything that has a whole model in memory: decoding one for the catalog,
+	 * compressing and encrypting a payload, compiling an upload. One model here is 170 MB
+	 * on disk and several times that while it is worked on, against a 512 MB proxy heap,
+	 * so two at once is what ran the proxy out of memory. Everyone else waits their turn.
+	 */
+	private final Semaphore modelMemory = new Semaphore(1);
+	/**
+	 * Payload bytes that downloads may hold between them. A model bigger than this still
+	 * goes out, just alone; it only stops a second large payload joining it.
+	 */
+	private static final long PAYLOAD_BUDGET = Runtime.getRuntime().maxMemory() / 4;
 
 	/** Encrypted payloads by hash, shared by every player downloading the same model at once. */
 	private final Map<String, java.lang.ref.SoftReference<byte[]>> payloadCache = new ConcurrentHashMap<>();
-	/** At most this many payloads are prepared (read + encrypted) at the same time. */
-	private final Semaphore preparePermits = new Semaphore(2);
 	/** At most this many players download a model at the same time; the rest wait their turn. */
 	private static final int MAX_ACTIVE_DOWNLOADS = 6;
 	private final Path cacheDir;
@@ -211,7 +223,7 @@ public final class BpmService {
 			thread.setDaemon(true);
 			return thread;
 		});
-		this.modelProcessingPermits = new Semaphore(cores);
+		this.modelIndex = new ModelIndex(dataDirectory.resolve("model-index.json"), logger);
 		this.selections = new SelectionStore(dataDirectory.resolve("selections.json"), logger, workers);
 		applyBandwidth();
 	}
@@ -312,7 +324,7 @@ public final class BpmService {
 
 	// ------------------------------------------------------------------ catalog
 
-	private Map<String, ServerModel> buildModelCatalog() {
+	private synchronized Map<String, ServerModel> buildModelCatalog() {
 		Map<String, ServerModel> result = new LinkedHashMap<>();
 		if (!modelsDir.exists()) {
 			return result;
@@ -330,12 +342,13 @@ public final class BpmService {
 			return result;
 		}
 
+		modelIndex.load();
+		Set<String> indexed = new HashSet<>();
 		for (Path path : modelPaths) {
 			try {
 				if (!Files.isRegularFile(path)) {
 					continue;
 				}
-				byte[] data = Files.readAllBytes(path);
 				String relativePath = modelsPath.relativize(path).toString().replace('\\', '/');
 				String modelId = normalizeModelId(relativePath);
 				if (modelId == null) {
@@ -348,24 +361,33 @@ public final class BpmService {
 					continue;
 				}
 
-				byte[] compiled = compileModelToYsm(data);
-				if (compiled != null) {
-					data = withYsmmPrefix(compiled);
-					Path output = resolveModelOutput(modelId);
-					writeAtomically(output, data);
-					if (!output.equals(path)) {
-						// keep the source next to its compiled form, renamed out of the scan
-						Files.move(path, path.resolveSibling(path.getFileName() + ".source"), StandardCopyOption.REPLACE_EXISTING);
+				BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
+				ModelIndex.Entry entry = modelIndex.lookup(relativePath, attrs.size(), attrs.lastModifiedTime().toMillis());
+				Path stored = path;
+				if (entry == null) {
+					modelMemory.acquire();
+					try {
+						Indexed fresh = indexModel(path, modelId);
+						stored = fresh.file();
+						entry = fresh.entry();
+					} finally {
+						modelMemory.release();
 					}
-					logger.info("Compiled model to YSMM format 32: {}", modelId);
+					relativePath = modelsPath.relativize(stored).toString().replace('\\', '/');
+					modelIndex.put(relativePath, entry);
 				}
 
-				Path stored = compiled != null ? resolveModelOutput(modelId) : path;
-				result.put(modelId, createServerModel(modelId, data, stored));
+				indexed.add(relativePath);
+				result.put(modelId, serverModel(modelId, stored, entry));
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return result;
 			} catch (Exception e) {
 				logger.warn("Failed to load model {}: {}", path.getFileName(), e.getMessage());
 			}
 		}
+
+		modelIndex.save(indexed);
 		return result;
 	}
 
@@ -403,16 +425,6 @@ public final class BpmService {
 				}
 			});
 		});
-	}
-
-	private static byte[] withYsmmPrefix(byte[] compiled) {
-		byte[] data = new byte[compiled.length + 4];
-		data[0] = 'Y';
-		data[1] = 'S';
-		data[2] = 'M';
-		data[3] = 'M';
-		System.arraycopy(compiled, 0, data, 4, compiled.length);
-		return data;
 	}
 
 	private static boolean isYsmm(byte[] data) {
@@ -469,41 +481,108 @@ public final class BpmService {
 		}
 	}
 
-	/** Builds the catalog entry from the model bytes; the bytes themselves are not kept. */
-	private ServerModel createServerModel(String modelId, byte[] data, Path file) throws Exception {
-		long[] hashes = YsmCrypt.calculateModelHashes(sha256Hex(data), SERVER_KEY);
-		ServerModel model = new ServerModel();
-		model.modelId = modelId;
-		model.hash1 = hashes[0];
-		model.hash2 = hashes[1];
-		model.file = file;
-		model.size = data.length;
-		populateAnimationMetadata(model, data);
-		return model;
+	private record Indexed(Path file, ModelIndex.Entry entry) { }
+
+	/**
+	 * Reads one model file, compiling it to format 32 first when it is not already, and
+	 * describes it for the index. Runs under {@link #modelMemory}.
+	 */
+	private Indexed indexModel(Path path, String modelId) throws Exception {
+		byte[] data = Files.readAllBytes(path);
+		byte[] compiled = compileModelToYsm(data);
+		if (compiled == null) {
+			return new Indexed(path, describe(modelId, sha256Hex(data), data, 4, path));
+		}
+
+		// the source can go before the compiled form is decoded
+		data = null;
+		Path output = resolveModelOutput(modelId);
+		String sha256 = writeCompiled(output, compiled);
+		if (!output.equals(path)) {
+			// keep the source next to its compiled form, renamed out of the scan
+			Files.move(path, path.resolveSibling(path.getFileName() + ".source"), StandardCopyOption.REPLACE_EXISTING);
+		}
+		logger.info("Compiled model to YSMM format 32: {}", modelId);
+		return new Indexed(output, describe(modelId, sha256, compiled, 0, output));
 	}
 
-	private void populateAnimationMetadata(ServerModel model, byte[] data) {
-		byte[] serialized = isYsmm(data) ? Arrays.copyOfRange(data, 4, data.length) : data;
+	/**
+	 * The index entry for a format-32 model body starting at {@code offset} of {@code body},
+	 * stored on disk at {@code file}. Only names are decoded: textures, sounds and images
+	 * are stepped over, so this costs little more than the bytes already in hand.
+	 */
+	private ModelIndex.Entry describe(String modelId, String sha256, byte[] body, int offset, Path file) throws java.io.IOException {
+		BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
+		ModelIndex.Entry entry = new ModelIndex.Entry();
+		entry.size = attrs.size();
+		entry.modified = attrs.lastModifiedTime().toMillis();
+		entry.sha256 = sha256;
+		entry.defaultTexture = "default";
+		entry.textureIds = List.of();
+		entry.extraAnimationIds = List.of();
+		entry.classifiedAnimationIds = Map.of();
+
 		try (com.elfmcys.yesstevemodel.resource.YSMBinaryDeserializer deserializer =
-				 new com.elfmcys.yesstevemodel.resource.YSMBinaryDeserializer(serialized, 32)) {
+				 new com.elfmcys.yesstevemodel.resource.YSMBinaryDeserializer(body, offset, body.length - offset, 32, true)) {
 			com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel rawModel = deserializer.deserializeKeepOpen();
-			model.defaultTexture = rawModel.properties.defaultTexture;
-			model.textureIds = List.copyOf(rawModel.mainEntity.textures.keySet());
-			model.extraAnimationIds = List.copyOf(rawModel.properties.extraAnimations.keySet());
+			entry.defaultTexture = rawModel.properties.defaultTexture;
+			entry.textureIds = List.copyOf(rawModel.mainEntity.textures.keySet());
+			entry.extraAnimationIds = List.copyOf(rawModel.properties.extraAnimations.keySet());
 			Map<String, List<String>> classified = new LinkedHashMap<>();
 			for (com.elfmcys.yesstevemodel.resource.pojo.RawYsmModel.ExtraAnimationClassify classify : rawModel.properties.extraAnimationClassifies) {
 				if (classify.id != null && !classify.id.isEmpty()) {
 					classified.put(classify.id, List.copyOf(classify.extras.keySet()));
 				}
 			}
-			model.classifiedAnimationIds = Map.copyOf(classified);
+			entry.classifiedAnimationIds = classified;
 		} catch (Exception e) {
-			logger.warn("Could not read animation metadata for {}: {}", model.modelId, e.getMessage());
+			logger.warn("Could not read animation metadata for {}: {}", modelId, e.getMessage());
 		}
+		return entry;
+	}
+
+	/** Catalog entry from an index entry; the hashes depend on the server key, so they are derived here. */
+	private ServerModel serverModel(String modelId, Path file, ModelIndex.Entry entry) {
+		long[] hashes = YsmCrypt.calculateModelHashes(entry.sha256, SERVER_KEY);
+		ServerModel model = new ServerModel();
+		model.modelId = modelId;
+		model.hash1 = hashes[0];
+		model.hash2 = hashes[1];
+		model.file = file;
+		model.size = entry.size;
+		if (entry.defaultTexture != null) {
+			model.defaultTexture = entry.defaultTexture;
+		}
+		if (entry.textureIds != null) {
+			model.textureIds = List.copyOf(entry.textureIds);
+		}
+		if (entry.extraAnimationIds != null) {
+			model.extraAnimationIds = List.copyOf(entry.extraAnimationIds);
+		}
+		if (entry.classifiedAnimationIds != null) {
+			model.classifiedAnimationIds = Map.copyOf(entry.classifiedAnimationIds);
+		}
+		return model;
+	}
+
+	/**
+	 * Writes a compiled body behind its YSMM prefix and returns the SHA-256 of what landed on
+	 * disk, without building the prefixed copy in memory first.
+	 */
+	private static String writeCompiled(Path output, byte[] compiled) throws Exception {
+		MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		byte[] prefix = {'Y', 'S', 'M', 'M'};
+		digest.update(prefix);
+		digest.update(compiled);
+		writeAtomically(output, prefix, compiled);
+		return hex(digest.digest());
 	}
 
 	private static String sha256Hex(byte[] data) throws Exception {
-		byte[] hash = MessageDigest.getInstance("SHA-256").digest(data);
+		return hex(MessageDigest.getInstance("SHA-256").digest(data));
+	}
+
+	private static String hex(byte[] hash) {
 		StringBuilder hex = new StringBuilder(hash.length * 2);
 		for (byte b : hash) {
 			hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
@@ -1017,7 +1096,13 @@ public final class BpmService {
 
 	/** Load (or encrypt and cache) a transfer's payload off the network thread. */
 	private void preparePayload(PendingTransfer transfer) {
-		if (!preparePermits.tryAcquire()) {
+		if (!inMemory(transfer.model)) {
+			long held = heldPayloadBytes();
+			if (held > 0 && held + transfer.model.size > PAYLOAD_BUDGET) {
+				return; // wait for a download in flight to let its bytes go
+			}
+		}
+		if (!modelMemory.tryAcquire()) {
 			return; // try again next tick
 		}
 		transfer.preparing = true;
@@ -1028,7 +1113,7 @@ public final class BpmService {
 			} catch (Throwable t) {
 				logger.warn("Could not prepare model {}: {}", transfer.model.modelId, t.getMessage());
 			} finally {
-				preparePermits.release();
+				modelMemory.release();
 			}
 			byte[] ready = payload;
 			post(() -> {
@@ -1040,6 +1125,24 @@ public final class BpmService {
 				}
 			});
 		});
+	}
+
+	/** Whether another download already holds this model's payload, so sharing it costs nothing. */
+	private boolean inMemory(ServerModel model) {
+		java.lang.ref.SoftReference<byte[]> ref = payloadCache.get(cacheKey(model));
+		return ref != null && ref.get() != null;
+	}
+
+	/** Payload bytes the downloads in flight hold right now. Runs on the network thread. */
+	private long heldPayloadBytes() {
+		long held = 0;
+		for (Session session : sessions.values()) {
+			PendingTransfer transfer = session.currentTransfer;
+			if (transfer != null && transfer.payload != null) {
+				held += transfer.payload.length;
+			}
+		}
+		return held;
 	}
 
 	private static String cacheKey(ServerModel model) {
@@ -1063,10 +1166,7 @@ public final class BpmService {
 		if (Files.isRegularFile(cached)) {
 			payload = Files.readAllBytes(cached);
 		} else {
-			byte[] data = Files.readAllBytes(model.file);
-			int offset = isYsmm(data) ? 4 : 0;
-			payload = YsmCrypt.encryptServerCache(data, offset, data.length - offset, SERVER_KEY, model.hash1, model.hash2);
-			data = null;
+			payload = YsmCrypt.sealServerCache(cachePlaintext(model.file), SERVER_KEY, model.hash1, model.hash2);
 			try {
 				writeAtomically(cached, payload);
 			} catch (Exception e) {
@@ -1075,6 +1175,16 @@ public final class BpmService {
 		}
 		payloadCache.put(key, new java.lang.ref.SoftReference<>(payload));
 		return payload;
+	}
+
+	/**
+	 * The model file compressed and padded, ready to seal. Its own method so the file's
+	 * bytes are unreachable by the time sealing allocates the encrypted copy.
+	 */
+	private static YsmCrypt.CachePlaintext cachePlaintext(Path file) throws java.io.IOException {
+		byte[] data = Files.readAllBytes(file);
+		int offset = isYsmm(data) ? 4 : 0;
+		return YsmCrypt.cachePlaintext(data, offset, data.length - offset);
 	}
 
 	/** Remove cached payloads of models no longer in the catalog. */
@@ -1523,25 +1633,34 @@ public final class BpmService {
 			sendUploadResult(player, uploadId, (byte) 1, "", 0L, 0L, "Model ID already exists.");
 			return;
 		}
-		if (!modelProcessingPermits.tryAcquire()) {
-			processingModelIds.remove(upload.modelId);
-			sendUploadResult(player, uploadId, (byte) 8, "", 0L, 0L, "Server is processing too many model imports.");
-			return;
-		}
 		logger.info("Completed model upload from {} for {}; compiling", player.getUsername(), upload.modelId);
 		UUID uploaderId = player.getUniqueId();
 		workers.execute(() -> {
 			ServerModel model = null;
 			String error = null;
 			try {
-				byte[] data = upload.fileData;
-				byte[] compiled = compileModelToYsm(data);
-				if (compiled != null) {
-					data = withYsmmPrefix(compiled);
+				// queued behind whatever model is being worked on, rather than refused
+				modelMemory.acquire();
+				try {
+					byte[] data = upload.fileData;
+					upload.fileData = null;
+					Path output = resolveModelOutput(upload.modelId);
+					byte[] compiled = compileModelToYsm(data);
+					ModelIndex.Entry entry;
+					if (compiled == null) {
+						writeAtomically(output, data);
+						entry = describe(upload.modelId, sha256Hex(data), data, 4, output);
+					} else {
+						data = null;
+						entry = describe(upload.modelId, writeCompiled(output, compiled), compiled, 0, output);
+					}
+					model = serverModel(upload.modelId, output, entry);
+				} finally {
+					modelMemory.release();
 				}
-				Path output = resolveModelOutput(upload.modelId);
-				writeAtomically(output, data);
-				model = createServerModel(upload.modelId, data, output);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				error = "The server is shutting down.";
 			} catch (Exception e) {
 				logger.warn("Failed to process uploaded model {}: {}", upload.modelId, e.getMessage());
 				error = "The uploaded model could not be processed.";
@@ -1560,7 +1679,6 @@ public final class BpmService {
 					}
 				} finally {
 					processingModelIds.remove(upload.modelId);
-					modelProcessingPermits.release();
 				}
 			});
 		});
@@ -1679,11 +1797,15 @@ public final class BpmService {
 		return output;
 	}
 
-	private static void writeAtomically(Path output, byte[] data) throws java.io.IOException {
+	private static void writeAtomically(Path output, byte[]... parts) throws java.io.IOException {
 		Files.createDirectories(output.getParent());
 		Path temp = Files.createTempFile(output.getParent(), output.getFileName().toString(), ".tmp");
 		try {
-			Files.write(temp, data);
+			try (java.io.OutputStream out = Files.newOutputStream(temp)) {
+				for (byte[] part : parts) {
+					out.write(part);
+				}
+			}
 			try {
 				Files.move(temp, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 			} catch (AtomicMoveNotSupportedException ignored) {

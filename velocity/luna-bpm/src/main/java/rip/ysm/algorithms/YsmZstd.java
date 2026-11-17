@@ -38,6 +38,42 @@ public class YsmZstd {
         return compress(rawData, 0, rawData.length);
     }
 
+    /** A compressed frame at {@code data[start, end)}, with {@code start} bytes reserved ahead of it. */
+    public record Framed(byte[] data, int start, int end) {
+    }
+
+    /**
+     * {@link #compress(byte[], int, int)} written behind {@code reserve} free bytes of the
+     * returned array, without copying the input or trimming the output. The array is
+     * usually longer than {@code end}: a large model would otherwise cost a copy of its
+     * input, a bound-sized output and a trimmed copy of that, all alive at once.
+     */
+    public static Framed compressReserving(int reserve, byte[] rawData, int offset, int length) {
+        try {
+            // a model is mostly PNG data that zstd shrinks to about a third; try half first
+            // and only pay for the full bound when that does not fit
+            long[] attempts = {length / 2L + 64 * 1024L, Zstd.compressBound(length)};
+            for (long attempt : attempts) {
+                if (reserve + attempt > Integer.MAX_VALUE - 16) {
+                    continue;
+                }
+                byte[] dst = new byte[(int) (reserve + attempt)];
+                long written = Zstd.compressByteArray(dst, reserve, (int) attempt, rawData, offset, length, 3);
+                if (!Zstd.isError(written)) {
+                    obfuscate(dst, reserve, reserve + (int) written);
+                    return new Framed(dst, reserve, reserve + (int) written);
+                }
+            }
+        } catch (Throwable ignored) {
+            // no zstd-jni on this platform: the copying path below has its own fallbacks
+        }
+
+        byte[] frame = compress(rawData, offset, length);
+        byte[] dst = new byte[reserve + frame.length];
+        System.arraycopy(frame, 0, dst, reserve, frame.length);
+        return new Framed(dst, reserve, dst.length);
+    }
+
     public static byte[] compress(byte[] rawData, int offset, int length) {
         try {
             return compressWithYsmNative(rawData, offset, length, 3);
@@ -258,21 +294,29 @@ public class YsmZstd {
     }
 
     private static byte[] obfuscate(byte[] data) {
-        if (data == null || data.length < 5) {
+        if (data == null) {
+            throw new IllegalArgumentException("Invalid data length");
+        }
+        return obfuscate(data, 0, data.length);
+    }
+
+    /** {@link #obfuscate(byte[])} over the frame in {@code data[start, end)}, in place. */
+    private static byte[] obfuscate(byte[] data, int start, int end) {
+        if (data == null || end - start < 5) {
             throw new IllegalArgumentException("Invalid data length");
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
-        int magic = buffer.getInt(0);
+        int magic = buffer.getInt(start);
         if (magic != 0xFD2FB528) {
             throw new IllegalArgumentException("Not a standard ZSTD frame.");
         }
 
-        byte fhd = data[4];
+        byte fhd = data[start + 4];
         int frameHeaderSize = calculateFrameHeaderSize(fhd);
-        int offset = 4 + frameHeaderSize;
+        int offset = start + 4 + frameHeaderSize;
 
-        while (offset + 3 <= data.length) {
+        while (offset + 3 <= end) {
             int b0 = data[offset] & 0xFF;
             int b1 = data[offset + 1] & 0xFF;
             int b2 = data[offset + 2] & 0xFF;
