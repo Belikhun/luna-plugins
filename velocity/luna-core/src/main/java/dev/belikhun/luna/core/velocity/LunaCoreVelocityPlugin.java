@@ -58,6 +58,8 @@ import dev.belikhun.luna.core.velocity.tabbridge.VelocityTabBridgeObserver;
 import dev.belikhun.luna.core.velocity.tablist.VelocityTabListRenderer;
 import dev.belikhun.luna.core.velocity.skins.VelocitySkinHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanHttpEndpoints;
+import dev.belikhun.luna.core.velocity.network.firewall.VelocityFirewall;
+import dev.belikhun.luna.core.velocity.network.firewall.VelocityFirewallHttpEndpoints;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkBanStore;
 import dev.belikhun.luna.core.velocity.network.VelocityNetworkPlayerBanStore;
 import dev.belikhun.luna.core.velocity.network.NetworkModeration;
@@ -142,6 +144,8 @@ public final class LunaCoreVelocityPlugin {
 	private final VelocityNetworkBanStore networkBanStore;
 	private final VelocityNetworkPlayerBanStore networkPlayerBanStore;
 	private final NetworkModeration networkModeration;
+	/** Long-lived too: its detector windows and unflushed hit counters must survive a reload. */
+	private final VelocityFirewall firewall;
 	private final SseBroadcaster telemetryBroadcaster;
 	private final SseBroadcaster playerBroadcaster;
 	/**
@@ -182,6 +186,7 @@ public final class LunaCoreVelocityPlugin {
 			this.networkPlayerBanStore,
 			this.networkBanStore
 		);
+		this.firewall = new VelocityFirewall(this.logger, this.networkBanStore, this.networkModeration);
 		// The database handle is built here so it exists before anything can ask for
 		// it; the messaging bus cannot be, because it registers a Velocity listener
 		// and the plugin has no container yet while Guice is still constructing it.
@@ -213,7 +218,7 @@ public final class LunaCoreVelocityPlugin {
 		ensureDefaults();
 		proxyServer.getEventManager().register(this, playerSessionRegistry);
 		proxyServer.getEventManager().register(this, playerRecordStore);
-		proxyServer.getEventManager().register(this, networkBanStore);
+		proxyServer.getEventManager().register(this, firewall);
 		proxyServer.getEventManager().register(this, networkPlayerBanStore);
 		proxyServer.getEventManager().register(this, tabBridgeObserver);
 		placeholderModule = new VelocityPlaceholderModule(this, proxyServer, dataDirectory, new LuckPermsService(), logger);
@@ -231,6 +236,7 @@ public final class LunaCoreVelocityPlugin {
 		telemetryBroadcaster.close();
 		playerBroadcaster.close();
 		playerRecordStore.shutdown();
+		firewall.shutdown();
 		networkBanStore.shutdown();
 		networkPlayerBanStore.shutdown();
 		heartbeatSweepExecutor.shutdownNow();
@@ -275,6 +281,7 @@ public final class LunaCoreVelocityPlugin {
 		prepareDirectorySchema(sharedDatabase);
 		playerRecordStore.attach(sharedDatabase);
 		networkBanStore.attach(sharedDatabase);
+		firewall.attach(sharedDatabase);
 		networkPlayerBanStore.attach(sharedDatabase);
 		backendStatusRegistry.updateTimeoutMillis(heartbeatTimeoutMillis);
 		ServerDisplayResolver nextServerDisplayResolver = new VelocitySelectorServerDisplayResolver(nextSelectorConfig, backendStatusRegistry);
@@ -324,6 +331,13 @@ public final class LunaCoreVelocityPlugin {
 			playerSessionRegistry,
 			playerRecordStore,
 			permissionService,
+			authorizer
+		).register(nextHttpServerManager.router());
+
+		new VelocityFirewallHttpEndpoints(
+			logger,
+			firewall,
+			networkModeration,
 			authorizer
 		).register(nextHttpServerManager.router());
 
@@ -422,7 +436,7 @@ public final class LunaCoreVelocityPlugin {
 		dependencyManager.registerSingleton(VelocityTemplateRenderer.class, placeholderModule.templates());
 		dependencyManager.registerSingleton(VelocityTabBridgeObserver.class, tabBridgeObserver);
 		dependencyManager.registerSingleton(DependencyManager.class, dependencyManager);
-		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, playerDisplayFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry));
+		LunaCoreVelocity.set(new LunaCoreVelocityServices(this, proxyServer, logger, moneyFormat, playerDisplayFormat, dependencyManager, httpServerManager, pluginMessagingBus, backendStatusRegistry, backendStatusRegistry, firewall));
 
 		unregisterOwnedCommands();
 		registerCommands(serverSelectorConfig);

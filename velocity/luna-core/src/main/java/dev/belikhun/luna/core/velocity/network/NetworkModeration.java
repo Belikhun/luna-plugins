@@ -3,6 +3,7 @@ package dev.belikhun.luna.core.velocity.network;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.network.firewall.IpRanges;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 
 import java.net.InetSocketAddress;
@@ -173,6 +174,11 @@ public final class NetworkModeration {
 	 * from that address is disconnected.
 	 */
 	public Result banIp(String target, String reason, String actor, long expiresAt) {
+		return banIp(target, reason, actor, expiresAt, "manual");
+	}
+
+	/** {@link #banIp(String, String, String, long)} from {@code source}: {@code manual}, or the firewall detector that decided it. */
+	public Result banIp(String target, String reason, String actor, long expiresAt, String source) {
 		if (!ipBans.available()) {
 			return Result.failure(503, "network ban database is not available");
 		}
@@ -192,11 +198,14 @@ public final class NetworkModeration {
 		}
 
 		String cleanReason = clean(reason);
-		VelocityNetworkBanStore.Entry entry = ipBans.add(ip, cleanReason, actorName(actor), expiresAt);
+		VelocityNetworkBanStore.Entry entry = ipBans.add(ip, cleanReason, actorName(actor), expiresAt, source);
 		List<String> kicked = new ArrayList<>();
 
+		IpRanges.Range banned = IpRanges.parseRange(entry.ip);
+
 		for (Player player : proxyServer.getAllPlayers()) {
-			if (!ip.equals(addressOf(player))) {
+			// a prefix ban reaches everyone inside it, not only an exact match
+			if (banned == null || !banned.contains(IpRanges.parseAddress(addressOf(player)))) {
 				continue;
 			}
 
@@ -204,15 +213,20 @@ public final class NetworkModeration {
 			kicked.add(player.getUsername());
 		}
 
-		recordStore.recordModeration(
-			"",
-			ip,
-			"network-ban-ip",
-			actorName(actor),
-			cleanReason,
-			"proxy",
-			resolvedFrom.isBlank() ? "" : "player=" + resolvedFrom
-		);
+		// the moderation log is what people did; a detector's ban is the
+		// firewall's record (its ban history and activity), or a scanner wave
+		// would bury every human entry
+		if ("manual".equals(source)) {
+			recordStore.recordModeration(
+				"",
+				ip,
+				"network-ban-ip",
+				actorName(actor),
+				cleanReason,
+				"proxy",
+				resolvedFrom.isBlank() ? "" : "player=" + resolvedFrom
+			);
+		}
 
 		Map<String, Object> payload = ipBanRow(entry);
 		payload.put("resolvedFrom", resolvedFrom);
@@ -232,7 +246,7 @@ public final class NetworkModeration {
 			return Result.failure(400, "a valid bare IP address is required");
 		}
 
-		boolean existed = ipBans.remove(ip);
+		boolean existed = ipBans.remove(ip, actorName(actor));
 
 		if (existed) {
 			recordStore.recordModeration("", ip, "network-pardon-ip", actorName(actor), clean(reason), "proxy", "");
@@ -264,6 +278,8 @@ public final class NetworkModeration {
 		row.put("ip", entry.ip);
 		row.put("reason", entry.reason);
 		row.put("actor", entry.actor);
+		row.put("source", entry.source);
+		row.put("strikes", entry.strikes);
 		row.put("createdAtEpochMillis", entry.createdAt);
 		row.put("expiresAtEpochMillis", entry.expiresAt);
 		row.put("hits", entry.hits);

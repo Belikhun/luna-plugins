@@ -6,6 +6,7 @@ import dev.belikhun.luna.core.api.heartbeat.BackendHeartbeatEventEmitter;
 import dev.belikhun.luna.core.api.heartbeat.BackendStatusView;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
+import dev.belikhun.luna.core.velocity.network.firewall.VelocityFirewall;
 
 public record LunaCoreVelocityServices(
 	LunaCoreVelocityPlugin plugin,
@@ -17,6 +18,7 @@ public record LunaCoreVelocityServices(
 	VelocityHttpServerManager httpServerManager,
 	VelocityPluginMessagingBus pluginMessagingBus,
 	BackendStatusView backendStatusView,
-	BackendHeartbeatEventEmitter heartbeatEventEmitter
+	BackendHeartbeatEventEmitter heartbeatEventEmitter,
+	VelocityFirewall firewall
 ) {
 }

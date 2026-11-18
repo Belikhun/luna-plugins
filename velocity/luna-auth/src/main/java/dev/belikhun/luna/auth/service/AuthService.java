@@ -4,6 +4,7 @@ import dev.belikhun.luna.auth.model.AuthAccount;
 import dev.belikhun.luna.core.api.auth.OfflineUuid;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
 import dev.belikhun.luna.core.api.string.Formatters;
+import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -171,6 +172,7 @@ public final class AuthService {
 			recordAudit(playerUuid, ipAddress, "LOGIN_WRONG_PASSWORD", "FAILED", "Sai mật khẩu", username, now);
 			repository.recordAttemptLegacy(playerUuid, username, ipAddress, false, "LOGIN_WRONG_PASSWORD", now);
 			repository.recordSessionEvent(playerUuid, username, ipAddress, "LOGIN_WRONG_PASSWORD", "Sai mật khẩu", now);
+			reportToFirewall(ipAddress, username);
 			if (lockoutUntil > 0L) {
 				recordAudit(playerUuid, ipAddress, "LOGIN_LOCKOUT_TRIGGERED", "FAILED", "Vượt ngưỡng sai mật khẩu", username, now);
 				repository.recordSessionEvent(playerUuid, username, ipAddress, "LOGIN_LOCKOUT_TRIGGERED", "Vượt ngưỡng sai mật khẩu", now);
@@ -408,6 +410,19 @@ public final class AuthService {
 		repository.recordAttemptLegacy(playerUuid, username, ipAddress, true, "ADMIN_TEMPORARY_PASSWORD", now);
 		repository.recordSessionEvent(playerUuid, username, ipAddress, "ADMIN_TEMPORARY_PASSWORD", "Cấp mật khẩu tạm thời (" + window + ")", now);
 		return AuthResult.success("✔ Đã cấp mật khẩu tạm thời, hết hạn sau " + window + ".");
+	}
+
+	/**
+	 * Feed the proxy firewall's failed-login detector. An older LunaCore has no
+	 * firewall, and a LunaCore still starting has no services; neither may break a
+	 * login, so both are swallowed.
+	 */
+	private void reportToFirewall(String ipAddress, String username) {
+		try {
+			LunaCoreVelocity.services().firewall().reportFailedLogin(ipAddress, username);
+		} catch (RuntimeException | LinkageError exception) {
+			// no firewall to tell
+		}
 	}
 
 	/**

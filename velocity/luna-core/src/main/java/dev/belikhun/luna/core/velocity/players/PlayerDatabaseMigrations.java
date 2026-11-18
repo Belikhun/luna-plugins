@@ -204,5 +204,111 @@ public final class PlayerDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return NAMESPACE;
+			}
+
+			@Override
+			public int version() {
+				return 5;
+			}
+
+			@Override
+			public String name() {
+				return "create_firewall_tables";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				// a ban now says where it came from and how many times the address was
+				// banned, which is what escalates an automatic ban's length
+				database.update(
+					"ALTER TABLE luna_network_ip_bans ADD COLUMN IF NOT EXISTS source VARCHAR(32) NOT NULL DEFAULT 'manual'",
+					List.of()
+				);
+				database.update(
+					"ALTER TABLE luna_network_ip_bans ADD COLUMN IF NOT EXISTS strikes INT NOT NULL DEFAULT 1",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_network_ip_ban_history ("
+						+ "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+						+ "ip VARCHAR(64) NOT NULL, "
+						+ "reason TEXT NULL, "
+						+ "actor VARCHAR(64) NOT NULL DEFAULT '', "
+						+ "source VARCHAR(32) NOT NULL DEFAULT 'manual', "
+						+ "strikes INT NOT NULL DEFAULT 1, "
+						+ "created_at BIGINT NOT NULL, "
+						+ "expires_at BIGINT NULL, "
+						+ "hits BIGINT NOT NULL DEFAULT 0, "
+						+ "ended_at BIGINT NOT NULL, "
+						+ "ended VARCHAR(16) NOT NULL, "
+						+ "ended_by VARCHAR(64) NOT NULL DEFAULT '', "
+						+ "KEY idx_ban_history_ip (ip, ended_at), "
+						+ "KEY idx_ban_history_ended (ended_at)"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_firewall_rules ("
+						+ "id VARCHAR(32) PRIMARY KEY, "
+						+ "action VARCHAR(8) NOT NULL, "
+						+ "enabled TINYINT NOT NULL DEFAULT 1, "
+						+ "addresses TEXT NULL, "
+						+ "countries TEXT NULL, "
+						+ "note TEXT NULL, "
+						+ "created_by VARCHAR(64) NOT NULL DEFAULT '', "
+						+ "created_at BIGINT NOT NULL, "
+						+ "updated_at BIGINT NOT NULL, "
+						+ "hits BIGINT NOT NULL DEFAULT 0, "
+						+ "last_hit_at BIGINT NULL"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_firewall_settings ("
+						+ "k VARCHAR(64) PRIMARY KEY, "
+						+ "v TEXT NULL"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_firewall_countries ("
+						+ "code CHAR(2) PRIMARY KEY, "
+						+ "release_tag VARCHAR(16) NOT NULL DEFAULT '', "
+						+ "prefixes MEDIUMTEXT NULL, "
+						+ "updated_at BIGINT NOT NULL"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_firewall_refusals ("
+						+ "id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+						+ "at BIGINT NOT NULL, "
+						+ "ip VARCHAR(64) NOT NULL, "
+						+ "username VARCHAR(32) NOT NULL DEFAULT '', "
+						+ "kind VARCHAR(16) NOT NULL, "
+						+ "reason VARCHAR(32) NOT NULL, "
+						+ "detail VARCHAR(255) NOT NULL DEFAULT '', "
+						+ "count INT NOT NULL DEFAULT 1, "
+						+ "KEY idx_refusals_at (at), "
+						+ "KEY idx_refusals_ip (ip, at)"
+						+ ")",
+					List.of()
+				);
+				database.update(
+					"CREATE TABLE IF NOT EXISTS luna_firewall_hourly ("
+						+ "hour BIGINT NOT NULL, "
+						+ "reason VARCHAR(32) NOT NULL, "
+						+ "count BIGINT NOT NULL DEFAULT 0, "
+						+ "PRIMARY KEY (hour, reason)"
+						+ ")",
+					List.of()
+				);
+			}
+		});
 	}
 }

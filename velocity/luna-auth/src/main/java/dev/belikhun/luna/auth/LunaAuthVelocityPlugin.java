@@ -267,6 +267,13 @@ public final class LunaAuthVelocityPlugin {
 
 	@Subscribe
 	public void onPreLogin(PreLoginEvent event) {
+		// a refusal already made (the firewall, a network ban) keeps its own
+		// message; "auth is starting" would tell a banned address to retry
+		if (!event.getResult().isAllowed()) {
+			flow("PreLogin bị bỏ qua vì event đã bị deny trước đó cho username=" + event.getUsername());
+			return;
+		}
+
 		if (!isReady()) {
 			event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(backendNotReadyMessage)));
 			warnNotReady("PreLogin", event.getUsername());
@@ -279,10 +286,6 @@ public final class LunaAuthVelocityPlugin {
 			return;
 		}
 
-		if (!event.getResult().isAllowed()) {
-			flow("PreLogin bị bỏ qua vì event đã bị deny trước đó cho username=" + event.getUsername());
-			return;
-		}
 		flow("Incoming login request username=" + event.getUsername() + " remote=" + event.getConnection().getRemoteAddress());
 		if (proxyServer.getConfiguration().isOnlineMode()) {
 			flow("Proxy global online-mode=true, bỏ qua mixed-mode premium check.");
