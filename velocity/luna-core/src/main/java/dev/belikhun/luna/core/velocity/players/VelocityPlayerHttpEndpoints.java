@@ -31,6 +31,7 @@ public final class VelocityPlayerHttpEndpoints {
 	private final LunaLogger logger;
 	private final ProxyServer proxyServer;
 	private final VelocityPlayerSessionRegistry sessionRegistry;
+	private final VelocityChatChannels chatChannels;
 	private final RequestAuthorizer authorizer;
 	private final SseBroadcaster broadcaster;
 
@@ -38,12 +39,14 @@ public final class VelocityPlayerHttpEndpoints {
 		LunaLogger logger,
 		ProxyServer proxyServer,
 		VelocityPlayerSessionRegistry sessionRegistry,
+		VelocityChatChannels chatChannels,
 		RequestAuthorizer authorizer,
 		SseBroadcaster broadcaster
 	) {
 		this.logger = logger.scope("PlayerHttp");
 		this.proxyServer = proxyServer;
 		this.sessionRegistry = sessionRegistry;
+		this.chatChannels = chatChannels;
 		this.authorizer = authorizer;
 		this.broadcaster = broadcaster;
 	}
@@ -165,6 +168,11 @@ public final class VelocityPlayerHttpEndpoints {
 		payload.put("server", line.server());
 		payload.put("content", line.content());
 		payload.put("atEpochMillis", line.atEpochMillis());
+		payload.put("channel", line.channel() == null ? null : line.channel().type());
+		payload.put("channelTargetUuid", line.channel() == null || line.channel().targetId() == null
+			? null
+			: line.channel().targetId().toString());
+		payload.put("channelTargetName", line.channel() == null ? null : line.channel().targetName());
 
 		broadcaster.broadcast("chat", LunaJson.write(payload));
 	}
@@ -211,7 +219,40 @@ public final class VelocityPlayerHttpEndpoints {
 		row.put("protocolVersion", player.getProtocolVersion().getProtocol());
 		row.put("clientVersion", player.getProtocolVersion().getVersionIntroducedIn());
 		row.put("onlineMode", player.isOnlineMode());
+		row.put("chatChannel", channelPayload(chatChannels.current(player).orElse(null)));
 		return row;
+	}
+
+	/**
+	 * A chat channel as the roster spells it, or null when nothing knows the
+	 * player's channel (no chat router installed): the console shows that as
+	 * unknown instead of assuming the network channel.
+	 *
+	 * The other side of a direct channel is left out. Who somebody is privately
+	 * talking to is chat, and the roster is read by accounts that may not read
+	 * chat; {@link #channelPayload(VelocityChatChannels.Channel, boolean)} names
+	 * it for the routes the console keeps behind its chat permissions.
+	 */
+	public static Map<String, Object> channelPayload(VelocityChatChannels.Channel channel) {
+		return channelPayload(channel, false);
+	}
+
+	/**
+	 * @param withTarget whether to name the other side of a direct channel
+	 */
+	public static Map<String, Object> channelPayload(VelocityChatChannels.Channel channel, boolean withTarget) {
+		if (channel == null) {
+			return null;
+		}
+
+		boolean named = withTarget && channel.targetId() != null;
+
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", channel.type());
+		payload.put("targetUuid", named ? channel.targetId().toString() : null);
+		payload.put("targetName", named ? channel.targetName() : null);
+		payload.put("isolated", channel.isolated());
+		return payload;
 	}
 
 	private Map<String, Object> buildActivity(VelocityPlayerSessionRegistry.Activity activity) {

@@ -150,25 +150,34 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				String uuid = stringOf(profile.get("uuid"));
 				String type = normalizeType(request.queryParam("type", ""));
 				String server = normalize(request.queryParam("server", ""));
+				String channel = normalize(request.queryParam("channel", ""));
 				int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
 				int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
 
 				List<Map<String, Object>> entries = new ArrayList<>();
-				for (Map<String, Object> row : recordStore.chat(uuid, type, server, offset, limit)) {
+				for (Map<String, Object> row : recordStore.chat(uuid, type, server, channel, offset, limit)) {
 					Map<String, Object> entry = new LinkedHashMap<>();
 					entry.put("id", longOf(row.get("id")));
 					entry.put("server", stringOf(row.get("server")));
 					entry.put("type", stringOf(row.get("type")));
 					entry.put("content", stringOf(row.get("content")));
 					entry.put("atEpochMillis", longOf(row.get("at")));
+					putChannel(entry, row);
 					entries.add(entry);
 				}
 
 				Map<String, Object> payload = new LinkedHashMap<>();
-				payload.put("total", recordStore.chatCount(uuid, type, server));
+				payload.put("total", recordStore.chatCount(uuid, type, server, channel));
 				payload.put("offset", offset);
 				payload.put("limit", limit);
 				payload.put("entries", entries);
+				// The channel they are in now, with the other side of a direct one named:
+				// this route is the one the console keeps behind its chat permissions,
+				// which the roster and the profile are not.
+				payload.put("currentChannel", resolveOnline(uuid)
+					.map(online -> VelocityPlayerHttpEndpoints.channelPayload(
+						recordStore.chatChannels().current(online).orElse(null), true))
+					.orElse(null));
 				return LunaJson.envelope(200, payload, startedAt);
 			});
 		});
@@ -207,11 +216,12 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 			String server = normalize(request.queryParam("server", ""));
 			String type = normalizeType(request.queryParam("type", ""));
 			String search = request.queryParam("search", "");
+			String channel = normalize(request.queryParam("channel", ""));
 			int limit = clamp(parseInt(request.queryParam("limit", ""), DEFAULT_PAGE_LIMIT), 1, MAX_PAGE_LIMIT);
 			int offset = Math.max(0, parseInt(request.queryParam("offset", ""), 0));
 
 			List<Map<String, Object>> entries = new ArrayList<>();
-			for (Map<String, Object> row : recordStore.serverChat(server, type, search, offset, limit)) {
+			for (Map<String, Object> row : recordStore.serverChat(server, type, search, channel, offset, limit)) {
 				Map<String, Object> entry = new LinkedHashMap<>();
 				entry.put("id", longOf(row.get("id")));
 				entry.put("uuid", stringOf(row.get("uuid")));
@@ -220,11 +230,12 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				entry.put("type", stringOf(row.get("type")));
 				entry.put("content", stringOf(row.get("content")));
 				entry.put("atEpochMillis", longOf(row.get("at")));
+				putChannel(entry, row);
 				entries.add(entry);
 			}
 
 			Map<String, Object> payload = new LinkedHashMap<>();
-			payload.put("total", recordStore.serverChatCount(server, type, search));
+			payload.put("total", recordStore.serverChatCount(server, type, search, channel));
 			payload.put("offset", offset);
 			payload.put("limit", limit);
 			payload.put("server", server);
@@ -395,6 +406,7 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 				.orElse(""));
 			row.put("pingMillis", Math.max(0L, player.getPing()));
 			row.put("sessionMillis", liveMillis);
+			row.put("chatChannel", VelocityPlayerHttpEndpoints.channelPayload(recordStore.chatChannels().current(player).orElse(null)));
 			// The open stint is not yet in total_play_millis; add it so the roster
 			// column does not appear frozen while someone plays.
 			totalPlayMillis += liveMillis;
@@ -402,6 +414,7 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 			row.put("server", "");
 			row.put("pingMillis", 0L);
 			row.put("sessionMillis", 0L);
+			row.put("chatChannel", null);
 		}
 
 		row.put("totalPlayMillis", totalPlayMillis);
@@ -450,6 +463,16 @@ public final class VelocityPlayerDirectoryHttpEndpoints {
 		}
 
 		return summary;
+	}
+
+	/**
+	 * The chat channel a line was recorded in. All three stay null for a line
+	 * stored before channels were recorded, or while no chat router was installed.
+	 */
+	private void putChannel(Map<String, Object> entry, Map<String, Object> row) {
+		entry.put("channel", nullableString(row.get("channel")));
+		entry.put("channelTargetUuid", nullableString(row.get("channel_target_uuid")));
+		entry.put("channelTargetName", nullableString(row.get("channel_target_name")));
 	}
 
 	private Optional<Player> resolveOnline(String uuidText) {

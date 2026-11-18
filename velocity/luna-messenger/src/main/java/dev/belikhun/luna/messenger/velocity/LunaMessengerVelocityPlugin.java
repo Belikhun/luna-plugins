@@ -9,6 +9,7 @@ import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.belikhun.luna.core.api.config.LunaYamlConfig;
 import dev.belikhun.luna.core.api.database.Database;
@@ -21,6 +22,8 @@ import dev.belikhun.luna.core.api.string.Formatters;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.VelocityHttpServerManager;
 import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
+import dev.belikhun.luna.core.velocity.players.VelocityChatChannels;
+import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 import dev.belikhun.luna.core.velocity.messaging.VelocityPluginMessagingBus;
 import dev.belikhun.luna.messenger.velocity.command.MessengerAdminCommand;
 import dev.belikhun.luna.messenger.velocity.command.MessengerBroadcastCommand;
@@ -77,6 +80,8 @@ public final class LunaMessengerVelocityPlugin {
 	private BackendStatusView backendStatusView;
 	private ServerDisplayResolver serverDisplayResolver;
 	private ChatBridgeService chatBridge;
+	private VelocityChatChannels chatChannels;
+	private VelocityChatChannels.Provider chatChannelProvider;
 
 	@Inject
 	public LunaMessengerVelocityPlugin(ProxyServer proxyServer, @DataDirectory Path dataDirectory) {
@@ -122,6 +127,7 @@ public final class LunaMessengerVelocityPlugin {
 		proxyServer.getEventManager().register(this, new DiscordLinkServerProtectionListener(logger, () -> currentConfig, () -> discordAccountLinkService, () -> serverDisplayResolver));
 		router.publishPresenceSnapshot();
 		registerChatBridge();
+		registerChatChannels();
 		logger.audit("Thư mục dữ liệu messenger: " + dataDirectory.toAbsolutePath());
 		logger.audit("Discord bridge enabled: " + config.discord().enabled());
 		logger.success("LunaMessenger (Velocity) đã khởi động thành công.");
@@ -134,6 +140,9 @@ public final class LunaMessengerVelocityPlugin {
 		}
 		if (chatBridge != null) {
 			chatBridge.close();
+		}
+		if (chatChannels != null && chatChannelProvider != null) {
+			chatChannels.withdraw(chatChannelProvider);
 		}
 		if (router != null) {
 			router.close();
@@ -161,6 +170,38 @@ public final class LunaMessengerVelocityPlugin {
 		chatBridge = new ChatBridgeService(proxyServer, logger, router, () -> currentConfig);
 		chatBridge.register(httpServerManager.router());
 		logger.audit("Đã đăng ký endpoint /messenger/bridge (bật: " + currentConfig.chatBridge().enabled() + ").");
+	}
+
+	/**
+	 * Tell LunaCore which channel each player talks in, and let it change one.
+	 * LunaCore records chat and answers the console but the channel is this
+	 * plugin's state, so it asks through a holder that outlives its own reloads.
+	 */
+	private void registerChatChannels() {
+		VelocityPlayerRecordStore store = LunaCoreVelocity.services().dependencyManager()
+			.resolveOptional(VelocityPlayerRecordStore.class)
+			.orElse(null);
+
+		if (store == null) {
+			logger.warn("LunaCore không có sổ ghi người chơi — kênh chat sẽ không được ghi lại.");
+			return;
+		}
+
+		VelocityMessengerRouter boundRouter = router;
+
+		chatChannelProvider = new VelocityChatChannels.Provider() {
+			@Override
+			public VelocityChatChannels.Channel current(Player player) {
+				return boundRouter.channelOf(player);
+			}
+
+			@Override
+			public VelocityChatChannels.Change set(Player player, String type, Player target, String actor) {
+				return boundRouter.forceChannel(player, type, target, actor);
+			}
+		};
+		chatChannels = store.chatChannels();
+		chatChannels.provide(chatChannelProvider);
 	}
 
 	private void ensureDefaults() {

@@ -364,6 +364,7 @@ public final class LunaCoreVelocityPlugin {
 			logger,
 			proxyServer,
 			playerSessionRegistry,
+			playerRecordStore.chatChannels(),
 			authorizer,
 			playerBroadcaster
 		);

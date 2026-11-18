@@ -10,6 +10,7 @@ import dev.belikhun.luna.core.api.http.LunaJson;
 import dev.belikhun.luna.core.api.http.RequestAuthorizer;
 import dev.belikhun.luna.core.api.http.Router;
 import dev.belikhun.luna.core.api.logging.LunaLogger;
+import dev.belikhun.luna.core.velocity.players.VelocityChatChannels;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerHttpEndpoints;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 import net.kyori.adventure.text.Component;
@@ -198,6 +199,65 @@ public final class VelocityAdminHttpEndpoints {
 				Map<String, Object> payload = new LinkedHashMap<>();
 				payload.put("username", player.getUsername());
 				payload.put("uuid", player.getUniqueId().toString());
+				return LunaJson.envelope(200, payload, startedAt);
+			});
+		});
+
+		// Put a player in a chat channel. The channel itself is luna-messenger's
+		// state, reached through the holder it registers with, so a proxy without
+		// the messenger answers 503 rather than pretending the change happened.
+		router.post("/admin/players/{player}/channel", request -> {
+			return withPlayer(request, "channel", (player, body, startedAt) -> {
+				String type = VelocityChatChannels.normalizeType(body.getOrDefault("channel", ""));
+				String actor = body.getOrDefault("actor", "").trim();
+
+				if (type.isEmpty()) {
+					return LunaJson.error(400, "channel must be network, server or direct");
+				}
+
+				Player target = null;
+
+				if (VelocityChatChannels.DIRECT.equals(type)) {
+					String reference = body.getOrDefault("target", "").trim();
+
+					if (reference.isBlank()) {
+						return LunaJson.error(400, "target is required for a direct channel");
+					}
+
+					target = playerEndpoints.resolvePlayer(reference).orElse(null);
+
+					if (target == null) {
+						return LunaJson.error(404, "target not connected: " + reference);
+					}
+
+					if (target.getUniqueId().equals(player.getUniqueId())) {
+						return LunaJson.error(400, "a player cannot be in a direct channel with themselves");
+					}
+				}
+
+				Optional<VelocityChatChannels.Change> outcome = recordStore.chatChannels()
+					.set(player, type, target, actor.isBlank() ? "console" : actor);
+
+				if (outcome.isEmpty()) {
+					return LunaJson.error(503, "chat channels are not available: luna-messenger is not running on the proxy");
+				}
+
+				VelocityChatChannels.Change change = outcome.get();
+
+				if (!change.ok()) {
+					return LunaJson.error(409, change.error());
+				}
+
+				logger.audit((actor.isBlank() ? "Console" : actor) + " chuyển kênh chat của " + player.getUsername()
+					+ " sang " + type + (target == null ? "" : " (" + target.getUsername() + ")")
+					+ (change.changed() ? "" : " (không đổi)"));
+
+				Map<String, Object> payload = new LinkedHashMap<>();
+				payload.put("username", player.getUsername());
+				payload.put("uuid", player.getUniqueId().toString());
+				payload.put("changed", change.changed());
+				payload.put("previous", VelocityPlayerHttpEndpoints.channelPayload(change.previous(), true));
+				payload.put("channel", VelocityPlayerHttpEndpoints.channelPayload(change.current(), true));
 				return LunaJson.envelope(200, payload, startedAt);
 			});
 		});

@@ -20,6 +20,7 @@ import dev.belikhun.luna.core.api.messaging.PluginMessageWriter;
 import dev.belikhun.luna.core.api.server.ServerDisplayResolver;
 import dev.belikhun.luna.core.velocity.LunaCoreVelocity;
 import dev.belikhun.luna.core.velocity.VelocityPlayerDisplayFormat;
+import dev.belikhun.luna.core.velocity.players.VelocityChatChannels;
 import dev.belikhun.luna.core.velocity.players.VelocityPlayerRecordStore;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.sound.Sound;
@@ -260,6 +261,87 @@ public final class VelocityMessengerRouter {
 
 			seenPlayers.remove(oldest);
 		}
+	}
+
+	/**
+	 * The channel a player's next chat line goes to, in LunaCore's terms: what the
+	 * player directory records beside each line and the console shows. A player who
+	 * never switched has no entry and talks in the network channel, which is read
+	 * here without creating that entry.
+	 */
+	public VelocityChatChannels.Channel channelOf(Player player) {
+		MessagingContext context = contextByPlayer.get(player.getUniqueId());
+		String serverName = player.getCurrentServer()
+			.map(connection -> connection.getServerInfo().getName())
+			.orElse("");
+		boolean isolated = config.isIsolated(serverName);
+
+		if (context == null || context.type() == MessagingContextType.NETWORK) {
+			return new VelocityChatChannels.Channel(VelocityChatChannels.NETWORK, null, null, isolated);
+		}
+
+		if (context.type() == MessagingContextType.SERVER) {
+			return new VelocityChatChannels.Channel(VelocityChatChannels.SERVER, null, null, isolated);
+		}
+
+		return new VelocityChatChannels.Channel(
+			VelocityChatChannels.DIRECT,
+			context.directTargetId(),
+			context.directTargetName(),
+			isolated
+		);
+	}
+
+	/**
+	 * Put a player in a channel on an administrator's word (the console's "set
+	 * chat channel") and tell them, since their next message would otherwise go
+	 * somewhere they did not choose without a hint. Setting the channel they are
+	 * already in changes nothing and says nothing.
+	 */
+	public VelocityChatChannels.Change forceChannel(Player player, String type, Player target, String actor) {
+		VelocityChatChannels.Channel previous = channelOf(player);
+		MessagingContext next;
+		String notice;
+
+		switch (VelocityChatChannels.normalizeType(type)) {
+			case VelocityChatChannels.NETWORK -> {
+				next = MessagingContext.network();
+				notice = "<yellow>ℹ Quản trị viên đã chuyển bạn sang kênh <white>mạng</white>.</yellow>";
+			}
+			case VelocityChatChannels.SERVER -> {
+				next = MessagingContext.server();
+				notice = "<yellow>ℹ Quản trị viên đã chuyển bạn sang kênh <white>máy chủ</white>.</yellow>";
+			}
+			case VelocityChatChannels.DIRECT -> {
+				if (target == null) {
+					return new VelocityChatChannels.Change("a direct channel needs a connected target", previous, previous);
+				}
+
+				if (target.getUniqueId().equals(player.getUniqueId())) {
+					return new VelocityChatChannels.Change("a player cannot be in a direct channel with themselves", previous, previous);
+				}
+
+				next = MessagingContext.direct(target.getUniqueId(), target.getUsername());
+				notice = "<yellow>ℹ Quản trị viên đã chuyển bạn sang nhắn tin trực tiếp với <white>"
+					+ escape(target.getUsername()) + "</white>.</yellow>";
+			}
+			default -> {
+				return new VelocityChatChannels.Change("unknown chat channel: " + type, previous, previous);
+			}
+		}
+
+		contextByPlayer.put(player.getUniqueId(), next);
+
+		VelocityChatChannels.Channel current = channelOf(player);
+		VelocityChatChannels.Change change = new VelocityChatChannels.Change(null, previous, current);
+
+		if (change.changed()) {
+			sendInfo(player, notice);
+			logger.audit("CHANNEL " + player.getUsername() + " " + previous.type() + " -> " + current.type()
+				+ (target == null ? "" : " (" + target.getUsername() + ")") + " bởi " + actor);
+		}
+
+		return change;
 	}
 
 	/**
@@ -1668,7 +1750,7 @@ public final class VelocityMessengerRouter {
 		UUID speaker = UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8));
 
 		for (String line : lines) {
-			store.recordVirtualChat(speaker, senderName, "", line);
+			store.recordVirtualChat(speaker, senderName, "", line, VelocityChatChannels.NETWORK);
 		}
 	}
 

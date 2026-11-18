@@ -55,7 +55,14 @@ public final class VelocityPlayerRecordStore {
 	private final ExecutorService writer;
 
 	/** A chat line as it was recorded, for whoever wants to hear of it live. */
-	public record ChatLine(UUID uuid, String username, String server, String content, long atEpochMillis) {}
+	public record ChatLine(
+		UUID uuid,
+		String username,
+		String server,
+		String content,
+		long atEpochMillis,
+		VelocityChatChannels.Channel channel
+	) {}
 
 	/**
 	 * Told of each chat line once it is in the database, so a reader woken by it
@@ -63,6 +70,9 @@ public final class VelocityPlayerRecordStore {
 	 */
 	private volatile Consumer<ChatLine> chatListener;
 	private volatile Database database;
+
+	/** Who knows each player's chat channel; filled in by luna-messenger when it is installed. */
+	private final VelocityChatChannels chatChannels = new VelocityChatChannels();
 
 	public VelocityPlayerRecordStore(ProxyServer proxyServer, LunaLogger logger) {
 		this.proxyServer = proxyServer;
@@ -73,6 +83,11 @@ public final class VelocityPlayerRecordStore {
 			thread.setDaemon(true);
 			return thread;
 		});
+	}
+
+	/** The chat channel holder the chat router registers with and every reader asks. */
+	public VelocityChatChannels chatChannels() {
+		return chatChannels;
 	}
 
 	/** Swap the database handle on reload and heal stints orphaned by a crash. */
@@ -172,9 +187,14 @@ public final class VelocityPlayerRecordStore {
 		String message = event.getMessage();
 		long now = System.currentTimeMillis();
 
+		// Read here, on the event, not on the writer thread: the channel that
+		// matters is the one the player was in when they pressed enter. Null when
+		// no chat router is installed, which is stored as null and shown as unknown.
+		VelocityChatChannels.Channel channel = chatChannels.current(player).orElse(null);
+
 		submit("record-chat", () -> {
-			insertChat(player.getUniqueId(), player.getUsername(), server, "chat", message, now);
-			announceChat(new ChatLine(player.getUniqueId(), player.getUsername(), normalize(server), message, now));
+			insertChat(player.getUniqueId(), player.getUsername(), server, "chat", message, now, channel);
+			announceChat(new ChatLine(player.getUniqueId(), player.getUsername(), normalize(server), message, now, channel));
 		});
 	}
 
@@ -190,11 +210,26 @@ public final class VelocityPlayerRecordStore {
 	 *                 which every unfiltered chat view shows and no backend's does
 	 */
 	public void recordVirtualChat(UUID uuid, String username, String server, String content) {
+		recordVirtualChat(uuid, username, server, content, "");
+	}
+
+	/**
+	 * {@link #recordVirtualChat(UUID, String, String, String)} for a caller that
+	 * knows which channel the line went to.
+	 *
+	 * @param channelType one of the {@link VelocityChatChannels} type constants;
+	 *                    anything else records the line with no channel
+	 */
+	public void recordVirtualChat(UUID uuid, String username, String server, String content, String channelType) {
 		if (uuid == null || username == null || username.isBlank() || content == null || content.isBlank()) {
 			return;
 		}
 
 		long now = System.currentTimeMillis();
+		String type = VelocityChatChannels.normalizeType(channelType);
+		VelocityChatChannels.Channel channel = type.isEmpty() || VelocityChatChannels.DIRECT.equals(type)
+			? null
+			: new VelocityChatChannels.Channel(type, null, null, false);
 
 		submit("record-virtual-chat", () -> {
 			database.update(
@@ -207,8 +242,8 @@ public final class VelocityPlayerRecordStore {
 					+ " last_seen_at = VALUES(last_seen_at), last_server = VALUES(last_server)",
 				List.of(uuid.toString(), username, username.toLowerCase(Locale.ROOT), now, now, normalize(server))
 			);
-			insertChat(uuid, username, server, "chat", content, now);
-			announceChat(new ChatLine(uuid, username, normalize(server), content, now));
+			insertChat(uuid, username, server, "chat", content, now, channel);
+			announceChat(new ChatLine(uuid, username, normalize(server), content, now, channel));
 		});
 	}
 
@@ -226,7 +261,7 @@ public final class VelocityPlayerRecordStore {
 		String command = redactSensitive(event.getCommand());
 		long now = System.currentTimeMillis();
 
-		submit("record-command", () -> insertChat(player.getUniqueId(), player.getUsername(), server, "command", command, now));
+		submit("record-command", () -> insertChat(player.getUniqueId(), player.getUsername(), server, "command", command, now, null));
 	}
 
 	// ------------------------------------------------------------------ writes
@@ -382,10 +417,37 @@ public final class VelocityPlayerRecordStore {
 		}
 	}
 
-	private void insertChat(UUID uuid, String username, String server, String type, String content, long at) {
+	/**
+	 * @param channel the chat channel the line was sent in; null when it is not
+	 *                known (no chat router, or a command), which is stored as
+	 *                NULL rather than as a guess
+	 */
+	private void insertChat(
+		UUID uuid,
+		String username,
+		String server,
+		String type,
+		String content,
+		long at,
+		VelocityChatChannels.Channel channel
+	) {
+		// List.of refuses nulls, and three of these columns are nullable
+		List<Object> bindings = new ArrayList<>();
+		bindings.add(uuid.toString());
+		bindings.add(username);
+		bindings.add(normalize(server));
+		bindings.add(type);
+		bindings.add(content);
+		bindings.add(at);
+		bindings.add(channel == null ? null : channel.type());
+		bindings.add(channel == null || channel.targetId() == null ? null : channel.targetId().toString());
+		bindings.add(channel == null ? null : channel.targetName());
+
 		database.update(
-			"INSERT INTO luna_player_chat (uuid, username, server, type, content, at) VALUES (?, ?, ?, ?, ?, ?)",
-			List.of(uuid.toString(), username, normalize(server), type, content, at)
+			"INSERT INTO luna_player_chat"
+				+ " (uuid, username, server, type, content, at, channel, channel_target_uuid, channel_target_name)"
+				+ " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			bindings
 		);
 	}
 
@@ -545,11 +607,20 @@ public final class VelocityPlayerRecordStore {
 
 	/** Page of a player's chat/command entries, optionally one type and one backend only. */
 	public List<Map<String, Object>> chat(String uuid, String type, String server, int offset, int limit) {
+		return chat(uuid, type, server, "", offset, limit);
+	}
+
+	/**
+	 * Page of a player's chat/command entries with a chat channel filter too:
+	 * a channel type, or {@code unknown} for lines recorded without one.
+	 */
+	public List<Map<String, Object>> chat(String uuid, String type, String server, String channel, int offset, int limit) {
 		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_chat WHERE uuid = ?");
 		List<Object> bindings = new ArrayList<>();
 		bindings.add(uuid);
 
 		appendChatFilter(sql, bindings, type, server, "");
+		appendChannelFilter(sql, bindings, channel);
 
 		sql.append(" ORDER BY at DESC LIMIT ? OFFSET ?");
 		bindings.add(limit);
@@ -565,11 +636,17 @@ public final class VelocityPlayerRecordStore {
 
 	/** Total chat/command entries for a player, optionally one type and one backend only. */
 	public long chatCount(String uuid, String type, String server) {
+		return chatCount(uuid, type, server, "");
+	}
+
+	/** Total entries matching the same filters as the six-argument {@link #chat}. */
+	public long chatCount(String uuid, String type, String server, String channel) {
 		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_chat WHERE uuid = ?");
 		List<Object> bindings = new ArrayList<>();
 		bindings.add(uuid);
 
 		appendChatFilter(sql, bindings, type, server, "");
+		appendChannelFilter(sql, bindings, channel);
 
 		return scalar(sql.toString(), bindings);
 	}
@@ -580,10 +657,16 @@ public final class VelocityPlayerRecordStore {
 	 * matches the content and the username.
 	 */
 	public List<Map<String, Object>> serverChat(String server, String type, String search, int offset, int limit) {
+		return serverChat(server, type, search, "", offset, limit);
+	}
+
+	/** {@link #serverChat(String, String, String, int, int)} with a chat channel filter. */
+	public List<Map<String, Object>> serverChat(String server, String type, String search, String channel, int offset, int limit) {
 		StringBuilder sql = new StringBuilder("SELECT * FROM luna_player_chat WHERE 1 = 1");
 		List<Object> bindings = new ArrayList<>();
 
 		appendChatFilter(sql, bindings, type, server, search);
+		appendChannelFilter(sql, bindings, channel);
 
 		sql.append(" ORDER BY at DESC LIMIT ? OFFSET ?");
 		bindings.add(limit);
@@ -594,10 +677,16 @@ public final class VelocityPlayerRecordStore {
 
 	/** Total entries matching the same filters as {@link #serverChat}. */
 	public long serverChatCount(String server, String type, String search) {
+		return serverChatCount(server, type, search, "");
+	}
+
+	/** Total entries matching the same filters as the six-argument {@link #serverChat}. */
+	public long serverChatCount(String server, String type, String search, String channel) {
 		StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS n FROM luna_player_chat WHERE 1 = 1");
 		List<Object> bindings = new ArrayList<>();
 
 		appendChatFilter(sql, bindings, type, server, search);
+		appendChannelFilter(sql, bindings, channel);
 
 		return scalar(sql.toString(), bindings);
 	}
@@ -608,6 +697,26 @@ public final class VelocityPlayerRecordStore {
 		if (!normalized.isBlank()) {
 			sql.append(" AND server = ?");
 			bindings.add(normalized);
+		}
+	}
+
+	/**
+	 * Narrow to one chat channel. {@code unknown} asks for chat lines recorded
+	 * with no channel (commands never have one, so they are left out of it).
+	 */
+	private void appendChannelFilter(StringBuilder sql, List<Object> bindings, String channel) {
+		String normalized = normalize(channel);
+
+		if ("unknown".equals(normalized)) {
+			sql.append(" AND channel IS NULL AND type = 'chat'");
+			return;
+		}
+
+		String type = VelocityChatChannels.normalizeType(normalized);
+
+		if (!type.isEmpty()) {
+			sql.append(" AND channel = ?");
+			bindings.add(type);
 		}
 	}
 

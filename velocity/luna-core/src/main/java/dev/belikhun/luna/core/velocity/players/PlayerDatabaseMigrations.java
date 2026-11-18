@@ -310,5 +310,42 @@ public final class PlayerDatabaseMigrations {
 				);
 			}
 		});
+
+		migrator.register(new DatabaseMigration() {
+			@Override
+			public String namespace() {
+				return NAMESPACE;
+			}
+
+			@Override
+			public int version() {
+				return 6;
+			}
+
+			@Override
+			public String name() {
+				return "add_chat_channel_columns";
+			}
+
+			@Override
+			public void migrate(Database database) {
+				// Nullable with no default on purpose: every line recorded before this
+				// has no channel, and NULL is what says "not known" instead of
+				// claiming one. Adding a nullable column is an instant, metadata-only
+				// change on MariaDB 10.3+, so the size of the chat log does not matter.
+				database.update(
+					"ALTER TABLE luna_player_chat ADD COLUMN IF NOT EXISTS channel VARCHAR(16) NULL",
+					List.of()
+				);
+				database.update(
+					"ALTER TABLE luna_player_chat ADD COLUMN IF NOT EXISTS channel_target_uuid VARCHAR(36) NULL",
+					List.of()
+				);
+				database.update(
+					"ALTER TABLE luna_player_chat ADD COLUMN IF NOT EXISTS channel_target_name VARCHAR(32) NULL",
+					List.of()
+				);
+			}
+		});
 	}
 }
